@@ -5156,14 +5156,12 @@ let _lastAnySendAt=0, _lastAnySendType="";
 // pero cualquier cosa que dependa de estar online (cambiar avatar, comprar,
 // pase, etc.) desaparecía sin que quedara claro por qué. onStatus(text) es
 // opcional, para mostrar en pantalla en qué intento va.
-function connectWithRetry(host,{attempts=4, onStatus}={}){
-  const delays=[0,4000,8000,15000];
-  const attemptTimeout=15000;
+function connectWithRetry(host,{attempts=4, delays=[0,4000,8000,15000], attemptTimeout=15000, onStatus}={}){
   return new Promise(async(resolve)=>{
     for(let i=0;i<attempts;i++){
       if(i>0){
         onStatus&&onStatus(i===1?"Iniciando servidor (puede tardar hasta un minuto)…":"Reintentando conexión…");
-        await new Promise(r=>setTimeout(r,delays[i]));
+        await new Promise(r=>setTimeout(r,delays[i]||delays[delays.length-1]));
       }
       try{
         await Promise.race([
@@ -5318,13 +5316,53 @@ function netConnect(host){
     };
     ws.onclose=()=>{
       if(ws!==NET.ws) return; // viejo
-      // Solo mostrar error si estábamos en una partida, no durante auth
+      // Solo reaccionar si estábamos en una partida, no durante auth. Antes
+      // esto solo avisaba "se perdió la conexión" y ahí quedaba — sin ningún
+      // intento de reconectar, así que un wifi que titila un segundo (o la
+      // app pasando a segundo plano un rato) te dejaba viendo la partida
+      // congelada hasta que el servidor te diera por afuera a los 25s
+      // (GRACE_MS) sin que el cliente se enterara ni lo intentara evitar.
       if(G.online && G.screen==="playing"){
-        setMsg("Se perdió la conexión con el servidor.");
-        G.online=false; render();
+        G.online=false;
+        attemptMatchReconnect();
       }
     };
   });
+}
+// El servidor da un margen de gracia de 25s (GRACE_MS en server.js) antes de
+// dar por rendido a alguien que se desconectó de una partida en curso — este
+// reintento apunta a entrar bien adentro de esa ventana, con reintentos
+// cortos y rápidos (no el backoff paciente del arranque en frío, que solo
+// tiene sentido cuando no hay ninguna partida en juego esperando).
+async function attemptMatchReconnect(){
+  if(G._reconnectingMatch) return;
+  const activeRoom=readActiveRoom();
+  const savedUser=localStorage.getItem("burako_lan_name");
+  const savedPass=localStorage.getItem("burako_lan_pass");
+  if(!activeRoom||!savedUser||!savedPass) return;
+  G._reconnectingMatch=true;
+  setMsg("Se perdió la conexión — reconectando…"); render();
+  const ok=await connectWithRetry(defaultHost(),{
+    attempts:2, delays:[0,2000], attemptTimeout:5000,
+    onStatus:(t)=>{ setMsg(t); render(); },
+  });
+  if(!ok){
+    G._reconnectingMatch=false;
+    setMsg("⚠ No se pudo reconectar a tiempo. Puede que hayas quedado afuera de la partida.");
+    render();
+    return;
+  }
+  const rejoined=await tryAutoReconnect(savedUser,savedPass,activeRoom);
+  G._reconnectingMatch=false;
+  if(rejoined){
+    G.online=true;
+    setMsg("✅ Reconectado.");
+    render();
+  } else {
+    G.online=false;
+    setMsg("⚠ No se pudo volver a entrar — puede que la partida ya haya terminado.");
+    render();
+  }
 }
 
 
@@ -6574,9 +6612,16 @@ document.addEventListener("visibilitychange",()=>{
   if(document.hidden){
     Music._wasPlayingOnHide = Music.on && !!(Music.timer || (Music.fileTrackEl && !Music.fileTrackEl.paused));
     Music.stop();
-  } else if(Music._wasPlayingOnHide){
-    Music._wasPlayingOnHide=false;
-    Music.start();
+  } else {
+    if(Music._wasPlayingOnHide){ Music._wasPlayingOnHide=false; Music.start(); }
+    // Volver de segundo plano (app minimizada, bloqueo de pantalla, cambio de
+    // pestaña largo) puede haber matado el WebSocket sin que llegara a
+    // disparar ws.onclose (el JS queda pausado/muy throttled en background).
+    // Si seguimos "en partida" según nuestro propio estado pero el socket ya
+    // no está realmente abierto, se dispara la misma reconexión que onclose.
+    if(G.screen==="playing" && (!NET.ws || NET.ws.readyState!==1)){
+      attemptMatchReconnect();
+    }
   }
 });
 
