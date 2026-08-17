@@ -5149,6 +5149,33 @@ function wsUrlFor(host){
 const DEBUG_GAME=(()=>{ try{ return localStorage.getItem("burako_debug_game")==="1"; }catch(e){ return false; } })();
 function dlog(...args){ if(DEBUG_GAME) console.log("%c[burako]","color:#fbbf24;font-weight:700", ...args); }
 let _lastAnySendAt=0, _lastAnySendType="";
+// Reintenta la conexión inicial con backoff — Render free "duerme" tras un
+// rato sin tráfico y el primer request lo despierta, lo que puede tardar
+// 30-60s (cold start). Sin esto, un solo intento fallido/lento tiraba la app
+// directo a "modo offline" en silencio: se veía todo normal (menú, jugar)
+// pero cualquier cosa que dependa de estar online (cambiar avatar, comprar,
+// pase, etc.) desaparecía sin que quedara claro por qué. onStatus(text) es
+// opcional, para mostrar en pantalla en qué intento va.
+function connectWithRetry(host,{attempts=4, onStatus}={}){
+  const delays=[0,4000,8000,15000];
+  const attemptTimeout=15000;
+  return new Promise(async(resolve)=>{
+    for(let i=0;i<attempts;i++){
+      if(i>0){
+        onStatus&&onStatus(i===1?"Iniciando servidor (puede tardar hasta un minuto)…":"Reintentando conexión…");
+        await new Promise(r=>setTimeout(r,delays[i]));
+      }
+      try{
+        await Promise.race([
+          netConnect(host),
+          new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),attemptTimeout)),
+        ]);
+        resolve(true); return;
+      }catch(e){ /* sigue al próximo intento */ }
+    }
+    resolve(false);
+  });
+}
 function netConnect(host){
   return new Promise((resolve,reject)=>{
     if(NET.ws && NET.ws.readyState<=1){ try{NET.ws.close();}catch(e){} }
@@ -5815,11 +5842,14 @@ async function goIntroEnter(){
   if(checkFirstTime()){
     // Primera vez, sea online u offline: SIEMPRE el onboarding propio (registro +
     // mini tutorial + avatar) — no el login/register genérico de renderAuthScreen.
-    // Se intenta conectar en segundo plano así, si hay servidor, el registro del
-    // paso 1 crea una cuenta real; si no, el mismo paso queda como perfil local.
+    // Se intenta conectar en segundo plano (con reintentos — Render free puede
+    // tardar en despertar) así, si hay servidor, el registro del paso 1 crea una
+    // cuenta real; si no, el mismo paso queda como perfil local. El formulario ya
+    // se ve mientras tanto (no bloquea), y submitOnboardRegister() tiene su propio
+    // margen de espera si todavía no terminó de conectar cuando el usuario confirma.
     G.screen="onboarding"; G.onboardStep="register"; render();
-    try{ await netConnect(defaultHost()); G.serverConnected=true; }
-    catch(e){ G.introMode="offline"; }
+    const ok=await connectWithRetry(defaultHost());
+    if(ok) G.serverConnected=true; else G.introMode="offline";
     return;
   }
   if(G.introMode==="offline"){
@@ -5827,9 +5857,9 @@ async function goIntroEnter(){
     render(); return;
   }
   G.authIntent="menu";
-  withLogoFlip(()=>{ G.screen="auth"; G.authStep="connecting"; render(); });
-  try{
-    await netConnect(defaultHost());
+  withLogoFlip(()=>{ G.screen="auth"; G.authStep="connecting"; G._connectStatus=null; render(); });
+  const ok=await connectWithRetry(defaultHost(),{onStatus:(t)=>{ G._connectStatus=t; render(); }});
+  if(ok){
     G.serverConnected=true;
     // Si quedó una partida activa reciente (refresh, wifi cortado un instante)
     // y tenemos usuario+contraseña guardados de una sesión anterior, probamos
@@ -5840,27 +5870,37 @@ async function goIntroEnter(){
     const activeRoom=readActiveRoom();
     if(savedUser&&savedPass&&activeRoom){
       G.authStep="reconnecting"; render();
-      const ok=await tryAutoReconnect(savedUser,savedPass,activeRoom);
-      if(ok) return;
+      const okReconnect=await tryAutoReconnect(savedUser,savedPass,activeRoom);
+      if(okReconnect) return;
     }
     G.authStep="login"; G.authMode="login";
     render();
-  }catch(e){
-    // Server no responde → seguimos igual en modo offline
-    G.introMode="offline";
-    G.screen="menu";
+  } else {
+    // Server no responde tras varios reintentos: en vez de caer en silencio a
+    // "modo offline" (donde después no se entiende por qué faltan funciones que
+    // necesitan estar online), se lo decimos claro con la opción de reintentar o
+    // seguir sin conexión a propósito.
+    G.authStep="offline-fail";
     render();
   }
 }
 function renderAuthScreen(app){
   if((G.authStep||"connecting")==="connecting"){
     app.innerHTML=`<div class="screen-center auth-screen"><div class="fan-compact">${fanLogoHTML()}</div><div class="card ${G._enterCls}" style="text-align:center">
-      <p style="font-size:13px;color:rgba(232,238,247,.7);margin-top:4px">Conectando al servidor…</p>
+      <p style="font-size:13px;color:rgba(232,238,247,.7);margin-top:4px">${esc(G._connectStatus||"Conectando al servidor…")}</p>
     </div></div>`; return;
   }
   if(G.authStep==="reconnecting"){
     app.innerHTML=`<div class="screen-center auth-screen"><div class="fan-compact">${fanLogoHTML()}</div><div class="card ${G._enterCls}" style="text-align:center">
       <p style="font-size:13px;color:rgba(232,238,247,.7);margin-top:4px">Reconectando a tu partida…</p>
+    </div></div>`; return;
+  }
+  if(G.authStep==="offline-fail"){
+    app.innerHTML=`<div class="screen-center auth-screen"><div class="fan-compact">${fanLogoHTML()}</div><div class="card ${G._enterCls}" style="text-align:center">
+      <p class="subtitle" style="margin-bottom:10px">No se pudo conectar</p>
+      <p style="font-size:12.5px;color:rgba(232,238,247,.65);margin:0 0 16px;line-height:1.5">No respondió el servidor tras varios intentos. Si es la primera vez en un rato, puede estar despertando — a veces tarda un poco.</p>
+      <button class="btn btn-gold" onclick="goIntroEnter()">🔄 Reintentar</button>
+      <button class="btn btn-ghost" style="margin-top:8px" onclick="G.introMode='offline';G.screen='menu';render()">Jugar sin conexión</button>
     </div></div>`; return;
   }
   const mode=G.authMode||"login";
