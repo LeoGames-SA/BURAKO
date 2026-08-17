@@ -547,10 +547,20 @@ async function forfeitPlayer(room, player, opts) {
 
   const activeNonSurr = room.players.filter(p => !p.surrendered && !p.eliminated);
   const totalHuman = room.players.filter(p => p.username).length;
-  if (player.username) {
+  // finishMatch() más abajo construye SU resultado a partir de room.players
+  // completo (ganador + el resto), lo que incluye a este mismo jugador que se
+  // rinde — si además lo resolvemos acá siempre, cobra XP/monedas/logros DOS
+  // VECES por la misma partida cada vez que el fin de partida termina pasando
+  // por finishMatch (que es siempre, tarde o temprano). Por eso: se resuelve
+  // acá SOLO si con esta rendición la partida NO termina todavía (sigue para
+  // el resto); si termina, lo resuelve finishMatch una única vez para todos.
+  const endsMatchNow = activeNonSurr.length <= 1;
+  if (player.username && !endsMatchNow) {
     const placeForSurr = room.players.filter(p => p.username).length; // último
     try {
-      await DB.resolveMatch([{ username: player.username, place: placeForSurr, jokerBreaksUsed: 3 - (room.jokerBreaks[player.id] || 0), opponentsTilesLeft: 0 }], { ranked: !!room.ranked, playersCount: totalHuman, gameMode: room.gameMode });
+      const selfUpdate = await DB.resolveMatch([{ username: player.username, place: placeForSurr, jokerBreaksUsed: 3 - (room.jokerBreaks[player.id] || 0), opponentsTilesLeft: 0 }], { ranked: !!room.ranked, playersCount: totalHuman, gameMode: room.gameMode });
+      player._statsResolved = true;
+      if (player.ws) send(player.ws, { type: "matchResult", won: false, place: placeForSurr, winnerName: null, surrendererId: player.id, iSurrendered: true, ranked: !!room.ranked, update: selfUpdate[0] || null, betResult: null });
     } catch (e) { console.error("[forfeitPlayer] DB.resolveMatch falló para", player.username, "-", e.message); }
   }
 
@@ -700,16 +710,24 @@ async function finishMatch(room, winnerId, opts) {
     }
   }
 
-  // build results with per-player context
-  const results = ordered.map((p, i) => ({
-    username: p.username || null,
-    place: i + 1,
-    surrendered: (opts.surrendererId && p.id === opts.surrendererId) ? true : false,
-    jokerBreaksUsed: 3 - (room.jokerBreaks[p.id] || 0),
-    opponentsTilesLeft: (i === 0)
-      ? ordered.slice(1).reduce((s, o) => s + (room.hands[o.id]||[]).length, 0)
-      : 0,
-  }));
+  // build results with per-player context — se excluye a quien ya se resolvió
+  // individualmente al rendirse ANTES de que esta partida terminara (ver
+  // forfeitPlayer): si no, cobraría XP/monedas/logros dos veces por la misma
+  // partida (una al rendirse, otra acá al construir el resultado final a
+  // partir de room.players completo).
+  const results = ordered
+    .map((p, i) => ({
+      username: p.username || null,
+      place: i + 1, // índice real en `ordered` — se calcula ANTES de filtrar, para no correr los puestos
+      surrendered: (opts.surrendererId && p.id === opts.surrendererId) ? true : false,
+      jokerBreaksUsed: 3 - (room.jokerBreaks[p.id] || 0),
+      opponentsTilesLeft: (i === 0)
+        ? ordered.slice(1).reduce((s, o) => s + (room.hands[o.id]||[]).length, 0)
+        : 0,
+      _skip: !!p._statsResolved,
+    }))
+    .filter(r => !r._skip)
+    .map(({ _skip, ...r }) => r);
 
   let updates = [];
   try {
@@ -723,9 +741,11 @@ async function finishMatch(room, winnerId, opts) {
     console.error("[finishMatch] DB.resolveMatch falló -", e.message);
   }
 
-  // enviar matchResult a cada humano con SU update completo
+  // enviar matchResult a cada humano con SU update completo — a quien ya se
+  // resolvió y notificó individualmente al rendirse (_statsResolved) no se le
+  // vuelve a mandar acá, ya recibió el suyo desde forfeitPlayer.
   ordered.forEach((p, i) => {
-    if (!p.ws) return;
+    if (!p.ws || p._statsResolved) return;
     const upd = updates.find(u => u.username === p.username);
     send(p.ws, {
       type: "matchResult",

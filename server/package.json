@@ -13,7 +13,8 @@
     "db:migration:new": "supabase migration new",
     "migrate:players": "node scripts/migrate-players-to-supabase.mjs",
     "validate:migration": "node scripts/validate-migration.mjs",
-    "test:auth": "node scripts/test-etapa4-auth.mjs"
+    "test:auth": "node scripts/test-etapa4-auth.mjs",
+    "test:e2e": "node scripts/test-etapa5-production.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",
