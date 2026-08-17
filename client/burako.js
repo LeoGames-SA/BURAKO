@@ -4743,6 +4743,7 @@ function renderPlaying(app){
   const mate=G.gameMode==="team2v2"?G.players.find(p=>p.isTeammate):null;
   const sortedTable=G.table.slice().sort((a,b)=>(a.order||0)-(b.order||0));
   const hasWork=G.workLoose.length||G.workGroups.length;
+  const actionsBusy=G.online&&!!G._pendingAction;
 
   const _playingHtml=`
   ${G.turnBanner?`<div class="turnbanner">✨ TU TURNO</div>`:""}
@@ -4827,7 +4828,7 @@ function renderPlaying(app){
       ${timerHTML(myTurn)}`}
     </div>
   </div>
-  ${(!G.online&&G.message)?`<div class="toast" key="${esc(G.message)}">${esc(G.message)}</div>`:""}
+  ${G.message?`<div class="toast" key="${esc(G.message)}">${esc(G.message)}</div>`:""}
 
   <!-- ===== Mesa real: oponentes sentados alrededor, mesa en el medio ===== -->
   <div class="table-felt ${G.gameMode==="galactico"?"galactico-felt":""}">
@@ -4855,10 +4856,10 @@ function renderPlaying(app){
     `:`
     <div class="actions ${myTurn?"":"actions-disabled"}">
       ${hasWork
-        ?`<button class="act-ok act-confirm" onclick="confirmTurn()" ${myTurn?"":"disabled"} title="Confirma todo lo armado en Preparación y pasa tu turno">✔ Bajar todo</button>`
-        :`<button class="act-ok" onclick="layFromRack()" ${(myTurn&&G.selHand.size>=3)?"":"disabled"} title="Baja este juego y pasa tu turno">⬇ Bajar y pasar (${G.selHand.size})</button>`}
-      <button class="act-work" onclick="sendToWork()" ${(myTurn&&G.selHand.size)?"":"disabled"} title="Enviá acá para bajar VARIOS juegos en el mismo turno">➜ Preparación</button>
-      <button class="act-draw" onclick="drawAndPass()" ${myTurn?"":"disabled"}>🎴 Ficha y pasar</button>
+        ?`<button class="act-ok act-confirm ${actionsBusy?"is-pending":""}" onclick="confirmTurn()" ${(myTurn&&!actionsBusy)?"":"disabled"} title="Confirma todo lo armado en Preparación y pasa tu turno">${actionsBusy?"⏳ Confirmando…":"✔ Bajar todo"}</button>`
+        :`<button class="act-ok ${actionsBusy?"is-pending":""}" onclick="layFromRack()" ${(myTurn&&!actionsBusy&&G.selHand.size>=3)?"":"disabled"} title="Baja este juego y pasa tu turno">${actionsBusy?"⏳ Confirmando…":"⬇ Bajar y pasar ("+G.selHand.size+")"}</button>`}
+      <button class="act-work" onclick="sendToWork()" ${(myTurn&&!actionsBusy&&G.selHand.size)?"":"disabled"} title="Enviá acá para bajar VARIOS juegos en el mismo turno">➜ Preparación</button>
+      <button class="act-draw ${actionsBusy?"is-pending":""}" onclick="drawAndPass()" ${(myTurn&&!actionsBusy)?"":"disabled"}>${actionsBusy?"⏳ Confirmando…":"🎴 Ficha y pasar"}</button>
     </div>`}
 
     <div class="bottomrow">
@@ -5135,6 +5136,19 @@ function wsUrlFor(host){
   const forceWss = isNativeApp() && host===PROD_BACKEND_HOST;
   return (forceWss||location.protocol==="https:"?"wss://":"ws://")+host;
 }
+
+/* ================================================================
+   Instrumentación de latencia (temporal, para medir dónde se va el tiempo:
+   click → netSend → ida por WS → servidor → vuelta → onmessage → render).
+   Apagada por default; se activa desde la consola con
+   localStorage.setItem("burako_debug_game","1") y recargando — no hay
+   ningún toggle de UI a propósito, para que no quede prendida sin querer
+   ni se filtre a usuarios normales. No imprime nada sensible (passwords,
+   tokens, Service Role Key ni corre del lado servidor).
+   ================================================================ */
+const DEBUG_GAME=(()=>{ try{ return localStorage.getItem("burako_debug_game")==="1"; }catch(e){ return false; } })();
+function dlog(...args){ if(DEBUG_GAME) console.log("%c[burako]","color:#fbbf24;font-weight:700", ...args); }
+let _lastAnySendAt=0, _lastAnySendType="";
 function netConnect(host){
   return new Promise((resolve,reject)=>{
     if(NET.ws && NET.ws.readyState<=1){ try{NET.ws.close();}catch(e){} }
@@ -5148,6 +5162,11 @@ function netConnect(host){
     ws.onmessage=(ev)=>{
       if(ws!==NET.ws) return; // viejo
       let msg; try{msg=JSON.parse(ev.data);}catch(e){return;}
+      if(DEBUG_GAME){
+        const recvAt=performance.now();
+        const rtt=(_lastAnySendAt&&(msg.type==="state"||msg.type==="error"))?(recvAt-_lastAnySendAt).toFixed(1)+"ms desde el último "+_lastAnySendType:"";
+        dlog("← recv", msg.type, rtt);
+      }
       // Auth callbacks (register/login)
       if((msg.type==="authOk"||msg.type==="error")&&G._authCb){ G._authCb(msg); return; }
       // Callback de reconexión automática (rejoin) — mismo patrón que _authCb.
@@ -5170,7 +5189,11 @@ function netConnect(host){
       if(msg.type==="profile"){ G.serverProfile=msg.profile; }
       // Game messages
       if(msg.type==="joined"){ NET.myId=msg.playerId; NET.roomCode=msg.code; saveActiveRoom(msg.code,msg.playerId); G.screen="lobby"; render(); }
-      else if(msg.type==="state"){ netApplyState(msg); }
+      else if(msg.type==="state"){
+        resolvePendingAction(false);
+        if(DEBUG_GAME){ const t0=performance.now(); netApplyState(msg); dlog("netApplyState+morph tardó", (performance.now()-t0).toFixed(1)+"ms"); }
+        else netApplyState(msg);
+      }
       else if(msg.type==="tick"){ if(G.screen==="playing"){ G.timeLeft=msg.timeLeft; netUpdateTimerDOM(); } }
       else if(msg.type==="toast"){
         // Los eventos de juego (y ahora también los errores de validación) viven
@@ -5195,10 +5218,15 @@ function netConnect(host){
         if(G.screen==="playing") render();
       }
       else if(msg.type==="error"){
+        resolvePendingAction(true);
         if(G.screen==="playing"){
           G.history=G.history||[];
           G.history.push({time:new Date().toLocaleTimeString('es-UY',{hour:'2-digit',minute:'2-digit',second:'2-digit'}), text:msg.msg, kind:"error"});
           if(G.history.length>50) G.history.shift();
+          // Además del historial (registro permanente), un toast visible en el momento —
+          // antes esto quedaba invisible en partida online (el toast estaba condicionado a
+          // "!G.online"), así que un rechazo del servidor se sentía como "no pasó nada".
+          setMsg("⚠ "+msg.msg);
         } else setMsg("⚠ "+msg.msg);
         render();
       }
@@ -5274,9 +5302,52 @@ function netConnect(host){
 
 
 
+/* ================================================================
+   Jugadas online que mutan estado local optimistamente (Preparación,
+   selección) antes de tener confirmación del servidor: se registra qué
+   hacer si el servidor la rechaza (restore) y un timeout de seguridad por
+   si la respuesta nunca llega (conexión cortada a mitad de camino, típico
+   en redes más lentas/Render free). Mientras hay una jugada pendiente, no
+   se deja mandar otra — evita mezclar el rollback de una jugada vieja con
+   el resultado de una nueva.
+   Nota de diseño: el "state"/"error" que resuelve la jugada pendiente es
+   SIEMPRE el que sigue inmediatamente a mandarla (el servidor procesa los
+   mensajes de una misma conexión en orden y termina de mutar+broadcastear
+   ANTES de atender cualquier otro evento), así que no hace falta un id de
+   correlación explícito en el protocolo para que esto sea seguro.
+   ================================================================ */
+function sendGameAction(kind,msg,restoreFn){
+  if(G._pendingAction){ Sound.error(); setMsg("Esperá la confirmación de la jugada anterior."); render(); return false; }
+  if(!netSend(msg)){
+    setMsg("⚠ Sin conexión al servidor. Reintentá."); render();
+    return false;
+  }
+  G._pendingAction={
+    kind, restore:restoreFn||null,
+    timeoutId:setTimeout(()=>{
+      if(!G._pendingAction||G._pendingAction.kind!==kind) return;
+      const pa=G._pendingAction; G._pendingAction=null;
+      if(pa.restore) pa.restore();
+      setMsg("⚠ El servidor no respondió a tiempo. Probá de nuevo.");
+      render();
+    },9000),
+  };
+  return true;
+}
+function resolvePendingAction(isError){
+  if(!G._pendingAction) return;
+  const pa=G._pendingAction; G._pendingAction=null;
+  clearTimeout(pa.timeoutId);
+  if(isError&&pa.restore) pa.restore();
+}
+
 function netSend(obj){
   if(!NET.ws||NET.ws.readyState!==1){ setMsg("Sin conexión al servidor."); return false; }
-  try{ NET.ws.send(JSON.stringify(obj)); return true; }catch(e){ setMsg("Error de conexión."); return false; }
+  try{
+    if(DEBUG_GAME){ _lastAnySendAt=performance.now(); _lastAnySendType=obj.type; dlog("→ send", obj.type, obj); }
+    NET.ws.send(JSON.stringify(obj));
+    return true;
+  }catch(e){ setMsg("Error de conexión."); return false; }
 }
 
 function netUpdateTimerDOM(){
@@ -5588,7 +5659,9 @@ layFromRack=function(){
   const tiles=handTiles().filter(t=>G.selHand.has(t.id));
   if(tiles.length<3){ Sound.error(); return; }
   captureFlightSources(tiles.map(t=>t.id));
-  netSend({type:"lay", tiles: tiles.map(t=>t.id)});
+  const prevSel=new Set(G.selHand);
+  const ok=sendGameAction("lay",{type:"lay", tiles: tiles.map(t=>t.id)},()=>{ G.selHand=prevSel; render(); });
+  if(!ok) return;
   G.selHand=new Set();
   setMsg("Enviando jugada…"); render();
 };
@@ -5604,7 +5677,7 @@ drawAndPass=function(){
     return;
   }
   if(G.workLoose.length||G.workGroups.length){ Sound.error(); setMsg("Cancelá la preparación antes de tomar ficha."); return render(); }
-  netSend({type:"draw"});
+  sendGameAction("draw",{type:"draw"},null);
 };
 
 const _attachToMeld_orig=attachToMeld;
@@ -5612,7 +5685,9 @@ attachToMeld=function(meldId,tiles){
   if(!G.online) return _attachToMeld_orig(meldId,tiles);
   const ids=tiles?tiles.map(t=>t.id):[...G.selHand];
   if(!ids.length) return;
-  netSend({type:"attach", meldId, tiles: ids});
+  const prevSel=new Set(G.selHand);
+  const ok=sendGameAction("attach",{type:"attach", meldId, tiles: ids},()=>{ G.selHand=prevSel; render(); });
+  if(!ok) return;
   G.selHand=new Set();
   setMsg("Enviando jugada…"); render();
 };
@@ -5630,12 +5705,23 @@ confirmTurn=function(){
   if(G.workLoose.length){ Sound.error(); setMsg("Agrupá las fichas sueltas."); return render(); }
   if(!G.workGroups.length){ Sound.error(); setMsg("No armaste ningún juego."); return render(); }
   const groups=G.workGroups.map(g=>g.tiles.map(t=>t.id));
-  if(G.openedMeldIds&&G.openedMeldIds.length>0){
-    netSend({type:"reorganize", openedMeldIds:G.openedMeldIds, groups});
-  } else {
-    netSend({type:"layMultiple", groups});
-  }
-  setMsg("Enviando jugada…");
+  const isReorg=!!(G.openedMeldIds&&G.openedMeldIds.length>0);
+  const wsMsg=isReorg?{type:"reorganize", openedMeldIds:G.openedMeldIds, groups}:{type:"layMultiple", groups};
+  // Snapshot COMPLETO de la Preparación antes de vaciarla optimistamente. Si el
+  // servidor rechaza la jugada (ej. combinación inválida que el chequeo local no
+  // detectó, o dejó de ser el turno por una desconexión breve), se restaura tal
+  // cual estaba para que el usuario pueda corregirla — nunca se pierde el trabajo
+  // armado por un rechazo del servidor. Esto reemplaza depender ÚNICAMENTE de la
+  // reconciliación pasiva en netApplyState (que solo actúa en el próximo "state").
+  const snapshot={workGroups:G.workGroups, workLoose:G.workLoose, openedMeldIds:G.openedMeldIds, openedBackup:G.openedBackup, selWork:new Set(G.selWork)};
+  const ok=sendGameAction(isReorg?"reorganize":"layMultiple", wsMsg, ()=>{
+    G.workGroups=snapshot.workGroups; G.workLoose=snapshot.workLoose;
+    G.openedMeldIds=snapshot.openedMeldIds; G.openedBackup=snapshot.openedBackup; G.selWork=snapshot.selWork;
+    render();
+  });
+  if(!ok) return;
+  G.workGroups=[]; G.workLoose=[]; G.openedMeldIds=[]; G.openedBackup={}; G.selWork=new Set();
+  setMsg("Enviando jugada…"); render();
 };
 
 

@@ -922,6 +922,8 @@ input[type="range"]:disabled{opacity:.35;cursor:default}
 .act-ok{background:linear-gradient(180deg,#34d399,#059669);box-shadow:0 3px 0 #047857}
 .act-draw{background:linear-gradient(180deg,#fbbf24,#d97706);box-shadow:0 3px 0 #92400e;color:#1a1200}
 .actions button:active{transform:translateY(2px);box-shadow:none}
+.actions button.is-pending{opacity:.7;animation:actionPendingPulse 1s ease-in-out infinite}
+@keyframes actionPendingPulse{0%,100%{opacity:.7}50%{opacity:.4}}
 .waitmsg{text-align:center;font-size:11px;color:rgba(232,238,247,.5);margin-top:8px}
 
 /* ---------- MODO ESPECTADOR ---------- */
