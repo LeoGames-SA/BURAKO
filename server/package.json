@@ -3,6 +3,9 @@
   "version": "2.3.0",
   "description": "Servidor autoritativo para jugar Burako multijugador en red local (LAN)",
   "main": "server.js",
+  "engines": {
+    "node": ">=22 <25"
+  },
   "scripts": {
     "start": "node server.js",
     "test:supabase": "node scripts/test-supabase-connection.mjs",

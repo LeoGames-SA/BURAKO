@@ -8,8 +8,14 @@ services:
     startCommand: npm start
     healthCheckPath: /
     envVars:
+      # NODE_VERSION tiene la prioridad más alta en Render (por encima de
+      # .node-version/.nvmrc/package.json#engines) — se fija acá para que no
+      # dependa de configurarlo a mano en el dashboard. @supabase/supabase-js
+      # necesita WebSocket nativo, disponible desde Node 22 (no existía en 20).
+      # Mantener en sync con .node-version (raíz y server/) y con
+      # server/package.json#engines.
       - key: NODE_VERSION
-        value: 20
+        value: 22.23.2
       # Secretos: se cargan a mano en el dashboard de Render (Environment),
       # nunca acá — este archivo se commitea al repo.
       - key: SUPABASE_URL

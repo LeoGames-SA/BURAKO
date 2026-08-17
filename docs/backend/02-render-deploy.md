@@ -40,7 +40,7 @@
 | `SUPABASE_URL` | `https://yucsjceobsavknogrwyb.supabase.co` | No es secreta, pero se carga igual como env var (nunca hardcodeada). |
 | `SUPABASE_SERVICE_ROLE_KEY` | (la clave real) | **Secreta.** Solo servidor. Nunca en el repo, nunca en el cliente/APK. |
 | `LEGACY_PLAYERS_JSON_PATH` | `/etc/secrets/players.json` | Ver §4 — solo hace falta mientras sigan quedando usuarios de los 16 originales sin loguearse todavía con el flujo nuevo. |
-| `NODE_VERSION` | `20` | Ya declarada en `render.yaml`, no hace falta cargarla a mano. |
+| `NODE_VERSION` | `22.23.2` | Ya declarada en `render.yaml`, no hace falta cargarla a mano. **Node 22+ es obligatorio**: `@supabase/supabase-js` necesita WebSocket nativo (disponible desde Node 22), y con Node 20 el deploy falla en `createClient(...)` con `Error: Node.js detected but native WebSocket not found.` — no es un problema de credenciales de Supabase. También fijado en `.node-version` (raíz y `server/`) y `server/package.json#engines` como respaldo, por si alguna vez se borra la env var del dashboard sin querer. |
 
 `PORT` la inyecta Render solo — no se declara.
 
