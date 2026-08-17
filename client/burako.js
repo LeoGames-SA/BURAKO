@@ -5915,6 +5915,10 @@ function submitAuth(action){
       if(msg.welcomeBonus) G.pendingWelcomeBonus=msg.welcomeBonus;
       if(msg.alert) G.pendingSanctionAlert=msg.alert;
       Store.set("burako_onboarded",true);
+      // Si se llegó acá desde "Ya tengo cuenta" en el onboarding de un dispositivo
+      // nuevo, este dispositivo queda marcado como conocido — no vuelve a pedir
+      // registro la próxima vez (mismo flag que marca finishOnboarding()).
+      if(G._onboardingLoginShortcut){ Store.set("burako_onboarded_v2",true); G._onboardingLoginShortcut=false; }
       localStorage.setItem("burako_lan_pass",pass);
       Sound.init();
       try{ NET.ws.send(JSON.stringify({type:"catalog"})); }catch(e){}
@@ -6373,6 +6377,7 @@ function renderOnboardRegister(app){
       <input id="obpass2" type="password" placeholder="Repetí la contraseña" onkeydown="if(event.key==='Enter')submitOnboardRegister()"
         style="width:100%;padding:11px;border-radius:9px;background:rgba(0,0,0,.22);border:1px solid var(--panel-border);color:#fff;font-size:14px;margin-bottom:10px">
       <button class="btn btn-gold" style="font-size:16px" onclick="submitOnboardRegister()">Crear cuenta →</button>
+      <button class="btn btn-ghost" style="margin-top:8px" onclick="goOnboardLogin()">Ya tengo cuenta → Iniciar sesión</button>
       <p id="oberr" style="color:#f87171;font-size:12px;text-align:center;min-height:16px;margin-top:8px"></p>
     </div>
   </div>`;
@@ -6420,6 +6425,16 @@ function submitOnboardRegister(){
   };
   try{ NET.ws.send(JSON.stringify({type:"register", username:name, password:pass})); }
   catch(e){ clearTimeout(bailTimer); delete G._authCb; proceedLocal(); }
+}
+// Dispositivo nuevo (sin "burako_onboarded_v2" local) pero cuenta YA existente en
+// otro lado: en vez de forzar el formulario de registro, esta salida lleva a la
+// pantalla de login normal. submitAuth() ya marca el dispositivo como "conocido"
+// al loguear con éxito (ver flag _onboardingLoginShortcut más abajo), así que no
+// vuelve a pedir registro la próxima vez que se abra la app en este dispositivo.
+function goOnboardLogin(){
+  G._onboardingLoginShortcut=true;
+  G.authIntent="menu";
+  withLogoFlip(()=>{ G.screen="auth"; G.authMode="login"; G.authStep="login"; render(); });
 }
 function renderOnboardTutorial(app){
   app.innerHTML=`
