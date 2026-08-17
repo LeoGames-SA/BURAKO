@@ -5847,7 +5847,7 @@ async function goIntroEnter(){
     // cuenta real; si no, el mismo paso queda como perfil local. El formulario ya
     // se ve mientras tanto (no bloquea), y submitOnboardRegister() tiene su propio
     // margen de espera si todavía no terminó de conectar cuando el usuario confirma.
-    G.screen="onboarding"; G.onboardStep="register"; render();
+    G.screen="onboarding"; G.onboardStep="register"; G._obNameTaken=null; render();
     const ok=await connectWithRetry(defaultHost());
     if(ok) G.serverConnected=true; else G.introMode="offline";
     return;
@@ -6416,6 +6416,11 @@ function renderOnboardRegister(app){
       <label class="lbl">Repetir contraseña</label>
       <input id="obpass2" type="password" placeholder="Repetí la contraseña" onkeydown="if(event.key==='Enter')submitOnboardRegister()"
         style="width:100%;padding:11px;border-radius:9px;background:rgba(0,0,0,.22);border:1px solid var(--panel-border);color:#fff;font-size:14px;margin-bottom:10px">
+      ${G._obNameTaken?`
+      <div style="background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.35);border-radius:10px;padding:10px 12px;margin-bottom:10px;text-align:left">
+        <p style="font-size:12px;color:#fbbf24;margin:0 0 8px">"${esc(G._obNameTaken)}" ya tiene una cuenta — ¿es tuya, de otro dispositivo?</p>
+        <button class="btn btn-gold" style="font-size:13px;padding:8px" onclick="goOnboardLogin(G._obNameTaken)">Iniciar sesión como "${esc(G._obNameTaken)}"</button>
+      </div>`:""}
       <button class="btn btn-gold" style="font-size:16px" onclick="submitOnboardRegister()">Crear cuenta →</button>
       <button class="btn btn-ghost" style="margin-top:8px" onclick="goOnboardLogin()">Ya tengo cuenta → Iniciar sesión</button>
       <p id="oberr" style="color:#f87171;font-size:12px;text-align:center;min-height:16px;margin-top:8px"></p>
@@ -6426,6 +6431,7 @@ function submitOnboardRegister(){
   const name=(document.querySelector("#obname").value||"").trim();
   const pass=document.querySelector("#obpass").value;
   const pass2=document.querySelector("#obpass2").value;
+  G._obNameTaken=null;
   const showErr=(m)=>{ const el=document.querySelector("#oberr"); if(el) el.textContent=m; };
   if(!name||name.length<2){ showErr("Poné un nombre de al menos 2 letras."); return; }
   if(!pass||pass.length<3){ showErr("La contraseña necesita al menos 3 caracteres."); return; }
@@ -6458,7 +6464,10 @@ function submitOnboardRegister(){
       try{ NET.ws.send(JSON.stringify({type:"catalog"})); }catch(e){}
       G.onboardStep="tutorial"; render();
     } else if(/ya está registrado|ya existe/i.test(msg.msg||"")){
-      showErr("Ese nombre ya está en uso — probá con otro.");
+      // Probablemente sea SU cuenta creada en otro dispositivo/navegador, no un
+      // nombre elegido por otra persona — en vez de solo pedir "probá con otro",
+      // se ofrece ir directo a login con ese mismo nombre ya cargado.
+      G._obNameTaken=name; render();
     } else {
       showErr(msg.msg||"No se pudo crear la cuenta.");
     }
@@ -6471,9 +6480,10 @@ function submitOnboardRegister(){
 // pantalla de login normal. submitAuth() ya marca el dispositivo como "conocido"
 // al loguear con éxito (ver flag _onboardingLoginShortcut más abajo), así que no
 // vuelve a pedir registro la próxima vez que se abra la app en este dispositivo.
-function goOnboardLogin(){
+function goOnboardLogin(prefillUser){
   G._onboardingLoginShortcut=true;
   G.authIntent="menu";
+  if(prefillUser!==undefined) G._authPrefillUser=prefillUser;
   withLogoFlip(()=>{ G.screen="auth"; G.authMode="login"; G.authStep="login"; render(); });
 }
 function renderOnboardTutorial(app){
@@ -6532,6 +6542,20 @@ window.addEventListener("beforeunload",(e)=>{
   e.preventDefault();
   e.returnValue="Si cerrás la página perdés la partida en curso"+(G.online?" y quedás afuera (tus fichas vuelven al pozo)":"")+". ¿Seguro que querés salir?";
   return e.returnValue;
+});
+
+// La música (loop de fondo, Web Audio + <audio> de archivo para el menú) no se
+// enteraba de que la pestaña dejó de estar visible — cambiar de pestaña, minimizar
+// o pasar a otra app la dejaba sonando de fondo indefinidamente. document.hidden
+// cubre tab-switch/minimizar en navegador y también background en la app empaquetada.
+document.addEventListener("visibilitychange",()=>{
+  if(document.hidden){
+    Music._wasPlayingOnHide = Music.on && !!(Music.timer || (Music.fileTrackEl && !Music.fileTrackEl.paused));
+    Music.stop();
+  } else if(Music._wasPlayingOnHide){
+    Music._wasPlayingOnHide=false;
+    Music.start();
+  }
 });
 
 /* Fondo decorativo global: fichas subiendo lentamente, siempre visibles detrás
