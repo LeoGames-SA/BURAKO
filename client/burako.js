@@ -6050,6 +6050,7 @@ function renderNetConnect(app){
     app.innerHTML=`<div class="screen-center"><div class="card ${G._enterCls}" style="text-align:center">
       <button class="card-x" onclick="G.netStep='joinRoom';render()" title="Cerrar">✕</button>
       <h2 style="font-family:var(--font-display);color:#ffe9a8;font-size:20px;margin-bottom:12px">👥 Todos contra todos</h2>
+      ${G.message?`<p style="text-align:center;font-size:12px;color:#f87171;font-weight:700;background:rgba(220,38,38,.12);border:1px solid rgba(220,38,38,.3);border-radius:8px;padding:6px 10px;margin:0 0 10px">⚠ ${esc(G.message)}</p>`:""}
       <div style="display:flex;flex-direction:column;gap:8px">
         <button class="btn btn-gold" onclick="goCreateRoom('ffa')">➕ Crear sala nueva</button>
         <button class="btn btn-gold" onclick="G.netCategory='ffa';G.netStep='enterCode';render()" style="background:linear-gradient(180deg,#38bdf8,#0369a1);color:#fff">🚪 Unirse a una sala</button>
@@ -6062,6 +6063,7 @@ function renderNetConnect(app){
       <button class="card-x" onclick="G.netStep='joinRoom';render()" title="Cerrar">✕</button>
       <h2 style="font-family:var(--font-display);color:#ffe9a8;font-size:20px;margin-bottom:6px">🤝 2v2 en equipo</h2>
       <p style="font-size:11px;color:rgba(232,238,247,.55);margin-bottom:12px;line-height:1.4">Salas de 4 jugadores reales — el admin arma Equipo Azul y Equipo Rojo (2 y 2) antes de empezar. Sin IA de relleno.</p>
+      ${G.message?`<p style="text-align:center;font-size:12px;color:#f87171;font-weight:700;background:rgba(220,38,38,.12);border:1px solid rgba(220,38,38,.3);border-radius:8px;padding:6px 10px;margin:0 0 10px">⚠ ${esc(G.message)}</p>`:""}
       <div style="display:flex;flex-direction:column;gap:8px">
         <button class="btn btn-gold" onclick="goCreateRoom('team2v2')" style="background:linear-gradient(180deg,#38bdf8,#0369a1);color:#fff">➕ Crear sala 2v2</button>
         <button class="btn btn-gold" onclick="G.netCategory='team2v2';G.netStep='enterCode';render()">🚪 Unirse a una sala</button>
@@ -6074,6 +6076,7 @@ function renderNetConnect(app){
       <button class="card-x" onclick="G.netStep='joinRoom';render()" title="Cerrar">✕</button>
       <div class="galactico-title-banner"><span>🪐</span><span>Modo Galáctico</span></div>
       <p style="font-size:11px;color:rgba(232,238,247,.55);margin-bottom:12px;line-height:1.4">El mazo tiene, además de las fichas normales, 20 fichas de habilidad especiales — te las quedás en la mano al robarlas y las podés usar (máximo 1 por turno) para robar, protegerte, bloquear, espiar y más. Se gana vaciando la mano de fichas normales, sin límite de tiempo ni puntaje.</p>
+      ${G.message?`<p style="text-align:center;font-size:12px;color:#f87171;font-weight:700;background:rgba(220,38,38,.12);border:1px solid rgba(220,38,38,.3);border-radius:8px;padding:6px 10px;margin:0 0 10px">⚠ ${esc(G.message)}</p>`:""}
       <div style="display:flex;flex-direction:column;gap:8px">
         <button class="btn btn-gold" onclick="goCreateRoom('galactico')" style="background:linear-gradient(180deg,#a855f7,#5b21b6);color:#fff">➕ Crear sala Galáctico</button>
         <button class="btn btn-gold" onclick="G.netCategory='galactico';G.netStep='enterCode';render()">🚪 Unirse a una sala</button>
@@ -6102,6 +6105,7 @@ function renderNetConnect(app){
     app.innerHTML=`<div class="screen-center"><div class="card ${G._enterCls}" style="max-height:92dvh;overflow-y:auto">
       <button class="card-x" onclick="G.netStep=hubStepFor(G.roomConf.gameMode);render()" title="Cerrar">✕</button>
       <h2 style="font-family:var(--font-display);color:#ffe9a8;font-size:18px;margin-bottom:10px;text-align:center">${isTeam?"🤝 Crear sala 2v2":isGalactico?"🌌 Crear sala Galáctico":"⚙️ Crear sala"}</h2>
+      ${G.message?`<p style="text-align:center;font-size:12px;color:#f87171;font-weight:700;background:rgba(220,38,38,.12);border:1px solid rgba(220,38,38,.3);border-radius:8px;padding:6px 10px;margin:0 0 10px">⚠ ${esc(G.message)}</p>`:""}
       <div style="font-size:9px;color:rgba(232,238,247,.45);letter-spacing:1.5px;text-transform:uppercase;margin:4px 0 3px">Nombre de la sala</div>
       <input id="roomname" placeholder="${esc((G.serverProfile?G.serverProfile.username:P.name)+"'s sala")}" value="${esc(rc.roomName||"")}" maxlength="24" oninput="G.roomConf.roomName=this.value"
         style="width:100%;padding:9px;border-radius:8px;background:rgba(255,255,255,.06);border:1px solid rgba(184,150,63,.25);color:#fff;font-size:13px;margin-bottom:8px">
@@ -6149,6 +6153,7 @@ function renderNetConnect(app){
     app.innerHTML=`<div class="screen-center"><div class="card ${G._enterCls}" style="text-align:center">
       <button class="card-x" onclick="G.netStep=hubStepFor(G.netCategory);render()" title="Cerrar">✕</button>
       <h2 style="font-family:var(--font-display);color:#ffe9a8;font-size:20px;margin-bottom:12px">Unirse a sala${catLabel}</h2>
+      ${G.message?`<p style="text-align:center;font-size:12px;color:#f87171;font-weight:700;background:rgba(220,38,38,.12);border:1px solid rgba(220,38,38,.3);border-radius:8px;padding:6px 10px;margin:0 0 10px">⚠ ${esc(G.message)}</p>`:""}
       <label class="lbl">Código de sala (4 letras)</label>
       <input id="netroom" placeholder="ABCD" onkeydown="if(event.key==='Enter')doJoinExistingRoom()" style="text-transform:uppercase;width:100%;padding:14px;border-radius:9px;background:rgba(255,255,255,.06);border:1px solid rgba(184,150,63,.25);color:#ffe9a8;font-size:24px;letter-spacing:6px;text-align:center;font-weight:800;margin-bottom:10px" maxlength="4">
       <button class="btn btn-gold" onclick="doJoinExistingRoom()">🚪 Entrar</button>
@@ -6161,6 +6166,7 @@ function renderNetConnect(app){
     app.innerHTML=`<div class="screen-center"><div class="card ${G._enterCls}" style="max-height:85dvh;overflow-y:auto">
       <button class="card-x" onclick="G.netStep=hubStepFor(G.netCategory);render()" title="Cerrar">✕</button>
       <h2 style="font-family:var(--font-display);color:#ffe9a8;font-size:20px;text-align:center;margin-bottom:10px">${cat==="team2v2"?"🤝 Salas públicas 2v2":cat==="galactico"?"🌌 Salas públicas Galáctico":"🌍 Salas públicas"}</h2>
+      ${G.message?`<p style="text-align:center;font-size:12px;color:#f87171;font-weight:700;background:rgba(220,38,38,.12);border:1px solid rgba(220,38,38,.3);border-radius:8px;padding:6px 10px;margin:0 0 10px">⚠ ${esc(G.message)}</p>`:""}
       ${list.length?list.map(r=>`<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:9px;margin-bottom:5px;background:rgba(0,0,0,.2);border:1px solid rgba(184,150,63,.15)">
         <div style="flex:1;min-width:0">
           <div style="font-weight:800;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.name)}</div>
@@ -6202,7 +6208,20 @@ async function doNetConnect(){
   }
   catch(e){ G.online=false; const el=document.querySelector("#neterr"); if(el) el.textContent=e.message; }
 }
-function doCreateRoom(){
+// Antes de cualquier acción de sala (crear/unirse/listar), asegura que el WS
+// esté realmente abierto — si se cortó (Render se durmió, wifi cortado un
+// instante) netSend() fallaba en silencio y el botón "no hacía nada". Ahora
+// reconecta con reintentos y avisa con un mensaje visible si no puede.
+async function ensureConnected(){
+  if(NET.ws&&NET.ws.readyState===1) return true;
+  setMsg("Reconectando…"); render();
+  const ok=await connectWithRetry(defaultHost(),{onStatus:(t)=>{ setMsg(t); render(); }});
+  if(!ok){ setMsg("⚠ No se pudo conectar al servidor. Probá de nuevo en un momento."); render(); return false; }
+  G.serverConnected=true;
+  return true;
+}
+async function doCreateRoom(){
+  if(!(await ensureConnected())) return;
   const rc=G.roomConf||{};
   const gameMode=rc.gameMode||"casual";
   const name=G.serverProfile?G.serverProfile.username:P.name;
@@ -6211,16 +6230,19 @@ function doCreateRoom(){
     netSend({type:"roomConfig", turnSeconds:rc.turnSeconds||60, deckPct:rc.deckPct||100, initTiles:rc.initTiles||14, matchMinutes:rc.matchMinutes||0, winMode:rc.winMode||"classic", gameMode});
   }, 300);
 }
-function doJoinExistingRoom(){
+async function doJoinExistingRoom(){
   const room=document.querySelector("#netroom").value.trim().toUpperCase();
   if(!room||room.length!==4){ setMsg("Ingresá un código de 4 letras."); render(); return; }
+  if(!(await ensureConnected())) return;
   netSend({type:"join", room, name: G.serverProfile?G.serverProfile.username:P.name, skin: P.skin||"clasica"});
 }
-function doListPublicRooms(){
+async function doListPublicRooms(){
   G.netStep="publicRooms"; G.publicRooms=G.publicRooms||[]; render();
+  if(!(await ensureConnected())) return;
   netSend({type:"listRooms"});
 }
-function doJoinPublicRoom(code){
+async function doJoinPublicRoom(code){
+  if(!(await ensureConnected())) return;
   netSend({type:"join", room:code, name: G.serverProfile?G.serverProfile.username:P.name, skin: P.skin||"clasica"});
 }
 function doRequestLeaderboard(){
