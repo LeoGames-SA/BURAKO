@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Base application theme. -->
+    <style name="AppTheme" parent="Theme.AppCompat.Light.DarkActionBar">
+        <!-- Customize your theme here. -->
+        <item name="colorPrimary">@color/colorPrimary</item>
+        <item name="colorPrimaryDark">@color/colorPrimaryDark</item>
+        <item name="colorAccent">@color/colorAccent</item>
+        <!-- Sin esto, Android reserva un cuadro alrededor de la cámara/notch a nivel de
+             ventana (fuera del control de la app) además de que MainActivity ya pide
+             pantalla completa (setDecorFitsSystemWindows(false)) — el resultado real en
+             un celular con cámara perforada era una franja MUERTA arriba (ni la app ni
+             el sistema la usaban) y el header empujado más abajo de lo necesario, porque
+             el padding-top:env(safe-area-inset-top) del CSS se sumaba sobre un WebView
+             que YA arrancaba más abajo. "shortEdges" deja que el contenido dibuje hasta
+             el borde real de la pantalla (bajo la cámara incluida) — recién ahí
+             env(safe-area-inset-top) refleja el alto real del recorte y el CSS lo puede
+             compensar bien, sin desperdiciar esa franja. -->
+        <item name="android:windowLayoutInDisplayCutoutMode" tools:targetApi="p">shortEdges</item>
+    </style>
+
+    <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+        <item name="android:background">@null</item>
+        <item name="android:windowLayoutInDisplayCutoutMode" tools:targetApi="p">shortEdges</item>
+    </style>
+
+
+    <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
+        <item name="android:background">@drawable/splash</item>
+        <item name="android:windowLayoutInDisplayCutoutMode" tools:targetApi="p">shortEdges</item>
+    </style>
+</resources>

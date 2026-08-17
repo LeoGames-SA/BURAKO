@@ -1,0 +1,19 @@
+{
+  "name": "Burako",
+  "short_name": "Burako",
+  "description": "Burako — el clásico juego de mesa, ahora en tu celular. Jugá contra la IA sin conexión o en modo online con amigos.",
+  "id": "/burako.html",
+  "start_url": "./burako.html",
+  "scope": "./",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "any",
+  "background_color": "#06132b",
+  "theme_color": "#06132b",
+  "lang": "es",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

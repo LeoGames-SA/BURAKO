@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: burako-server
+    runtime: node
+    plan: free
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      # Secretos: se cargan a mano en el dashboard de Render (Environment),
+      # nunca acá — este archivo se commitea al repo.
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      # PORT lo inyecta Render automáticamente, no hace falta declararlo.

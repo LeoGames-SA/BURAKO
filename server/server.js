@@ -1,0 +1,2031 @@
+/* ============================================================
+   BURAKO LAN SERVER
+   - Servidor autoritativo: el estado del juego vive acá, no en
+     los navegadores. Cada jugada se valida en el servidor.
+   - Sirve también el cliente (burako-online.html) por HTTP, así
+     cualquiera en la misma red solo necesita abrir tu IP:PUERTO
+     en el navegador, sin instalar nada.
+   ============================================================ */
+require("dotenv").config();
+const http = require("http");
+const fs = require("fs");
+const path = require("path");
+const os = require("os");
+const { WebSocketServer } = require("ws");
+const C = require("./burako-core.js");
+const DB = require("./db.js");
+
+const PORT = process.env.PORT || 8181;
+const TURN_SECONDS = 60;
+const MAX_LIVES = 3;
+// Turno vencido = perdés 1 vida y pasás, SIN comer fichas del pozo (antes comías 3, lo
+// que dejaba que alguien dejara pasar el timer a propósito para "comprar" fichas extra).
+const MAX_PLAYERS = 8; // modo 8 jugadores: mazo doble en startGame() cuando se supera el máximo normal (4)
+const GAME_MODES = ["casual", "ranked", "monedas", "team2v2", "galactico"];
+const QUICK_CHAT_COOLDOWN_MS = 15000;
+// Lista cerrada (no texto libre) para que el chat rápido no se pueda usar para spam/insultos.
+const QUICK_CHAT_OPTIONS = ["👏","😅","🔥","💀","😂","👍","🎉","😱","🤔","⏱️ ¡Apurate!","😎 Buena jugada","🤝 Buena partida"];
+// Chat de equipo (2v2): solo lo ve tu compañero, no los rivales. Lista cerrada, mismo
+// motivo anti-spam que QUICK_CHAT_OPTIONS.
+const TEAM_CHAT_OPTIONS = [
+  ...Array.from({ length: 13 }, (_, i) => "Necesito la " + (i + 1)),
+  "Sí", "No", "¿Pasamos?", "👍 Dale", "🚫 No tengo", "⏳ Esperá",
+];
+
+/* ---------- servidor HTTP: sirve el cliente ---------- */
+const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".png": "image/png", ".jpg": "image/jpeg", ".woff2": "font/woff2", ".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".wav": "audio/wav", ".webmanifest": "application/manifest+json", ".json": "application/json" };
+const CLIENT_DIR = path.join(__dirname, "..", "client"); // carpeta client/ con burako.html/css/js
+const server = http.createServer((req, res) => {
+  let file = req.url === "/" ? "/burako.html" : req.url.split("?")[0];
+  // buscar primero en la carpeta del server (por burako-core.js), luego en la del cliente
+  let filePath = path.join(__dirname, file);
+  if (!fs.existsSync(filePath)) filePath = path.join(CLIENT_DIR, file);
+  if (!filePath.startsWith(__dirname) && !filePath.startsWith(CLIENT_DIR)) { res.writeHead(403); return res.end("no"); }
+  fs.readFile(filePath, (err, data) => {
+    if (err) { res.writeHead(404); return res.end("404"); }
+    res.writeHead(200, { "Content-Type": MIME[path.extname(filePath)] || "application/octet-stream" });
+    res.end(data);
+  });
+});
+
+const wss = new WebSocketServer({ server });
+
+/* ---------- estado de salas en memoria ---------- */
+/** rooms[code] = {
+ *   code, players:[{id,ws,name,connected}], deck, bag, table, meldCounter,
+ *   currentIdx, hasLaidInitial:{id:bool}, hands:{id:[tile]}, started, turnTimer, timeLeft, passStreak
+ * } */
+const rooms = new Map();
+
+function makeRoomCode() {
+  let c;
+  do { c = Math.random().toString(36).slice(2, 6).toUpperCase(); } while (rooms.has(c));
+  return c;
+}
+
+function publicPlayer(p) {
+  return { id: p.id, name: p.name, connected: p.connected };
+}
+
+function stateFor(room, playerId) {
+  const me = room.players.find((p) => p.id === playerId);
+  return {
+    type: "state",
+    code: room.code,
+    started: room.started,
+    players: room.players.map((p) => ({
+      id: p.id,
+      name: p.name,
+      connected: p.connected,
+      handCount: room.started ? (room.hands[p.id] || []).length : 0,
+      hasLaidInitial: !!room.hasLaidInitial[p.id], username: p.username||null,
+      ready: !!p.ready, isAI: !!p.isAI, isAdmin: room.players[0] && room.players[0].id === p.id, skin: p.skin || "clasica",
+      team: p.team || null,
+      lives: room.gameMode === "team2v2"
+        ? (room.teamLives ? (room.teamLives[p.team] ?? MAX_LIVES) : MAX_LIVES)
+        : (room.lives ? (room.lives[p.id] ?? MAX_LIVES) : MAX_LIVES),
+      eliminated: !!p.eliminated,
+      avatar: p.avatar || "🀄", rankPts: p.rankPts || null, level: p.level || null,
+      bet: p.bet || 0,
+      shielded: room.gameMode === "galactico" ? !!(room.shieldActive && room.shieldActive[p.id]) : false,
+      nameeffect: p.nameeffect || null, banner: p.banner || null,
+    })),
+    myHand: room.started ? room.hands[playerId] || [] : [],
+    myAbilityUsed: room.gameMode === "galactico" ? !!(room.abilityUsedThisTurn && room.abilityUsedThisTurn[playerId]) : false,
+    myBlocked: room.gameMode === "galactico" ? !!(room.blockedNextTurn && room.blockedNextTurn[playerId]) : false,
+    table: room.table,
+    bagCount: room.bag.length,
+    currentIdx: room.currentIdx,
+    timeLeft: room.timeLeft,
+    winnerId: room.winnerId || null, surrendererId: room.surrendererId || null, ranked: !!room.ranked,
+    gameMode: room.gameMode || (room.ranked ? "ranked" : "casual"),
+    phase: room.phase || "playing",
+    sorteo: room.sorteo ? room.sorteo.map(s => ({
+      playerId: s.playerId, playerName: s.playerName, team: s.team || null,
+      value: s.revealed ? s.value : null, revealed: s.revealed,
+    })) : null,
+    teammateHand: (() => {
+      if (room.gameMode !== "team2v2" || !room.started) return null;
+      const mate = room.players.find(p => p.id !== playerId && me && p.team && p.team === me.team);
+      return mate ? (room.hands[mate.id] || []) : null;
+    })(),
+    teamWork: (room.gameMode === "team2v2" && room.started && me && me.team && room.teamWork)
+      ? room.teamWork[me.team] : null,
+    teamProposal: (room.gameMode === "team2v2" && room.started && me && me.team && room.teamProposal)
+      ? room.teamProposal[me.team] : null,
+    dealCount: room.dealCounts ? (room.dealCounts[playerId] || 0) : 14,
+    jokerBreaks: room.started ? (room.jokerBreaks[playerId] || 0) : 3,
+    tapete: room.tapete || "clasico",
+    matchEndsAt: room.matchEndsAt || null,
+    scores: room.scores || {},
+    config: room.config || null,
+    isAdmin: room.players[0] && room.players[0].id === playerId,
+  };
+}
+
+function broadcast(room) {
+  room.players.forEach((p) => {
+    if (p.ws && p.ws.readyState === 1) p.ws.send(JSON.stringify(stateFor(room, p.id)));
+  });
+}
+
+function send(ws, obj) {
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj));
+}
+
+/* Chequea logros "en vivo" (durante la jugada) y notifica al jugador (recompensa) y a la sala (historial) */
+async function reportLiveAchievements(room, player, ctx) {
+  if (!player || !player.username) return;
+  try {
+    const newly = await DB.checkLive(player.username, ctx);
+    if (newly && newly.length) {
+      if (player.ws) send(player.ws, { type: "achievementsUnlocked", achievements: newly });
+      if (room) newly.forEach(a => {
+        room.players.forEach(p => { if (p.ws) send(p.ws, { type: "toast", msg: `${player.name} consiguió el logro "${a.name}"`, kind: "achievement" }); });
+      });
+    }
+  } catch (e) {}
+}
+
+function startGame(room) {
+  const cfg = room.config || {};
+  const TURN_SEC = cfg.turnSeconds || TURN_SECONDS;
+  room.turnSecondsActive = TURN_SEC;
+  const INIT_TILES = cfg.initTiles || 14;
+  room.initTiles = INIT_TILES;
+
+  // Deck size — con más de 4 jugadores (modo 8 jugadores) un mazo solo no alcanza
+  // (14 fichas c/u ya suman más de 108), así que se juega con 2 mazos completos.
+  let deck = room.players.length > 4 ? C.shuffle(C.makeDeck().concat(C.makeDeck())) : C.shuffle(C.makeDeck());
+  if (room.gameMode === "galactico") {
+    // 20 fichas de habilidad (2 de cada una de las 10) mezcladas con las normales.
+    deck = C.shuffle(deck.concat(C.makeAbilityTiles()));
+  }
+  const deckPct = cfg.deckPct || 100;
+  if (deckPct < 100) {
+    const target = Math.floor(deck.length * deckPct / 100);
+    deck = deck.slice(0, Math.max(target, room.players.length * INIT_TILES + 10));
+  }
+
+  room.hands = {};
+  room.hasLaidInitial = {};
+  room.players.forEach((p) => {
+    room.hands[p.id] = [];
+    room.hasLaidInitial[p.id] = false;
+  });
+  room.bag = deck;
+  room.table = [];
+  room.meldCounter = 0;
+  room.passStreak = 0;
+  room.jokerBreaks = {};
+  room.scores = {};
+  room.lives = {};
+  room.players.forEach(p => { room.jokerBreaks[p.id] = 3; room.scores[p.id] = 0; room.lives[p.id] = MAX_LIVES; });
+  room.teamLives = room.gameMode === "team2v2" ? { blue: MAX_LIVES, red: MAX_LIVES } : null;
+  // Zona de preparación COMPARTIDA en tiempo real entre los dos integrantes de cada
+  // equipo (turno de equipo real: cualquiera de los dos arma/confirma). Cada ficha
+  // conserva ownerId para poder devolverla a su mano si se cancela o vence el tiempo.
+  room.teamWork = room.gameMode === "team2v2" ? { blue: { loose: [], groups: [] }, red: { loose: [], groups: [] } } : null;
+  // Propuesta pendiente de "ficha y pasar" o "bajar todo": uno propone, el OTRO
+  // integrante del equipo tiene que confirmar antes de que se ejecute de verdad.
+  room.teamProposal = room.gameMode === "team2v2" ? { blue: null, red: null } : null;
+  // Modo Galáctico: estado de habilidades. abilityUsedThisTurn se resetea en cada
+  // advanceTurn (máximo 1 habilidad por turno por jugador). shieldActive protege a
+  // un jugador de CUALQUIER habilidad rival que lo tenga como objetivo, hasta que
+  // vuelva a ser su turno. blockedNextTurn le impide usar habilidades en su próximo
+  // turno. doubleDrawPending hace que su próximo robo del pozo saque 2 fichas.
+  if (room.gameMode === "galactico") {
+    room.abilityUsedThisTurn = {};
+    room.shieldActive = {};
+    room.blockedNextTurn = {};
+    room.doubleDrawPending = {};
+  } else {
+    room.abilityUsedThisTurn = null;
+    room.shieldActive = null;
+    room.blockedNextTurn = null;
+    room.doubleDrawPending = null;
+  }
+  room.startedAt = Date.now();
+  // Galáctico admite límite de tiempo total igual que los demás modos (roomConfig
+  // ya fuerza winMode="classic" para este modo, así que al agotarse el tiempo
+  // igual se decide por puntos en mano — las fichas de habilidad no puntúan).
+  const matchMin = (cfg && cfg.matchMinutes) || 0;
+  room.matchEndsAt = matchMin > 0 ? room.startedAt + matchMin * 60000 : null;
+  if (matchMin > 0) {
+    clearTimeout(room.matchTimer);
+    room.matchTimer = setTimeout(() => {
+      if (!room.started) return;
+      room.players.forEach(p => { if (p.ws) send(p.ws, { type: "toast", msg: "⏰ ¡Tiempo! Termina la partida por límite de tiempo." }); });
+      endGameByPoints(room);
+    }, matchMin * 60000);
+  }
+  room.started = true;
+  room.winnerId = null;
+
+  // FASE 1: Sorteo — cada jugador saca una ficha al azar para determinar el orden
+  const sorteoValues = C.shuffle(Array.from({length:13},(_,i)=>i+1)).slice(0, room.players.length);
+  room.sorteo = room.players.map((p, i) => ({
+    playerId: p.id,
+    playerName: p.name,
+    team: p.team || null,
+    value: sorteoValues[i],
+    revealed: false,
+  }));
+  room.phase = "sorteo";
+  room.sorteoRevealed = 0;
+  room.dealCounts = {};
+  room.players.forEach(p => room.dealCounts[p.id] = 0);
+  broadcast(room);
+  // IA revela automática
+  room.players.forEach((p, i) => {
+    if (p.isAI) setTimeout(() => autoReveal(room, p.id), 800 + i * 400);
+  });
+}
+
+function autoReveal(room, playerId) {
+  if (!room.sorteo) return;
+  const entry = room.sorteo.find(s => s.playerId === playerId);
+  if (!entry || entry.revealed) return;
+  entry.revealed = true;
+  room.sorteoRevealed++;
+  broadcast(room);
+  if (room.sorteoRevealed >= room.players.length) {
+    setTimeout(() => finishSorteo(room), 2000);
+  }
+}
+
+function finishSorteo(room) {
+  const order = room.sorteo.slice().sort((a, b) => b.value - a.value);
+  let orderedPlayers, toastMsg;
+  if (room.gameMode === "team2v2") {
+    // Alternancia estricta Azul/Rojo/Azul/Rojo: dentro de `order` (ya de mayor a menor
+    // valor de sorteo), el jugador con más valor de cada equipo es su "capitán" y
+    // arranca por su equipo. Así ningún equipo juega dos turnos seguidos.
+    const blueEntries = order.filter(o => o.team === "blue");
+    const redEntries = order.filter(o => o.team === "red");
+    const firstIsBlue = (blueEntries[0] ? blueEntries[0].value : -1) >= (redEntries[0] ? redEntries[0].value : -1);
+    const teamsInOrder = firstIsBlue ? [blueEntries, redEntries] : [redEntries, blueEntries];
+    const byId = (id) => room.players.find(p => p.id === id);
+    orderedPlayers = [
+      byId(teamsInOrder[0][0].playerId), byId(teamsInOrder[1][0].playerId),
+      byId(teamsInOrder[0][1].playerId), byId(teamsInOrder[1][1].playerId),
+    ];
+    const capName = (entries) => entries[0].playerName + " (" + entries[0].value + ")";
+    toastMsg = "Arranca " + (firstIsBlue ? "🔵 Equipo Azul" : "🔴 Equipo Rojo") + " · Capitanes — 🔵 " + capName(blueEntries) + " · 🔴 " + capName(redEntries);
+  } else {
+    orderedPlayers = order.map(o => room.players.find(p => p.id === o.playerId));
+    toastMsg = "Orden: " + order.map((o,i) => (i+1)+"° "+o.playerName+" ("+o.value+")").join(" · ");
+  }
+  room.players = orderedPlayers;
+  room.currentIdx = 0;
+  room.phase = "dealing";
+  room.players.forEach(p => { if (p.ws) send(p.ws, { type: "toast", msg: toastMsg }); });
+  broadcast(room);
+  // IA agarra fichas automáticamente
+  room.players.forEach((p, i) => {
+    if (p.isAI) setTimeout(() => autoDeal(room, p.id), 500 + i * 300);
+  });
+}
+
+function autoDeal(room, playerId) {
+  if (room.phase !== "dealing") return;
+  const target = room.players.find(p => p.id === playerId);
+  if (!target) return;
+  const _init = room.initTiles || 14;
+  while (room.bag.length > 0 && (room.dealCounts[playerId] || 0) < _init) {
+    room.hands[playerId].push(room.bag.shift());
+    room.dealCounts[playerId] = (room.dealCounts[playerId] || 0) + 1;
+  }
+  broadcast(room);
+  const allDealt = room.players.every(p => (room.dealCounts[p.id] || 0) >= (room.initTiles||14));
+  if (allDealt) {
+    setTimeout(() => startPlayingPhase(room), 800);
+  }
+}
+
+/* Transición de "dealing" a "playing". En team2v2 se intercala una fase "countdown"
+   (5-4-3-2-1 ¡EMPIEZA! en el cliente) antes de arrancar el timer de turno; en los
+   demás modos arranca directo, sin cambiar el comportamiento existente. */
+function startPlayingPhase(room) {
+  if (!room.started) return;
+  if (room.gameMode === "team2v2") {
+    room.phase = "countdown";
+    broadcast(room);
+    setTimeout(() => {
+      if (!room.started) return;
+      room.phase = "playing";
+      resetTurnTimer(room);
+      room.players.forEach(p => { if (p.ws) send(p.ws, { type: "toast", msg: "¡Empieza la partida! Turno: " + room.players[0].name }); });
+      broadcast(room);
+      maybeAIPlay(room);
+    }, 5200);
+  } else {
+    room.phase = "playing";
+    resetTurnTimer(room);
+    room.players.forEach(p => { if (p.ws) send(p.ws, { type: "toast", msg: "¡Empieza la partida! Turno: " + room.players[0].name }); });
+    broadcast(room);
+    maybeAIPlay(room);
+  }
+}
+
+/* IA juega su turno automáticamente */
+/* ================================================================
+   IA MEJORADA — dificultades: easy / normal / hard / expert
+   El motor (AI_CONFIG, enumerateMelds, findBestMove, findBestAttach)
+   vive en burako-core.js, compartido con el cliente offline (nivel
+   "Extremo" usa exactamente este mismo código).
+   ================================================================ */
+const AI_CONFIG = C.AI_CONFIG;
+const findBestMove = C.findBestMove;
+const findBestAttach = C.findBestAttach;
+const planBestMove = C.planBestMove;
+const findBestReorg = C.findBestReorg;
+
+/* --- Mayora principal de AI --- */
+function maybeAIPlay(room) {
+  if (!room.started || room.phase !== "playing") return;
+  const cur = room.players[room.currentIdx];
+  if (!cur || !cur.isAI) return;
+
+  const diff = cur.aiDifficulty || "normal";
+  const cfg = AI_CONFIG[diff] || AI_CONFIG.normal;
+  const delay = cfg.delay[0] + Math.random() * (cfg.delay[1] - cfg.delay[0]);
+
+  setTimeout(() => {
+    if (!room.started || room.phase !== "playing") return;
+    if (room.players[room.currentIdx].id !== cur.id) return;
+
+    let hand = room.hands[cur.id];
+    // En team2v2 "salir con 30" es de equipo (equipo IA+IA incluido): si el otro bot
+    // ya salió, este no necesita volver a juntar 30+ para su propia primera jugada.
+    const hasLaid = teamOpened(room, cur);
+
+    // Antes de buscar la mejor jugada, ve si conviene cambiar un comodín suelto
+    // de la mesa por la ficha real que le corresponde (intercambio 1x1, siempre
+    // legal, no cuesta rupturas) — solo lo hace si eso arma algo mejor.
+    const plan = planBestMove(hand, hasLaid, room.table, room.scores, cur.id, cfg.depth, cfg.jokerUse);
+    if (plan.swap) {
+      const targetMeld = room.table.find(m => m.id === plan.swap.meld.id);
+      if (targetMeld) {
+        targetMeld.tiles = C.sortMeldTiles(
+          targetMeld.tiles.filter(t => t.id !== plan.swap.jokerTile.id).concat([plan.swap.realTile])
+        );
+      }
+      hand = hand.filter(t => t.id !== plan.swap.realTile.id).concat([plan.swap.jokerTile]);
+      room.hands[cur.id] = hand;
+    }
+
+    // Try to play best meld
+    const meld = plan.move;
+    if (meld) {
+      const idSet = new Set(meld.tiles.map(t => t.id));
+      room.hands[cur.id] = hand.filter(t => !idSet.has(t.id));
+      room.table.push({ id: C.nid("m"), tiles: C.sortMeldTiles(meld.tiles), ownerName: cur.name, ownerId: cur.id, order: ++room.meldCounter });
+      markOpened(room, cur);
+      room.passStreak = 0;
+      room.scores[cur.id] = (room.scores[cur.id] || 0) + meld.info.value;
+
+      if (room.hands[cur.id].length === 0) {
+        room.players.forEach(p => { if (p.ws) send(p.ws, { type: "toast", msg: "¡" + cur.name + " ganó la partida! 🤖" }); });
+        finishMatch(room, cur.id);
+        return;
+      }
+
+      // Hard/Expert: try attach after laying
+      if (cfg.depth >= 3 && Math.random() < cfg.attachProb) {
+        const att = findBestAttach(room.hands[cur.id], room.table);
+        if (att) {
+          room.hands[cur.id] = room.hands[cur.id].filter(t => t.id !== att.tile.id);
+          const targetMeld = room.table.find(m => m.id === att.meld.id);
+          if (targetMeld) { targetMeld.tiles = C.sortMeldTiles([...targetMeld.tiles, att.tile]); }
+          const addedVal = att.tile.joker ? 25 : att.tile.number;
+          room.scores[cur.id] = (room.scores[cur.id] || 0) + addedVal;
+        }
+      }
+
+      advanceTurn(room, cur.name + " 🤖 bajó un juego (" + meld.info.value + " pts).", "lay");
+    } else if (hasLaid && cfg.depth >= 2) {
+      // Try attach to existing meld
+      const att = findBestAttach(hand, room.table);
+      if (att) {
+        room.hands[cur.id] = hand.filter(t => t.id !== att.tile.id);
+        const targetMeld = room.table.find(m => m.id === att.meld.id);
+        if (targetMeld) { targetMeld.tiles = C.sortMeldTiles([...targetMeld.tiles, att.tile]); }
+        const addedVal = att.tile.joker ? 25 : att.tile.number;
+        room.scores[cur.id] = (room.scores[cur.id] || 0) + addedVal;
+        room.passStreak = 0;
+
+        if (room.hands[cur.id].length === 0) {
+          room.players.forEach(p => { if (p.ws) send(p.ws, { type: "toast", msg: "¡" + cur.name + " ganó la partida! 🤖" }); });
+          finishMatch(room, cur.id);
+          return;
+        }
+        advanceTurn(room, cur.name + " 🤖 pegó una ficha.", "attach");
+        return;
+      }
+      // Reorganizar la mesa: si no hay nada para bajar ni pegar directo, un
+      // jugador fuerte todavía prueba abrir un juego YA bajado (propio o
+      // rival — mismo criterio que un humano) y rearmarlo junto con fichas
+      // de la mano en uno o más juegos válidos, antes de simplemente robar.
+      // Solo Difícil/Extremo/Claude (mismo umbral que ya usa el intento de
+      // pegar) — es la búsqueda más cara del motor.
+      if (cfg.depth >= 3) {
+        const reorg = findBestReorg(hand, room.table, room.jokerBreaks[cur.id] || 0, cfg.jokerUse);
+        if (reorg) {
+          const openedMeld = room.table.find(m => m.id === reorg.meldId);
+          if (openedMeld && openedMeld.tiles.some(t => t.joker)) {
+            room.jokerBreaks[cur.id] = (room.jokerBreaks[cur.id] || 0) - 1;
+            reportLiveAchievements(room, cur, { jokerBreakUsedNow: true });
+          }
+          const usedHandIds = new Set(reorg.handTiles.map(t => t.id));
+          room.hands[cur.id] = hand.filter(t => !usedHandIds.has(t.id));
+          room.table = room.table.filter(m => m.id !== reorg.meldId);
+          reorg.newMelds.forEach(nm => {
+            room.table.push({ id: C.nid("m"), tiles: C.sortMeldTiles(nm.tiles), ownerName: cur.name, ownerId: cur.id, fx: "clasico", trail: "clasica", order: ++room.meldCounter });
+          });
+          room.scores[cur.id] = (room.scores[cur.id] || 0) + reorg.value;
+          room.passStreak = 0;
+
+          if (room.hands[cur.id].length === 0) {
+            room.players.forEach(p => { if (p.ws) send(p.ws, { type: "toast", msg: "¡" + cur.name + " ganó la partida! 🤖" }); });
+            finishMatch(room, cur.id);
+            return;
+          }
+          advanceTurn(room, cur.name + " 🤖 reorganizó la mesa" + (reorg.value > 0 ? " (+" + reorg.value + " pts)" : "") + ".", "attach");
+          return;
+        }
+      }
+      // Draw
+      if (!room.bag.length) {
+        room.passStreak++;
+        if (room.passStreak >= room.players.length) { endGameByPoints(room); return; }
+        advanceTurn(room, cur.name + " 🤖 pasa.", "pass");
+      } else {
+        room.hands[cur.id].push(room.bag.shift());
+        advanceTurn(room, cur.name + " 🤖 tomó una ficha.", "draw");
+      }
+    } else {
+      if (!room.bag.length) {
+        room.passStreak++;
+        if (room.passStreak >= room.players.length) { endGameByPoints(room); return; }
+        advanceTurn(room, cur.name + " 🤖 pasa.", "pass");
+      } else {
+        room.hands[cur.id].push(room.bag.shift());
+        advanceTurn(room, cur.name + " 🤖 tomó una ficha.", "draw");
+      }
+    }
+    maybeAIPlay(room);
+  }, delay);
+}
+
+
+function resetTurnTimer(room) {
+  clearInterval(room.turnTimer);
+  room.timeLeft = room.turnSecondsActive || TURN_SECONDS;
+  const cur = room.players[room.currentIdx];
+  if (cur && cur.isAI) return; // no timer para IA
+  room.turnTimer = setInterval(() => {
+    room.timeLeft--;
+    if (room.timeLeft <= 0) {
+      clearInterval(room.turnTimer);
+      const cur2 = room.players[room.currentIdx];
+      if (room.gameMode === "team2v2") {
+        const team = cur2.team;
+        returnTeamWorkToHands(room, team); // si quedó algo a mitad de armar, vuelve a las manos antes de restar la vida
+        room.teamLives[team] = Math.max(0, (room.teamLives[team] ?? MAX_LIVES) - 1);
+        const teammates = room.players.filter(p => p.team === team);
+        if (room.teamLives[team] <= 0) {
+          teammates.forEach(p => { p.eliminated = true; });
+          const teamLabel = team === "blue" ? "🔵 Equipo Azul" : "🔴 Equipo Rojo";
+          room.players.forEach(p => { if (p.ws) send(p.ws, { type: "toast", msg: teamLabel + " se quedó sin vidas y perdió la partida.", kind: "elim" }); });
+          const winnerP = room.players.find(p => p.team !== team);
+          if (winnerP) { finishMatch(room, winnerP.id, { eliminatedId: cur2.id }); return; }
+        }
+        advanceTurn(room, cur2.name + " no jugó a tiempo: su equipo perdió una vida (❤ " + room.teamLives[team] + ").", "life");
+      } else {
+        room.lives[cur2.id] = Math.max(0, (room.lives[cur2.id] ?? MAX_LIVES) - 1);
+        if (room.lives[cur2.id] <= 0) {
+          cur2.eliminated = true;
+          const remaining = room.players.filter(p => !p.eliminated);
+          room.players.forEach(p => { if (p.ws) send(p.ws, { type: "toast", msg: cur2.name + " se quedó sin vidas y quedó eliminado.", kind: "elim" }); });
+          if (remaining.length <= 1) {
+            // solo queda uno (o ninguno): termina la partida
+            const winnerP = remaining[0] || room.players.find(p => p.id !== cur2.id);
+            if (winnerP) { finishMatch(room, winnerP.id, { eliminatedId: cur2.id }); return; }
+          }
+        }
+        advanceTurn(room, cur2.name + " se quedó sin tiempo y perdió una vida (❤ " + room.lives[cur2.id] + ").", "life");
+      }
+    } else {
+      // Aviso anticipado y claro para el equipo del jugador en turno (2v2): unos
+      // segundos antes de perder la vida compartida por descoordinación, avisa a
+      // AMBOS integrantes (hoy el jugador de turno ya ve su propio timer, pero su
+      // compañero no tenía ninguna señal de que el reloj se está por acabar).
+      if (room.gameMode === "team2v2" && room.timeLeft === 5) {
+        room.players.filter(p => p.team === cur.team).forEach(p => {
+          if (p.ws) send(p.ws, { type: "teamWarn", secsLeft: room.timeLeft, turnPlayerId: cur.id, turnPlayerName: cur.name });
+        });
+      }
+      room.players.forEach((p) => { if (p.ws) send(p.ws, { type: "tick", timeLeft: room.timeLeft }); });
+    }
+  }, 1000);
+}
+
+/* Rinde a un jugador (rendición explícita o desconexión en partida en curso):
+   sus fichas vuelven al pozo mezcladas y la partida sigue para el resto. */
+async function forfeitPlayer(room, player, opts) {
+  opts = opts || {};
+  if (!room || !room.started || !player) return;
+  if (player.surrendered || player.eliminated) return; // ya estaba afuera
+  player.surrendered = true;
+  player.eliminated = true;
+
+  const tilesInHand = room.hands[player.id] || [];
+  room.bag.push(...tilesInHand);
+  room.bag = C.shuffle(room.bag);
+  room.hands[player.id] = [];
+
+  const activeNonSurr = room.players.filter(p => !p.surrendered && !p.eliminated);
+  const totalHuman = room.players.filter(p => p.username).length;
+  if (player.username) {
+    const placeForSurr = room.players.filter(p => p.username).length; // último
+    try {
+      await DB.resolveMatch([{ username: player.username, place: placeForSurr, jokerBreaksUsed: 3 - (room.jokerBreaks[player.id] || 0), opponentsTilesLeft: 0 }], { ranked: !!room.ranked, playersCount: totalHuman, gameMode: room.gameMode });
+    } catch (e) { console.error("[forfeitPlayer] DB.resolveMatch falló para", player.username, "-", e.message); }
+  }
+
+  const reasonMsg = opts.viaClose ? " cerró la partida y fue eliminado. Sus fichas volvieron al pozo." : " se rindió y fue eliminado. Sus fichas volvieron al pozo.";
+  room.players.forEach(p => {
+    if (!p.ws) return;
+    if (p.id === player.id) send(p.ws, { type: "toast", msg: opts.viaClose ? "Te desconectaste. Perdiste la partida." : "Te rendiste. Perdés la partida.", kind: "elim" });
+    else send(p.ws, { type: "toast", msg: player.name + reasonMsg, kind: "elim" });
+  });
+
+  // Si queda solo 1 jugador no-eliminado → terminar
+  if (activeNonSurr.length <= 1) {
+    const lastStanding = activeNonSurr[0];
+    if (lastStanding) {
+      room.players.forEach(p => { if (p.ws) send(p.ws, { type: "toast", msg: "¡" + lastStanding.name + " es el último en pie!" }); });
+      await finishMatch(room, lastStanding.id, { surrendererId: player.id });
+    }
+    return;
+  }
+
+  // La partida continúa. Si era turno del que se fue, avanzar.
+  if (room.players[room.currentIdx] && room.players[room.currentIdx].id === player.id) {
+    advanceTurn(room, player.name + reasonMsg, "elim");
+  } else {
+    broadcast(room);
+  }
+}
+
+/* ---------- Helpers de turno de EQUIPO (team2v2) ----------
+   El turno sigue rotando por room.currentIdx (M2 ya fuerza alternancia estricta
+   Azul/Rojo/Azul/Rojo), pero en team2v2 el PERMISO para actuar es del equipo
+   entero, no de un jugador puntual: cualquiera de los dos integrantes puede
+   jugar durante la ventana de turno de su equipo. */
+/* Modo Galáctico: se gana al quedarte sin fichas NORMALES — las de habilidad que
+   te queden no cuentan ni impiden ganar. */
+function handIsEmptyForWin(room, playerId) {
+  const hand = room.hands[playerId] || [];
+  if (room.gameMode === "galactico") return C.splitHand(hand).tiles.length === 0;
+  return hand.length === 0;
+}
+function isMyTurn(room, player) {
+  const cur = room.players[room.currentIdx];
+  if (!cur) return false;
+  if (room.gameMode === "team2v2") return !!player.team && cur.team === player.team;
+  return cur.id === player.id;
+}
+function teamMateOf(room, player) {
+  if (!player.team) return null;
+  return room.players.find(p => p.id !== player.id && p.team === player.team) || null;
+}
+function teamOpened(room, player) {
+  if (room.gameMode !== "team2v2") return !!room.hasLaidInitial[player.id];
+  const mate = teamMateOf(room, player);
+  return !!room.hasLaidInitial[player.id] || (mate && !!room.hasLaidInitial[mate.id]);
+}
+function markOpened(room, player) {
+  room.hasLaidInitial[player.id] = true;
+  if (room.gameMode === "team2v2") {
+    const mate = teamMateOf(room, player);
+    if (mate) room.hasLaidInitial[mate.id] = true;
+  }
+}
+
+function advanceTurn(room, msg, kind) {
+  if (room.gameMode === "team2v2" && room.teamProposal) { room.teamProposal.blue = null; room.teamProposal.red = null; }
+  const endingPlayer = room.players[room.currentIdx];
+  do {
+    room.currentIdx = (room.currentIdx + 1) % room.players.length;
+  } while (room.players[room.currentIdx] && room.players[room.currentIdx].eliminated && room.players.some(p => !p.eliminated));
+  if (room.gameMode === "galactico") {
+    const newPlayer = room.players[room.currentIdx];
+    // El bloqueo de habilidades dura "su próximo turno": termina cuando ese turno termina.
+    if (endingPlayer) room.blockedNextTurn[endingPlayer.id] = false;
+    // El escudo protege hasta que vuelva a ser el turno de quien lo activó.
+    if (newPlayer) { room.shieldActive[newPlayer.id] = false; room.abilityUsedThisTurn[newPlayer.id] = false; }
+  }
+  resetTurnTimer(room);
+  if (msg) room.players.forEach((p) => { if (p.ws) send(p.ws, { type: "toast", msg, kind: kind || "system" }); });
+  broadcast(room);
+  maybeAIPlay(room);
+}
+
+async function endGameByPoints(room) {
+  const ranking = room.players
+    .map((p) => ({ id: p.id, name: p.name, points: C.handPoints(room.hands[p.id] || []) }))
+    .sort((a, b) => a.points - b.points);
+  room.players.forEach((p) => {
+    if (p.ws) send(p.ws, { type: "toast", msg: "Pozo vacío: gana " + ranking[0].name + " por puntos." });
+  });
+  await finishMatch(room, ranking[0].id);
+}
+
+
+/* ---------- Fin de partida centralizado ---------- */
+// Se llama en todos los sitios que hoy setean winnerId directamente.
+// Calcula el ranking (ganador primero, resto por fichas restantes ascendente),
+// llama a DB.resolveMatch (que siempre da XP + monedas + logros),
+// envía matchResult a cada jugador con feedback rico.
+async function finishMatch(room, winnerId, opts) {
+  opts = opts || {};
+  if (!winnerId) return;
+  clearInterval(room.turnTimer);
+  room.winnerId = winnerId;
+  room.started = false;
+  const winner = room.players.find(p => p.id === winnerId);
+  const others = room.players
+    .filter(p => p.id !== winnerId)
+    .sort((a, b) => {
+      // Quien se rindió (o se desconectó) queda último aunque le hayan vaciado
+      // la mano al pozo — si no, una mano vacía por rendirse ordenaba MEJOR
+      // que una mano real con fichas, "premiando" con buen puesto (y buen
+      // pago en modo Monedas) a alguien que abandonó la partida.
+      const aOut = !!a.surrendered, bOut = !!b.surrendered;
+      if (aOut !== bOut) return aOut ? 1 : -1;
+      return C.handPoints(room.hands[a.id]||[]) - C.handPoints(room.hands[b.id]||[]);
+    });
+  // 2v2: el compañero del ganador nunca puede quedar ordenado peor que un rival del
+  // equipo perdedor (fase 1 — repartir el premio exactamente parejo entre ambos
+  // integrantes del equipo ganador queda para una fase futura, ver CHANGELOG).
+  if (room.gameMode === "team2v2" && winner && winner.team) {
+    const mateIdx = others.findIndex(p => p.team === winner.team);
+    if (mateIdx > 0) others.unshift(others.splice(mateIdx, 1)[0]);
+  }
+  const ordered = [winner, ...others].filter(Boolean);
+
+  // Modo Monedas: liquidar apuestas según el puesto, ANTES de resolveMatch para que
+  // el saldo que se muestra en el resultado ya venga sumado. No es un pozo compartido
+  // (no sale de lo que pierden los demás): 1° recupera su apuesta + el doble como premio
+  // (x3 en total), 2° recupera su apuesta + la mitad como premio (x1.5), 3° solo recupera
+  // lo apostado, 4° en adelante pierde la apuesta (ya se le había descontado al confirmarla).
+  let betResults = null;
+  if (room.gameMode === "monedas") {
+    betResults = {};
+    for (const [i, p] of ordered.entries()) {
+      if (!p.username || !p.bet) continue;
+      // Rendirse siempre pierde la apuesta entera, sin importar en qué índice haya
+      // quedado ordenado — en partidas de 2-3 jugadores "el último" nunca llega al
+      // índice 3 (el que pierde en la fórmula normal), así que sin este caso especial
+      // alguien podía rendirse y recuperar igual toda su apuesta.
+      const mult = p.surrendered ? 0 : (i === 0 ? 3 : i === 1 ? 1.5 : i === 2 ? 1 : 0);
+      const payout = Math.round(p.bet * mult);
+      if (payout > 0) {
+        try { await DB.creditCoins(p.username, payout); }
+        catch (e) { console.error("[finishMatch] DB.creditCoins falló para", p.username, "-", e.message); }
+      }
+      betResults[p.id] = { bet: p.bet, payout, net: payout - p.bet };
+    }
+  }
+
+  // build results with per-player context
+  const results = ordered.map((p, i) => ({
+    username: p.username || null,
+    place: i + 1,
+    surrendered: (opts.surrendererId && p.id === opts.surrendererId) ? true : false,
+    jokerBreaksUsed: 3 - (room.jokerBreaks[p.id] || 0),
+    opponentsTilesLeft: (i === 0)
+      ? ordered.slice(1).reduce((s, o) => s + (room.hands[o.id]||[]).length, 0)
+      : 0,
+  }));
+
+  let updates = [];
+  try {
+    updates = await DB.resolveMatch(results, {
+      ranked: !!room.ranked,
+      playersCount: room.players.length,
+      surrendered: !!opts.surrendererId,
+      gameMode: room.gameMode,
+    });
+  } catch (e) {
+    console.error("[finishMatch] DB.resolveMatch falló -", e.message);
+  }
+
+  // enviar matchResult a cada humano con SU update completo
+  ordered.forEach((p, i) => {
+    if (!p.ws) return;
+    const upd = updates.find(u => u.username === p.username);
+    send(p.ws, {
+      type: "matchResult",
+      won: (i === 0),
+      place: i + 1,
+      winnerName: winner ? winner.name : null,
+      surrendererId: opts.surrendererId || null,
+      iSurrendered: opts.surrendererId === p.id,
+      ranked: !!room.ranked,
+      // Si tenían perfil (username), acá va el detalle de XP/monedas/logros
+      update: upd || null,
+      betResult: betResults ? (betResults[p.id] || null) : null,
+    });
+  });
+
+  broadcast(room);
+}
+
+/* ---------- validación de acciones de juego ---------- */
+function handleLay(room, player, tileIds) {
+  if (room.phase !== "playing") return "La partida no está en fase de juego.";
+  if (!isMyTurn(room, player)) return "No es tu turno.";
+  // Baja rápida (tap + "Bajar y pasar") directo desde el atril, sin pasar por la zona de
+  // preparación compartida — si el equipo tenía algo a mitad de armar en team2v2, se
+  // devuelve a sus dueños para no dejarlo "huérfano" al terminar el turno con otra jugada.
+  if (room.gameMode === "team2v2") returnTeamWorkToHands(room, player.team);
+  const hand = room.hands[player.id];
+  const tiles = hand.filter((t) => tileIds.includes(t.id));
+  if (tiles.length !== tileIds.length || tiles.length < 3) return "Selección inválida.";
+  const info = C.meldInfo(tiles);
+  if (!info.valid) return "Ese conjunto no forma un juego válido.";
+  if (!teamOpened(room, player) && info.value < 30)
+    return `Ese juego suma ${info.value}: para salir necesitás 30 o más.`;
+
+  const idSet = new Set(tileIds);
+  room.hands[player.id] = hand.filter((t) => !idSet.has(t.id));
+  room.table.push({
+    id: C.nid("m"),
+    tiles: C.sortMeldTiles(tiles),
+    ownerName: player.name,
+    ownerId: player.id,
+    fx: player.fx || "clasico",
+    trail: player.trail || "clasica",
+    order: ++room.meldCounter,
+  });
+  markOpened(room, player);
+  room.passStreak = 0;
+  room.scores[player.id] = (room.scores[player.id] || 0) + info.value;
+
+  // winMode: score victory
+  if ((room.config && room.config.winMode === "points") && room.scores[player.id] >= (room.config.targetScore || 200)) {
+    room.players.forEach(p => { if (p.ws) send(p.ws, { type: "toast", msg: player.name + " alcanzó el puntaje objetivo. ¡Gana!" }); });
+    finishMatch(room, player.id);
+    return null;
+  }
+
+  // Logros en vivo: escalera, 4 colores, jugada grande
+  const uniqueColors = new Set(tiles.filter(t => !t.joker).map(t => t.color)).size;
+  reportLiveAchievements(room, player, {
+    playedEscalera: info.type === "escalera",
+    fourColors: info.type === "grupo" && uniqueColors === 4,
+    meldValue: info.value,
+  });
+
+  if (handIsEmptyForWin(room, player.id)) {
+    room.players.forEach((p) => { if (p.ws) send(p.ws, { type: "toast", msg: "¡" + player.name + " ganó la partida! 🎉" }); });
+    finishMatch(room, player.id);
+    return null;
+  }
+  advanceTurn(room, `${player.name} bajó un ${info.type} de ${info.value} pts.`, "lay");
+  return null;
+}
+
+/* Bajar VARIOS juegos en un mismo turno (equivalente a "Preparación → Bajar todo") */
+function handleLayMultiple(room, player, groups) {
+  if (room.phase !== "playing") return "La partida no está en fase de juego.";
+  if (!isMyTurn(room, player)) return "No es tu turno.";
+  if (!Array.isArray(groups) || !groups.length) return "No armaste ningún juego.";
+  const hand = room.hands[player.id];
+  const handIds = new Set(hand.map((t) => t.id));
+  const seen = new Set();
+  const tileGroups = [];
+  for (const ids of groups) {
+    if (!Array.isArray(ids) || ids.length < 3) return "Hay un juego con menos de 3 fichas.";
+    for (const id of ids) {
+      if (!handIds.has(id) || seen.has(id)) return "Selección inválida (ficha repetida o que no es tuya).";
+      seen.add(id);
+    }
+    const tiles = ids.map((id) => hand.find((t) => t.id === id));
+    const info = C.meldInfo(tiles);
+    if (!info.valid) return "Hay un juego inválido en la selección.";
+    tileGroups.push({ tiles, info });
+  }
+  if (!teamOpened(room, player)) {
+    // La salida puede ser UN juego de 30+ o VARIOS juegos que sumen 30+ entre todos
+    // (regla real de Burako) — antes esto exigía forzosamente un único juego, lo que
+    // rechazaba salidas legítimas armadas con más de un juego en Preparación.
+    const totalOpenValue = tileGroups.reduce((s, g) => s + (g.info.value || 0), 0);
+    if (totalOpenValue < 30) return `Sumás ${totalOpenValue} pts: necesitás 30 o más entre todos los juegos para salir.`;
+  }
+
+  room.hands[player.id] = hand.filter((t) => !seen.has(t.id));
+  tileGroups.forEach(({ tiles }) => {
+    room.table.push({ id: C.nid("m"), tiles: C.sortMeldTiles(tiles), ownerName: player.name, ownerId: player.id, fx: player.fx || "clasico", trail: player.trail || "clasica", order: ++room.meldCounter });
+  });
+  markOpened(room, player);
+  room.passStreak = 0;
+
+  if (handIsEmptyForWin(room, player.id)) {
+    room.players.forEach((p) => { if (p.ws) send(p.ws, { type: "toast", msg: "¡" + player.name + " ganó la partida! 🎉" }); });
+    finishMatch(room, player.id);
+    return null;
+  }
+  const totalPts = tileGroups.reduce((s, g) => s + g.info.value, 0);
+  room.scores[player.id] = (room.scores[player.id] || 0) + totalPts;
+  tileGroups.forEach(g => {
+    const uniqC = new Set(g.tiles.filter(t=>!t.joker).map(t=>t.color)).size;
+    reportLiveAchievements(room, player, { playedEscalera: g.info.type==="escalera", fourColors: g.info.type==="grupo"&&uniqC===4, meldValue: g.info.value });
+  });
+  advanceTurn(room, `${player.name} bajó ${tileGroups.length} juego(s) (${totalPts} pts).`, "lay");
+  return null;
+}
+
+
+/* Reorganizar la mesa: el jugador abrió juegos, los rearmó con sus fichas y confirma */
+function handleReorganize(room, player, openedMeldIds, newGroups) {
+  if (room.phase !== "playing") return "La partida no está en fase de juego.";
+  if (!isMyTurn(room, player)) return "No es tu turno.";
+  if (!teamOpened(room, player)) return "Primero tenés que salir con 30.";
+  
+  // Recolectar todas las fichas involucradas: las de los melds abiertos + las del jugador usadas
+  const hand = room.hands[player.id];
+  const allHandIds = new Set(hand.map(t => t.id));
+  
+  // Fichas de los melds abiertos
+  const openedTiles = [];
+  const remainingTable = [];
+  for (const m of room.table) {
+    if (openedMeldIds.includes(m.id)) {
+      if (m.tiles.some(t => t.joker)) {
+        if (!room.jokerBreaks || (room.jokerBreaks[player.id] || 0) <= 0)
+          return "No podés abrir un juego con comodín (sin rupturas disponibles).";
+        room.jokerBreaks[player.id]--;
+        reportLiveAchievements(room, player, { jokerBreakUsedNow: true });
+      }
+      openedTiles.push(...m.tiles);
+    } else {
+      remainingTable.push(m);
+    }
+  }
+  
+  // Pool: fichas de melds abiertos + fichas del jugador
+  const pool = [...openedTiles, ...hand];
+  const poolById = {};
+  pool.forEach(t => poolById[t.id] = t);
+  
+  // Validar cada grupo nuevo
+  const usedIds = new Set();
+  const newMelds = [];
+  for (const ids of newGroups) {
+    if (!Array.isArray(ids) || ids.length < 3) return "Un juego tiene menos de 3 fichas.";
+    const tiles = [];
+    for (const id of ids) {
+      if (!poolById[id]) return "Ficha no encontrada en el pool disponible.";
+      if (usedIds.has(id)) return "Ficha usada dos veces.";
+      usedIds.add(id);
+      tiles.push(poolById[id]);
+    }
+    const info = C.meldInfo(tiles);
+    if (!info.valid) return "Hay un juego inválido en la reorganización.";
+    newMelds.push({ tiles: C.sortMeldTiles(tiles), info });
+  }
+  
+  // Verificar que TODAS las fichas de los melds abiertos fueron reutilizadas
+  for (const t of openedTiles) {
+    if (!usedIds.has(t.id)) return "Hay fichas de la mesa que quedaron sin usar. Tenés que rearmar todo.";
+  }
+  
+  // Fichas del jugador que se usaron
+  const playerUsedIds = new Set();
+  for (const id of usedIds) {
+    if (allHandIds.has(id)) playerUsedIds.add(id);
+  }
+  
+  // Aplicar cambios
+  room.hands[player.id] = hand.filter(t => !playerUsedIds.has(t.id));
+  room.table = remainingTable;
+  newMelds.forEach(({ tiles }) => {
+    room.table.push({ id: C.nid("m"), tiles, ownerName: player.name, ownerId: player.id, fx: player.fx || "clasico", trail: player.trail || "clasica", order: ++room.meldCounter });
+  });
+  room.passStreak = 0;
+  
+  if (handIsEmptyForWin(room, player.id)) {
+    room.players.forEach((p) => { if (p.ws) send(p.ws, { type: "toast", msg: "¡" + player.name + " ganó la partida! 🎉" }); });
+    finishMatch(room, player.id);
+    return null;
+  }
+  
+  let _handValue = 0;
+  for (const id of playerUsedIds) {
+    const t = poolById[id];
+    if (t) _handValue += (t.joker ? 25 : t.number);
+  }
+  if (_handValue > 0) room.scores[player.id] = (room.scores[player.id] || 0) + _handValue;
+  const _msg = _handValue > 0
+    ? player.name + " reorganizó y agregó fichas (+" + _handValue + " pts)."
+    : player.name + " reorganizó la mesa (sin sumar puntos).";
+  advanceTurn(room, _msg, "attach");
+  return null;
+}
+
+function handleAttach(room, player, meldId, tileIds) {
+  if (room.phase !== "playing") return "La partida no está en fase de juego.";
+  if (!isMyTurn(room, player)) return "No es tu turno.";
+  if (!teamOpened(room, player)) return "Primero tenés que salir con 30.";
+  if (room.gameMode === "team2v2") returnTeamWorkToHands(room, player.team);
+  const meld = room.table.find((m) => m.id === meldId);
+  if (!meld) return "Ese juego ya no está en la mesa.";
+  if (meld.tiles.some((t) => t.joker)) {
+    if (!room.jokerBreaks || (room.jokerBreaks[player.id] || 0) <= 0)
+      return "Ese juego tiene comodín (sin rupturas disponibles).";
+    room.jokerBreaks[player.id]--;
+        reportLiveAchievements(room, player, { jokerBreakUsedNow: true });
+  }
+  const hand = room.hands[player.id];
+  const tiles = hand.filter((t) => tileIds.includes(t.id));
+  if (tiles.length !== tileIds.length || !tiles.length) return "Selección inválida.";
+  const combined = meld.tiles.concat(tiles);
+  const info = C.meldInfo(combined);
+  if (!info.valid) return "Esas fichas no encajan ahí.";
+
+  const idSet = new Set(tileIds);
+  room.hands[player.id] = hand.filter((t) => !idSet.has(t.id));
+  meld.tiles = C.sortMeldTiles(combined);
+  room.passStreak = 0;
+  const _addedValue = tiles.reduce((s, t) => s + (t.joker ? 25 : t.number), 0);
+  room.scores[player.id] = (room.scores[player.id] || 0) + _addedValue;
+
+  if (handIsEmptyForWin(room, player.id)) {
+    room.players.forEach((p) => { if (p.ws) send(p.ws, { type: "toast", msg: "¡" + player.name + " ganó la partida! 🎉" }); });
+    finishMatch(room, player.id);
+    return null;
+  }
+  advanceTurn(room, `${player.name} sumó una ficha al juego #${meld.order}.`, "attach");
+  return null;
+}
+
+/* ---------- team2v2: zona de preparación COMPARTIDA en tiempo real ----------
+   Cualquiera de los dos integrantes del equipo puede armar/tocar esta zona
+   durante el turno de su equipo — cada ficha conserva ownerId (de qué mano
+   salió) para poder devolverla si se cancela, se vence el tiempo, o alguien
+   decide robar del pozo en vez de bajar algo. */
+function teamWorkOf(room, player) {
+  return room.teamWork && room.teamWork[player.team];
+}
+function returnTeamWorkToHands(room, team) {
+  if (!room.teamWork || !room.teamWork[team]) return;
+  const work = room.teamWork[team];
+  const all = [...work.loose, ...work.groups.flatMap((g) => g.tiles)];
+  all.forEach((t) => { if (t.ownerId && room.hands[t.ownerId]) room.hands[t.ownerId].push(t); });
+  // Cualquier juego que el equipo haya ABIERTO de la mesa para reorganizar
+  // (ver handleTeamOpenMeld) vuelve TAL CUAL estaba — con sus mismas fichas,
+  // sin importar cómo las hayan movido mientras tanto — nunca fueron "de"
+  // ninguna mano en particular, así que no les corresponde ninguna.
+  if (work.openedMelds) Object.values(work.openedMelds).forEach((meld) => { room.table.push(meld); });
+  room.teamWork[team] = { loose: [], groups: [] };
+}
+function handleTeamOpenMeld(room, player, meldId) {
+  if (!isMyTurn(room, player)) return "No es tu turno.";
+  if (!teamOpened(room, player)) return "Primero tenés que salir con 30.";
+  const work = teamWorkOf(room, player);
+  if (!work) return "Esta sala no es 2v2.";
+  const meld = room.table.find((m) => m.id === meldId);
+  if (!meld) return "Ese juego ya no está en la mesa.";
+  if (meld.tiles.some((t) => t.joker)) {
+    if (!room.jokerBreaks || (room.jokerBreaks[player.id] || 0) <= 0)
+      return "Ese juego tiene comodín (sin rupturas disponibles).";
+    room.jokerBreaks[player.id]--;
+    reportLiveAchievements(room, player, { jokerBreakUsedNow: true });
+  }
+  if (room.teamProposal) room.teamProposal[player.team] = null;
+  // Las fichas de un juego abierto quedan sin "dueño" de mano (ownerId:null) —
+  // solo pueden terminar en un juego nuevo confirmado, o volver a la mesa tal
+  // cual si se cancela (ver returnTeamWorkToHands/handleTeamRemoveLoose).
+  meld.tiles.forEach((t) => { t.ownerId = null; });
+  work.loose.push(...meld.tiles);
+  room.table = room.table.filter((m) => m.id !== meldId);
+  work.openedMelds = work.openedMelds || {};
+  work.openedMelds[meldId] = meld;
+  broadcast(room);
+  return null;
+}
+function handleTeamAddLoose(room, player, tileIds) {
+  if (room.phase !== "playing") return "La partida no está en fase de juego.";
+  if (!isMyTurn(room, player)) return "No es tu turno.";
+  if (room.teamProposal) room.teamProposal[player.team] = null;
+  const work = teamWorkOf(room, player);
+  if (!work) return "Esta sala no es 2v2.";
+  const ids = Array.isArray(tileIds) ? tileIds : [];
+  const hand = room.hands[player.id];
+  const tiles = hand.filter((t) => ids.includes(t.id));
+  if (!tiles.length) return "Selección inválida.";
+  room.hands[player.id] = hand.filter((t) => !ids.includes(t.id));
+  tiles.forEach((t) => { t.ownerId = player.id; work.loose.push(t); });
+  broadcast(room);
+  return null;
+}
+function handleTeamRemoveLoose(room, player, tileIds) {
+  if (!isMyTurn(room, player)) return "No es tu turno.";
+  if (room.teamProposal) room.teamProposal[player.team] = null;
+  const work = teamWorkOf(room, player);
+  if (!work) return "Esta sala no es 2v2.";
+  const ids = new Set(Array.isArray(tileIds) ? tileIds : []);
+  // La ficha puede estar suelta O adentro de un grupo ya armado (ej. al arrastrarla de
+  // vuelta al atril) — se busca en los dos lugares y siempre vuelve a la mano de quien
+  // la puso originalmente (ownerId), sea quien sea el que la saca del pool.
+  // Una ficha que vino de un juego ABIERTO de la mesa (ver handleTeamOpenMeld)
+  // no tiene mano propia a la que volver — solo puede volver a la mesa como
+  // parte del juego original completo, vía "Cancelar" (returnTeamWorkToHands).
+  // Si se permitiera sacarla suelta acá, se perdería para siempre (no iría a
+  // ninguna mano ni volvería a la mesa).
+  const noHomeIds = new Set(
+    [...work.loose, ...work.groups.flatMap((g) => g.tiles)]
+      .filter((t) => ids.has(t.id) && !t.ownerId)
+      .map((t) => t.id)
+  );
+  if (noHomeIds.size) return "Esa ficha es de un juego que abrieron de la mesa — para deshacerlo, cancelá toda la preparación.";
+  const moved = [];
+  const stillLoose = [];
+  work.loose.forEach((t) => { if (ids.has(t.id)) moved.push(t); else stillLoose.push(t); });
+  work.loose = stillLoose;
+  work.groups.forEach((g) => {
+    const keep = [];
+    g.tiles.forEach((t) => { if (ids.has(t.id)) moved.push(t); else keep.push(t); });
+    g.tiles = keep;
+  });
+  work.groups = work.groups.filter((g) => g.tiles.length > 0);
+  moved.forEach((t) => { if (room.hands[t.ownerId]) room.hands[t.ownerId].push(t); });
+  broadcast(room);
+  return null;
+}
+function handleTeamFormGroup(room, player, tileIds) {
+  if (!isMyTurn(room, player)) return "No es tu turno.";
+  if (room.teamProposal) room.teamProposal[player.team] = null;
+  const work = teamWorkOf(room, player);
+  if (!work) return "Esta sala no es 2v2.";
+  const ids = Array.isArray(tileIds) ? tileIds : [];
+  if (ids.length < 3) return "Un juego necesita al menos 3 fichas.";
+  const looseIds = new Set(work.loose.map((t) => t.id));
+  if (!ids.every((id) => looseIds.has(id))) return "Alguna ficha ya no está disponible.";
+  const tiles = work.loose.filter((t) => ids.includes(t.id));
+  work.loose = work.loose.filter((t) => !ids.includes(t.id));
+  work.groups.push({ id: C.nid("g"), tiles });
+  broadcast(room);
+  return null;
+}
+function handleTeamDissolveGroup(room, player, groupId) {
+  if (!isMyTurn(room, player)) return "No es tu turno.";
+  if (room.teamProposal) room.teamProposal[player.team] = null;
+  const work = teamWorkOf(room, player);
+  if (!work) return "Esta sala no es 2v2.";
+  const idx = work.groups.findIndex((g) => g.id === groupId);
+  if (idx === -1) return "Ese grupo ya no existe.";
+  const [g] = work.groups.splice(idx, 1);
+  work.loose.push(...g.tiles);
+  broadcast(room);
+  return null;
+}
+function handleTeamAddToGroup(room, player, groupId, tileIds) {
+  if (!isMyTurn(room, player)) return "No es tu turno.";
+  if (room.teamProposal) room.teamProposal[player.team] = null;
+  const work = teamWorkOf(room, player);
+  if (!work) return "Esta sala no es 2v2.";
+  const group = work.groups.find((g) => g.id === groupId);
+  if (!group) return "Ese grupo ya no existe.";
+  const ids = Array.isArray(tileIds) ? tileIds : [];
+  const looseIds = new Set(work.loose.map((t) => t.id));
+  if (!ids.length || !ids.every((id) => looseIds.has(id))) return "Alguna ficha ya no está disponible.";
+  const tiles = work.loose.filter((t) => ids.includes(t.id));
+  work.loose = work.loose.filter((t) => !ids.includes(t.id));
+  group.tiles.push(...tiles);
+  broadcast(room);
+  return null;
+}
+function handleTeamClearWork(room, player) {
+  if (!isMyTurn(room, player)) return "No es tu turno.";
+  if (room.teamProposal) room.teamProposal[player.team] = null;
+  returnTeamWorkToHands(room, player.team);
+  broadcast(room);
+  return null;
+}
+function handleTeamConfirm(room, player) {
+  if (room.phase !== "playing") return "La partida no está en fase de juego.";
+  if (!isMyTurn(room, player)) return "No es tu turno.";
+  const work = teamWorkOf(room, player);
+  if (!work) return "Esta sala no es 2v2.";
+  if (work.loose.length) return "Hay fichas sueltas sin agrupar.";
+  if (!work.groups.length) return "No armaron ningún juego.";
+  const infos = work.groups.map((g) => ({ g, info: C.meldInfo(g.tiles) }));
+  if (infos.some((x) => !x.info.valid)) return "Hay un juego inválido en la selección.";
+  if (!teamOpened(room, player)) {
+    const totalOpenValue = infos.reduce((s, x) => s + (x.info.value || 0), 0);
+    if (totalOpenValue < 30) return `Suman ${totalOpenValue} pts: necesitás 30 o más entre todos los juegos para salir.`;
+  }
+  infos.forEach(({ g, info }) => {
+    room.table.push({ id: C.nid("m"), tiles: C.sortMeldTiles(g.tiles), ownerName: player.name, ownerId: player.id, fx: player.fx || "clasico", trail: player.trail || "clasica", order: ++room.meldCounter });
+    g.tiles.forEach((t) => {
+      const val = t.joker ? 25 : t.number;
+      room.scores[t.ownerId] = (room.scores[t.ownerId] || 0) + val;
+    });
+  });
+  const totalPts = infos.reduce((s, x) => s + x.info.value, 0);
+  markOpened(room, player);
+  room.passStreak = 0;
+  room.teamWork[player.team] = { loose: [], groups: [] };
+
+  const mate = teamMateOf(room, player);
+  const winner = [player, mate].filter(Boolean).find((p) => (room.hands[p.id] || []).length === 0);
+  if (winner) {
+    const teamLabel = player.team === "blue" ? "🔵 Azul" : "🔴 Rojo";
+    room.players.forEach((p) => { if (p.ws) send(p.ws, { type: "toast", msg: "¡Equipo " + teamLabel + " ganó la partida! 🎉" }); });
+    finishMatch(room, winner.id);
+    return null;
+  }
+  advanceTurn(room, `${player.name} y su equipo bajaron ${infos.length} juego(s) (${totalPts} pts).`, "lay");
+  return null;
+}
+
+/* ---------- team2v2: propuesta + confirmación mutua ----------
+   "Ficha y pasar" y "Bajar todo" ya no se ejecutan apenas uno de los dos toca el
+   botón: quedan como una PROPUESTA pendiente hasta que el otro integrante del
+   equipo la confirma (o la rechaza/cancela). Reusan handleDraw/handleTeamConfirm
+   tal cual para ejecutar la acción real una vez confirmada. */
+function handleTeamProposeDraw(room, player) {
+  if (room.phase !== "playing") return "La partida no está en fase de juego.";
+  if (!isMyTurn(room, player)) return "No es tu turno.";
+  room.teamProposal[player.team] = { type: "draw", byId: player.id, byName: player.name };
+  broadcast(room);
+  return null;
+}
+function handleTeamProposeConfirm(room, player) {
+  if (room.phase !== "playing") return "La partida no está en fase de juego.";
+  if (!isMyTurn(room, player)) return "No es tu turno.";
+  const work = teamWorkOf(room, player);
+  if (!work) return "Esta sala no es 2v2.";
+  if (work.loose.length) return "Hay fichas sueltas sin agrupar.";
+  if (!work.groups.length) return "No armaron ningún juego.";
+  room.teamProposal[player.team] = { type: "confirm", byId: player.id, byName: player.name };
+  broadcast(room);
+  return null;
+}
+function handleTeamRespond(room, player, agree) {
+  if (!room.teamProposal) return;
+  const proposal = room.teamProposal[player.team];
+  if (!proposal) return;
+  room.teamProposal[player.team] = null;
+  if (!agree || player.id === proposal.byId) { broadcast(room); return; }
+  const proposer = room.players.find((p) => p.id === proposal.byId);
+  if (!proposer) { broadcast(room); return; }
+  const err = proposal.type === "draw" ? handleDraw(room, proposer) : handleTeamConfirm(room, proposer);
+  if (err) {
+    room.players.forEach((p) => { if (p.ws) send(p.ws, { type: "toast", msg: "No se pudo completar la jugada propuesta: " + err, kind: "error" }); });
+    broadcast(room);
+  }
+}
+
+function handleDraw(room, player) {
+  if (room.phase !== "playing") return "La partida no está en fase de juego.";
+  if (!isMyTurn(room, player)) return "No es tu turno.";
+  if (room.gameMode === "team2v2") returnTeamWorkToHands(room, player.team);
+  if (!room.bag.length) {
+    room.passStreak++;
+    if (room.passStreak >= room.players.length) { endGameByPoints(room); return null; }
+    advanceTurn(room, `${player.name} pasa (pozo vacío).`, "pass");
+    return null;
+  }
+  // ✋ Robo doble (Modo Galáctico): la próxima vez que este jugador robe, saca 2 en vez de 1.
+  const doubleDraw = room.gameMode === "galactico" && room.doubleDrawPending && room.doubleDrawPending[player.id];
+  const drawCount = doubleDraw ? 2 : 1;
+  for (let i = 0; i < drawCount && room.bag.length; i++) {
+    room.hands[player.id].push(room.bag.shift());
+  }
+  if (doubleDraw) room.doubleDrawPending[player.id] = false;
+  advanceTurn(room, `${player.name} tomó ${doubleDraw ? "2 fichas (✋ Robo doble)" : "una ficha"}.`, "draw");
+  return null;
+}
+
+/* ============================================================
+   MODO GALÁCTICO — activación de habilidades.
+   Regla general (pedida explícitamente por el diseño): cada handler valida
+   TODO el efecto antes de mutar nada. Si algo falla, se devuelve {ok:false,
+   err}, el caller NO consume la ficha ni marca abilityUsedThisTurn — la
+   habilidad queda intacta en la mano, como si nunca se hubiese intentado.
+   ============================================================ */
+function canActivateAbility(room, player) {
+  if (room.gameMode !== "galactico") return "Esto no es una partida de Modo Galáctico.";
+  if (room.phase !== "playing") return "La partida no está en fase de juego.";
+  if (!isMyTurn(room, player)) return "No es tu turno.";
+  if (room.blockedNextTurn && room.blockedNextTurn[player.id]) return "Tenés las habilidades bloqueadas este turno.";
+  if (room.abilityUsedThisTurn && room.abilityUsedThisTurn[player.id]) return "Ya usaste una habilidad este turno.";
+  return null;
+}
+
+function useEscudo(room, player) {
+  room.shieldActive[player.id] = true;
+  return { ok: true, msg: `🛡 ${player.name} activó Escudo.` };
+}
+
+function useRoboDoble(room, player) {
+  room.doubleDrawPending[player.id] = true;
+  return { ok: true, msg: `✋ ${player.name} activó Robo doble — la próxima ficha que robe del pozo va a ser doble.` };
+}
+
+function useTeletransporte(room, player, msg) {
+  const hand = room.hands[player.id];
+  const targetId = msg.chosenTileId;
+  if (!targetId) return { ok: false, err: "Elegí una ficha para teletransportar." };
+  if (targetId === msg.tileId) return { ok: false, err: "No podés teletransportar la misma ficha de habilidad que estás usando." };
+  const tIdx = hand.findIndex((t) => t.id === targetId);
+  if (tIdx === -1) return { ok: false, err: "Esa ficha no está en tu mano." };
+  if (!room.bag.length) return { ok: false, err: "El pozo está vacío, no se puede teletransportar." };
+  const [removed] = hand.splice(tIdx, 1);
+  room.bag.push(removed);
+  room.bag = C.shuffle(room.bag);
+  hand.push(room.bag.shift());
+  return { ok: true, msg: `🌀 ${player.name} usó Teletransporte.` };
+}
+
+/* Saca una ficha de una combinación de la mesa y la devuelve. Si lo que queda
+   deja de ser un juego válido (o queda con menos de 3 fichas), TODA la
+   combinación se rompe y sus fichas restantes vuelven a la mano de su dueño
+   original — regla explícita del diseño para cualquier habilidad que toque
+   la mesa (Robo, Atracción). Devuelve null si el meld/ficha no existen. */
+function removeTileFromMeld(room, meldId, tileId) {
+  const meldIdx = room.table.findIndex((m) => m.id === meldId);
+  if (meldIdx === -1) return null;
+  const meld = room.table[meldIdx];
+  const tileIdx = meld.tiles.findIndex((t) => t.id === tileId);
+  if (tileIdx === -1) return null;
+  const removedTile = meld.tiles[tileIdx];
+  const remaining = meld.tiles.filter((t) => t.id !== tileId);
+  const info = remaining.length >= 3 ? C.meldInfo(remaining) : { valid: false };
+  if (!info.valid) {
+    room.table.splice(meldIdx, 1);
+    const ownerHand = room.hands[meld.ownerId];
+    if (ownerHand) remaining.forEach((t) => ownerHand.push(t));
+    return { removedTile, broke: true, ownerId: meld.ownerId, ownerName: meld.ownerName };
+  }
+  meld.tiles = C.sortMeldTiles(remaining);
+  return { removedTile, broke: false, ownerId: meld.ownerId, ownerName: meld.ownerName };
+}
+
+function useRobo(room, player, msg) {
+  const meld = room.table.find((m) => m.id === msg.meldId);
+  if (!meld) return { ok: false, err: "Esa combinación ya no existe." };
+  if (meld.ownerId === player.id) return { ok: false, err: "No podés robar de tu propia combinación." };
+  if (room.shieldActive && room.shieldActive[meld.ownerId]) return { ok: false, err: `${meld.ownerName} tiene Escudo activo.` };
+  if (!meld.tiles.some((t) => t.id === msg.targetTileId)) return { ok: false, err: "Esa ficha no está en esa combinación." };
+  const res = removeTileFromMeld(room, msg.meldId, msg.targetTileId);
+  if (!res) return { ok: false, err: "Esa combinación o ficha ya no existe." };
+  room.hands[player.id].push(res.removedTile);
+  return { ok: true, msg: `🦹 ${player.name} le robó una ficha de la mesa a ${res.ownerName}.${res.broke ? " La combinación se rompió y el resto volvió a su mano." : ""}` };
+}
+
+function useIntercambio(room, player, msg) {
+  const target = room.players.find((p) => p.id === msg.targetPlayerId);
+  if (!target) return { ok: false, err: "Ese jugador no existe." };
+  if (target.id === player.id) return { ok: false, err: "No podés intercambiar con vos mismo." };
+  if (room.shieldActive && room.shieldActive[target.id]) return { ok: false, err: `${target.name} tiene Escudo activo.` };
+  const myHand = room.hands[player.id];
+  const myIdx = myHand.findIndex((t) => t.id === msg.offerTileId);
+  if (myIdx === -1) return { ok: false, err: "Esa ficha no está en tu mano." };
+  const targetHand = room.hands[target.id];
+  if (!targetHand || !targetHand.length) return { ok: false, err: `${target.name} no tiene fichas para intercambiar.` };
+  const randIdx = Math.floor(Math.random() * targetHand.length);
+  const myTile = myHand[myIdx], theirTile = targetHand[randIdx];
+  myHand[myIdx] = theirTile;
+  targetHand[randIdx] = myTile;
+  return { ok: true, msg: `🔄 ${player.name} intercambió una ficha con ${target.name}.` };
+}
+
+function useBloqueo(room, player, msg) {
+  const target = room.players.find((p) => p.id === msg.targetPlayerId);
+  if (!target) return { ok: false, err: "Ese jugador no existe." };
+  if (target.id === player.id) return { ok: false, err: "No podés bloquearte a vos mismo." };
+  if (room.shieldActive && room.shieldActive[target.id]) return { ok: false, err: `${target.name} tiene Escudo activo.` };
+  room.blockedNextTurn[target.id] = true;
+  return { ok: true, msg: `🚫 ${player.name} bloqueó las habilidades de ${target.name} para su próximo turno.` };
+}
+
+/* 🎯 Robo dirigido: a diferencia de Robo (que apunta a una ficha visible en una
+   combinación de la mesa), esta apunta a una ficha específica DENTRO DE LA MANO
+   de un rival — por eso necesita el protocolo de 2 pasos: primero "requestAbilityInfo"
+   revela esa mano (privado, solo al que preguntó) para que pueda elegir con qué
+   `chosenTileId` cerrar el useAbility. */
+function useRoboDirigido(room, player, msg) {
+  const target = room.players.find((p) => p.id === msg.targetPlayerId);
+  if (!target) return { ok: false, err: "Ese jugador no existe." };
+  if (target.id === player.id) return { ok: false, err: "Elegí a un rival." };
+  if (room.shieldActive && room.shieldActive[target.id]) return { ok: false, err: `${target.name} tiene Escudo activo.` };
+  const targetHand = room.hands[target.id] || [];
+  const idx = targetHand.findIndex((t) => t.id === msg.chosenTileId);
+  if (idx === -1) return { ok: false, err: "Esa ficha ya no está en la mano de ese jugador." };
+  const [tile] = targetHand.splice(idx, 1);
+  room.hands[player.id].push(tile);
+  return { ok: true, msg: `🎯 ${player.name} le robó una ficha específica a ${target.name}.` };
+}
+
+/* 👁 Visión: a diferencia de Robo dirigido, acá no hay elección posterior — revelar
+   3 fichas al azar de la mano rival ES el efecto completo, así que alcanza con un
+   solo mensaje. El resultado privado (qué fichas son) viaja en result.private y el
+   caller lo manda SOLO al que activó la habilidad, nunca al resto de la sala. */
+function useVision(room, player, msg) {
+  const target = room.players.find((p) => p.id === msg.targetPlayerId);
+  if (!target) return { ok: false, err: "Ese jugador no existe." };
+  if (target.id === player.id) return { ok: false, err: "Elegí a un rival." };
+  if (room.shieldActive && room.shieldActive[target.id]) return { ok: false, err: `${target.name} tiene Escudo activo.` };
+  const targetHand = room.hands[target.id] || [];
+  if (!targetHand.length) return { ok: false, err: `${target.name} no tiene fichas.` };
+  const revealed = C.shuffle(targetHand).slice(0, Math.min(3, targetHand.length));
+  return {
+    ok: true,
+    msg: `👁 ${player.name} espió la mano de ${target.name}.`,
+    private: { type: "abilityInfo", ability: "vision", targetPlayerId: target.id, targetName: target.name, tiles: revealed },
+  };
+}
+
+/* 🃏 Comodín: convierte una ficha NORMAL de tu propia mano en comodín permanente
+   (interpretación elegida para no necesitar un sistema de "temporalidad" aparte —
+   el comodín resultante es indistinguible de uno del mazo). Sin objetivo rival,
+   no aplica chequeo de Escudo. */
+function useComodin(room, player, msg) {
+  const hand = room.hands[player.id];
+  const idx = hand.findIndex((t) => t.id === msg.chosenTileId);
+  if (idx === -1) return { ok: false, err: "Esa ficha no está en tu mano." };
+  const tile = hand[idx];
+  if (tile.ability) return { ok: false, err: "Elegí una ficha normal, no una de habilidad." };
+  if (tile.joker) return { ok: false, err: "Esa ficha ya es un comodín." };
+  hand[idx] = { id: tile.id, color: "comodin", number: null, joker: true };
+  return { ok: true, msg: `🃏 ${player.name} convirtió una ficha en comodín.` };
+}
+
+/* 🧲 Atracción: mueve una ficha visible de una combinación rival — se valida con
+   meldInfo ANTES de tocar nada; si no entra, la habilidad no se puede usar. Dos
+   destinos posibles:
+   1) msg.destMeldId — una combinación PROPIA ya en la mesa (se le agrega la ficha).
+   2) msg.handTileIds — fichas TUYAS EN LA MANO que, junto con la atraída, arman
+      una combinación nueva (ej. tenés 5 y 7 rojo en la mano, atraés el 6 rojo de
+      la mesa: se arma 5-6-7 rojo y se baja como combinación nueva). */
+function useAtraccion(room, player, msg) {
+  const srcMeld = room.table.find((m) => m.id === msg.sourceMeldId);
+  if (!srcMeld) return { ok: false, err: "Esa combinación de origen ya no existe." };
+  if (srcMeld.ownerId === player.id) return { ok: false, err: "Elegí una combinación de un rival como origen." };
+  if (room.shieldActive && room.shieldActive[srcMeld.ownerId]) return { ok: false, err: `${srcMeld.ownerName} tiene Escudo activo.` };
+  const srcTile = srcMeld.tiles.find((t) => t.id === msg.sourceTileId);
+  if (!srcTile) return { ok: false, err: "Esa ficha no está en esa combinación." };
+
+  if (msg.destMeldId) {
+    const destMeld = room.table.find((m) => m.id === msg.destMeldId);
+    if (!destMeld) return { ok: false, err: "Esa combinación de destino ya no existe." };
+    if (destMeld.ownerId !== player.id) return { ok: false, err: "Elegí una combinación TUYA como destino." };
+    if (destMeld.id === srcMeld.id) return { ok: false, err: "El origen y el destino no pueden ser la misma combinación." };
+    const extended = [...destMeld.tiles, srcTile];
+    const info = C.meldInfo(extended);
+    if (!info.valid) return { ok: false, err: "Esa ficha no se puede colocar de forma legal en esa combinación." };
+    const res = removeTileFromMeld(room, msg.sourceMeldId, msg.sourceTileId);
+    if (!res) return { ok: false, err: "Esa combinación o ficha ya no existe." };
+    destMeld.tiles = C.sortMeldTiles(extended);
+    return { ok: true, msg: `🧲 ${player.name} usó Atracción sobre una ficha de ${res.ownerName}.${res.broke ? " La combinación de origen se rompió y el resto volvió a su mano." : ""}` };
+  }
+
+  if (Array.isArray(msg.handTileIds) && msg.handTileIds.length) {
+    const hand = room.hands[player.id] || [];
+    const handTiles = [];
+    for (const id of msg.handTileIds) {
+      const t = hand.find((x) => x.id === id);
+      if (!t) return { ok: false, err: "Una de las fichas elegidas ya no está en tu mano." };
+      if (t.ability) return { ok: false, err: "No podés usar una ficha de habilidad para armar la combinación." };
+      handTiles.push(t);
+    }
+    const combined = [...handTiles, srcTile];
+    const info = C.meldInfo(combined);
+    if (!info.valid) return { ok: false, err: "Esas fichas más la atraída no forman una combinación válida." };
+    const res = removeTileFromMeld(room, msg.sourceMeldId, msg.sourceTileId);
+    if (!res) return { ok: false, err: "Esa combinación o ficha ya no existe." };
+    const idSet = new Set(msg.handTileIds);
+    room.hands[player.id] = hand.filter((t) => !idSet.has(t.id));
+    room.table.push({ id: C.nid("m"), tiles: C.sortMeldTiles(combined), ownerName: player.name, ownerId: player.id, fx: player.fx || "clasico", trail: player.trail || "clasica", order: ++room.meldCounter });
+    markOpened(room, player);
+    return { ok: true, msg: `🧲 ${player.name} usó Atracción y armó una combinación nueva con una ficha de ${res.ownerName}.${res.broke ? " La combinación de origen se rompió y el resto volvió a su mano." : ""}`, checkWin: true };
+  }
+
+  return { ok: false, err: "Elegí una combinación tuya en la mesa o fichas de tu mano como destino." };
+}
+
+/* ---------- conexiones WebSocket ---------- */
+wss.on("connection", (ws) => {
+  let room = null, player = null;
+
+  let authUser = null; // username del jugador autenticado en este WS
+
+  ws.on("message", async (raw) => {
+    let msg;
+    try { msg = JSON.parse(raw); } catch (e) { return; }
+
+    if (msg.type === "register") {
+      const r = await DB.register(msg.username, msg.password);
+      if (r.ok) { authUser = msg.username.trim(); send(ws, { type: "authOk", profile: r.profile, welcomeBonus: r.welcomeBonus || null }); }
+      else send(ws, { type: "error", msg: r.error });
+      return;
+    }
+    if (msg.type === "login") {
+      const r = await DB.login(msg.username, msg.password);
+      if (r.ok) { authUser = msg.username.trim(); send(ws, { type: "authOk", profile: r.profile, welcomeBonus: r.welcomeBonus || null, alert: r.alert || null }); }
+      else send(ws, { type: "error", msg: r.error });
+      return;
+    }
+    if (msg.type === "leaderboard") {
+      send(ws, { type: "leaderboard", data: await DB.leaderboard(20) });
+      return;
+    }
+    if (msg.type === "listRooms") {
+      const list = Array.from(rooms.values())
+        .filter(r => r.public && !r.started)
+        .map(r => ({
+          code: r.code, name: r.name || r.code, gameMode: r.gameMode || "casual",
+          adminName: (r.players[0] && r.players[0].name) || "?",
+          playerCount: r.players.length, maxPlayers: MAX_PLAYERS,
+        }));
+      send(ws, { type: "roomList", rooms: list });
+      return;
+    }
+    if (msg.type === "buyItem") {
+      if (!authUser) return send(ws, { type: "error", msg: "No estás logueado." });
+      const kind = msg.kind; // 'skin' | 'tapete' | 'effect'
+      const id = msg.id;
+      const r = await DB.buyItem(authUser, kind, id);
+      if (r.ok) {
+        send(ws, { type: "profile", profile: r.profile });
+        if (r.newAchievements && r.newAchievements.length) send(ws, { type: "achievementsUnlocked", achievements: r.newAchievements });
+      } else send(ws, { type: "error", msg: r.error });
+      return;
+    }
+    if (msg.type === "setActive") {
+      if (!authUser) return send(ws, { type: "error", msg: "No estás logueado." });
+      const r = await DB.setActive(authUser, msg.kind, msg.id);
+      if (r.ok) {
+        if (player && msg.kind === "effect") player.fx = msg.id || "clasico";
+        if (player && msg.kind === "trail") player.trail = msg.id || "clasica";
+        send(ws, { type: "profile", profile: r.profile });
+      }
+      else send(ws, { type: "error", msg: r.error });
+      return;
+    }
+    if (msg.type === "setAvatar") {
+      if (!authUser) return send(ws, { type: "error", msg: "No estás logueado." });
+      const r = await DB.setAvatar(authUser, msg.avatar);
+      if (r.ok) send(ws, { type: "profile", profile: r.profile });
+      else send(ws, { type: "error", msg: r.error });
+      return;
+    }
+    if (msg.type === "claimPass") {
+      if (!authUser) return send(ws, { type: "error", msg: "No estás logueado." });
+      const r = await DB.claimPass(authUser, msg.level);
+      if (r.ok) send(ws, { type: "profile", profile: r.profile });
+      else send(ws, { type: "error", msg: r.error });
+      return;
+    }
+    if (msg.type === "claimGalacticoPass") {
+      if (!authUser) return send(ws, { type: "error", msg: "No estás logueado." });
+      const r = await DB.claimGalacticoPass(authUser, msg.level);
+      if (r.ok) send(ws, { type: "profile", profile: r.profile });
+      else send(ws, { type: "error", msg: r.error });
+      return;
+    }
+    if (msg.type === "catalog") {
+      send(ws, { type: "catalog", catalog: DB.CATALOG, achievements: DB.ACHIEVEMENTS.map(a => ({ id: a.id, name: a.name, desc: a.desc, coinReward: a.coinReward, xpReward: a.xpReward })) });
+      return;
+    }
+        if (msg.type === "myProfile") {
+      if (!authUser) return send(ws, { type: "error", msg: "No estás logueado." });
+      const p = await DB.getProfileByName(authUser);
+      if (p) send(ws, { type: "profile", profile: p });
+      return;
+    }
+    if (msg.type === "join") {
+      const code = (msg.room || "").toUpperCase().trim();
+      const name = (msg.name || "Jugador").slice(0, 16);
+      if (code === "NUEVA") {
+        const gm0 = GAME_MODES.includes(msg.gameMode) ? msg.gameMode : (msg.ranked ? "ranked" : "casual");
+        room = { code: makeRoomCode(), name: (msg.roomName || "").trim().slice(0, 24) || ("Sala de " + name), public: !!msg.public, players: [], started: false, table: [], bag: [], hands: {}, hasLaidInitial: {}, currentIdx: 0, meldCounter: 0, passStreak: 0, ranked: gm0 === "team2v2" ? false : !!msg.ranked, gameMode: gm0 };
+        rooms.set(room.code, room);
+      } else {
+        room = rooms.get(code);
+        if (!room) return send(ws, { type: "error", msg: "No existe esa sala." });
+        if (room.started) {
+          if (room.gameMode === "team2v2") return send(ws, { type: "error", msg: "Esta sala es 2v2 y ya está en curso: no se puede entrar a mitad de partida." });
+          const elapsed = Date.now() - (room.startedAt || 0);
+          if (elapsed > 5 * 60 * 1000) return send(ws, { type: "error", msg: "Esa partida ya lleva más de 5 minutos, no se puede unir." });
+          // late join: se le reparten fichas del pozo
+          if (room.players.length >= MAX_PLAYERS) return send(ws, { type: "error", msg: "Sala llena (máx " + MAX_PLAYERS + ")." });
+          player = { id: C.nid("p"), ws, name, connected: true, username: authUser || null, skin: msg.skin || "clasica", nameeffect: null, banner: null, team: null };
+          if (player.username) { const prof = await DB.getProfileByName(player.username); if (prof) { player.avatar = prof.avatar; player.rankPts = prof.rankPts; player.level = prof.level; player.fx = prof.active && prof.active.effect || "clasico"; player.trail = prof.active && prof.active.trail || "clasica"; player.nameeffect = prof.active && prof.active.nameeffect || null; player.banner = prof.active && prof.active.banner || null; } }
+          room.players.push(player);
+          room.hands[player.id] = room.bag.splice(0, Math.min(14, room.bag.length));
+          room.hasLaidInitial[player.id] = false;
+          room.jokerBreaks[player.id] = 3;
+          send(ws, { type: "joined", code: room.code, playerId: player.id });
+          room.players.forEach(p => send(p.ws, { type: "toast", msg: name + " se unió a la partida en curso." }));
+          broadcast(room);
+          return;
+        }
+        if (room.players.length >= MAX_PLAYERS) return send(ws, { type: "error", msg: "Sala llena (máx " + MAX_PLAYERS + ")." });
+        if (room.gameMode === "team2v2" && room.players.length >= 4) return send(ws, { type: "error", msg: "Sala llena (2v2 = 4 jugadores)." });
+      }
+      player = { id: C.nid("p"), ws, name, connected: true, username: authUser || null, skin: msg.skin || "clasica", nameeffect: null, banner: null, team: null };
+      if (player.username) { const prof = await DB.getProfileByName(player.username); if (prof) { player.avatar = prof.avatar; player.rankPts = prof.rankPts; player.level = prof.level; player.nameeffect = prof.active && prof.active.nameeffect || null; player.banner = prof.active && prof.active.banner || null; } }
+      room.players.push(player);
+      send(ws, { type: "joined", code: room.code, playerId: player.id });
+      broadcast(room);
+      return;
+    }
+
+    if (msg.type === "rejoin") {
+      // Recuperar el asiento después de un refresh/corte de wifi momentáneo,
+      // en vez de tratar CUALQUIER cierre de conexión como rendición (ver
+      // ws.on("close") más abajo, que ahora da un margen de gracia antes de
+      // forfeitPlayer en vez de aplicarlo al instante).
+      if (!authUser) return send(ws, { type: "error", msg: "No estás logueado." });
+      const code = (msg.room || "").toUpperCase().trim();
+      const targetRoom = rooms.get(code);
+      if (!targetRoom) return send(ws, { type: "error", msg: "Esa sala ya no existe." });
+      const existing = targetRoom.players.find(p => p.id === msg.playerId);
+      if (!existing || !existing.username || existing.username.toLowerCase() !== authUser.toLowerCase()) {
+        return send(ws, { type: "error", msg: "No se pudo reconectar a esa sala." });
+      }
+      if (existing.connected && existing.ws && existing.ws !== ws) {
+        return send(ws, { type: "error", msg: "Esa sala ya está conectada desde otra pestaña/dispositivo." });
+      }
+      if (existing._forfeitGraceTimer) { clearTimeout(existing._forfeitGraceTimer); existing._forfeitGraceTimer = null; }
+      existing.ws = ws;
+      existing.connected = true;
+      player = existing;
+      room = targetRoom;
+      send(ws, { type: "joined", code: room.code, playerId: existing.id });
+      room.players.forEach(p => { if (p.ws && p.id !== existing.id) send(p.ws, { type: "toast", msg: existing.name + " se reconectó." }); });
+      broadcast(room);
+      return;
+    }
+
+    if (msg.type === "leaveRoom") {
+      // Salir de una sala de espera (todavía no arrancó) sin cerrar la conexión ni
+      // desloguear — a diferencia de cerrar el WS, esto deja al jugador conectado
+      // y logueado, listo para volver a la lista de salas al instante.
+      if (room && player && !room.started) {
+        const idx = room.players.indexOf(player);
+        if (idx !== -1) room.players.splice(idx, 1);
+        broadcast(room);
+        if (room.players.length === 0) {
+          clearInterval(room.turnTimer);
+          rooms.delete(room.code);
+        }
+      }
+      room = null; player = null;
+      send(ws, { type: "leftRoom" });
+      return;
+    }
+
+    if (!room || !player) return;
+
+    if (msg.type === "setSkin") {
+      if (!room) return;
+      player.skin = msg.skin || "clasica";
+      broadcast(room);
+      return;
+    }
+    if (msg.type === "setNameCosmetics") {
+      // Mismo patrón que setSkin: si cambiás tu efecto de nombre o banner (Pase
+      // Galáctico) mientras ya estás en una sala, se refleja en vivo para los demás.
+      // A diferencia de setSkin, no confía en lo que mande el cliente — relee el
+      // perfil autoritativo del servidor (mismo criterio que avatar/rankPts/level).
+      if (!room || !player.username) return;
+      const prof = await DB.getProfileByName(player.username);
+      if (prof) {
+        player.nameeffect = (prof.active && prof.active.nameeffect) || null;
+        player.banner = (prof.active && prof.active.banner) || null;
+      }
+      broadcast(room);
+      return;
+    }
+    if (msg.type === "setReady") {
+      if (!room || room.started) return;
+      player.ready = !!msg.ready;
+      broadcast(room);
+      return;
+    }
+    if (msg.type === "placeBet") {
+      if (!room || room.started) return;
+      if (room.gameMode !== "monedas") return send(ws, { type: "error", msg: "Esta sala no es de modo Monedas." });
+      if (player.isAI || !player.username) return send(ws, { type: "error", msg: "Los bots no apuestan." });
+      if (player.bet) return send(ws, { type: "error", msg: "Ya apostaste. Cancelá tu apuesta si querés cambiarla." });
+      const amount = Math.floor(Number(msg.amount));
+      const r = await DB.reserveBet(player.username, amount);
+      if (!r.ok) return send(ws, { type: "error", msg: r.error });
+      player.bet = amount;
+      send(ws, { type: "profile", profile: r.profile });
+      broadcast(room);
+      return;
+    }
+    if (msg.type === "cancelBet") {
+      if (!room || room.started) return;
+      if (!player.bet) return;
+      const r = await DB.creditCoins(player.username, player.bet);
+      player.bet = 0;
+      if (r.ok) send(ws, { type: "profile", profile: r.profile });
+      broadcast(room);
+      return;
+    }
+    if (msg.type === "setTapete") {
+      if (!room || room.started) return;
+      if (room.players[0].id !== player.id) return send(ws, { type: "error", msg: "Solo el admin puede cambiar la mesa." });
+      room.tapete = msg.tapete || "clasico";
+      broadcast(room);
+      return;
+    }
+    if (msg.type === "setTeam") {
+      if (!room || room.started) return;
+      if (room.gameMode !== "team2v2") return;
+      if (room.players[0].id !== player.id) return send(ws, { type: "error", msg: "Solo el admin puede asignar equipos." });
+      const target = room.players.find(p => p.id === msg.playerId);
+      if (!target) return;
+      const team = ["blue", "red", null].includes(msg.team) ? msg.team : null;
+      if (team) {
+        const teammates = room.players.filter(p => p.team === team && p.id !== target.id);
+        if (teammates.length >= 2) return send(ws, { type: "error", msg: "Ese equipo ya tiene 2 jugadores." });
+        // Un equipo tiene que ser IA+IA o jugador+jugador — nunca mezclados (la IA
+        // no puede coordinarse con un humano dentro del turno de equipo compartido).
+        if (teammates.length === 1 && teammates[0].isAI !== target.isAI) {
+          return send(ws, { type: "error", msg: "Un equipo no puede mezclar jugador real con IA — los dos tienen que ser del mismo tipo." });
+        }
+      }
+      target.team = team;
+      broadcast(room);
+      return;
+    }
+    if (msg.type === "addAI") {
+      if (!room || room.started) return;
+      if (room.players[0].id !== player.id) return send(ws, { type: "error", msg: "Solo el admin puede agregar IA." });
+      // La IA todavía no sabe usar habilidades (fase futura) — para no romper con
+      // fichas de habilidad mezcladas en su mano, Galáctico es siempre entre reales.
+      if (room.gameMode === "galactico") return send(ws, { type: "error", msg: "Modo Galáctico es siempre entre jugadores reales, sin IA (por ahora)." });
+      if (room.gameMode === "team2v2" && room.players.length >= 4) return send(ws, { type: "error", msg: "Sala llena (2v2 = 4 jugadores)." });
+      if (room.players.length >= MAX_PLAYERS) return send(ws, { type: "error", msg: "Sala llena (máx " + MAX_PLAYERS + ")." });
+      const diff = msg.difficulty || "normal";
+      const aiAvatars = {"easy":"🤖","normal":"👾","hard":"💀","expert":"🧠","claude":"✨"};
+      const aiNames = { easy:["Bot Fácil","Bot Blanda","Bot Novato"], normal:["Bot Alpha","Bot Beta","Bot Gamma"], hard:["Bot Dura","Bot Cruel","Bot Salvaje"], expert:["Bot Experta","Bot Genio","Bot IA+"], claude:["IA-Claude"] };
+      const pool = aiNames[diff] || aiNames.normal;
+      const usedNames = room.players.map(p => p.name);
+      const name = pool.find(n => !usedNames.includes(n)) || "Bot " + (room.players.length + 1);
+      const aiPlayer = { id: C.nid("ai"), ws: null, name, connected: true, isAI: true, ready: true, username: null, aiDifficulty: diff, avatar: aiAvatars[diff]||"🤖", skin: "clasica" };
+      room.players.push(aiPlayer);
+      broadcast(room);
+      return;
+    }
+    if (msg.type === "kickAI") {
+      if (!room || room.started) return;
+      if (room.players[0].id !== player.id) return send(ws, { type: "error", msg: "Solo el admin puede." });
+      const aiIdx = room.players.findIndex(p => p.isAI && p.id === msg.aiId);
+      if (aiIdx > 0) { room.players.splice(aiIdx, 1); broadcast(room); }
+      return;
+    }
+    if (msg.type === "roomConfig") {
+      if (!room || room.started) return;
+      if (room.players[0].id !== player.id) return send(ws, { type: "error", msg: "Solo el admin puede configurar." });
+      room.config = {
+        turnSeconds: Math.min(120, Math.max(10, msg.turnSeconds || 60)),
+        deckPct: [25, 50, 75, 100].includes(msg.deckPct) ? msg.deckPct : 100,
+        initTiles: [7, 10, 14, 18].includes(msg.initTiles) ? msg.initTiles : 14,
+        matchMinutes: [0, 10, 20, 30, 45, 60].includes(msg.matchMinutes) ? msg.matchMinutes : 0,
+        winMode: ["classic","points"].includes(msg.winMode) ? msg.winMode : "classic",
+        targetScore: msg.targetScore > 0 ? Math.min(500, msg.targetScore) : 200,
+      };
+      room.gameMode = GAME_MODES.includes(msg.gameMode) ? msg.gameMode : (room.ranked ? "ranked" : "casual");
+      if (room.gameMode === "team2v2") room.ranked = false;
+      // Galáctico solo se gana vaciando la mano de fichas normales — sin variante
+      // "por puntaje" (la UI ya la oculta, esto es el resguardo del lado servidor).
+      if (room.gameMode === "galactico") room.config.winMode = "classic";
+      broadcast(room);
+      return;
+    }
+    if (msg.type === "start") {
+      if (room.players[0].id !== player.id) return send(ws, { type: "error", msg: "Solo el admin puede empezar la partida." });
+      if (room.players.length < 2) return send(ws, { type: "error", msg: "Necesitás al menos 2 jugadores." });
+      const humansNotReady = room.players.filter(p => !p.isAI && !p.ready);
+      if (humansNotReady.length > 0) return send(ws, { type: "error", msg: "Faltan jugadores listos: " + humansNotReady.map(p => p.name).join(", ") });
+      if (room.gameMode === "monedas") {
+        const missingBet = room.players.filter(p => !p.isAI && !p.bet);
+        if (missingBet.length > 0) return send(ws, { type: "error", msg: "Todos tienen que apostar antes de empezar: " + missingBet.map(p => p.name).join(", ") });
+      }
+      if (room.gameMode === "team2v2") {
+        if (room.players.length !== 4) return send(ws, { type: "error", msg: "2v2 necesita exactamente 4 jugadores." });
+        const blue = room.players.filter(p => p.team === "blue");
+        const red = room.players.filter(p => p.team === "red");
+        if (blue.length !== 2 || red.length !== 2) {
+          return send(ws, { type: "error", msg: "Asigná 2 jugadores a cada equipo antes de empezar." });
+        }
+        // Equipos homogéneos: los dos IA o los dos jugadores reales, nunca mezclados.
+        if (blue[0].isAI !== blue[1].isAI) return send(ws, { type: "error", msg: "El equipo Azul mezcla jugador real con IA — tienen que ser del mismo tipo." });
+        if (red[0].isAI !== red[1].isAI) return send(ws, { type: "error", msg: "El equipo Rojo mezcla jugador real con IA — tienen que ser del mismo tipo." });
+      }
+      startGame(room);
+      return;
+    }
+    if (msg.type === "lay") {
+      const err = handleLay(room, player, msg.tiles || []);
+      if (err) send(ws, { type: "error", msg: err });
+      return;
+    }
+    if (msg.type === "layMultiple") {
+      const err = handleLayMultiple(room, player, msg.groups || []);
+      if (err) send(ws, { type: "error", msg: err });
+      return;
+    }
+    if (msg.type === "reorganize") {
+      const err = handleReorganize(room, player, msg.openedMeldIds || [], msg.groups || []);
+      if (err) send(ws, { type: "error", msg: err });
+      return;
+    }
+    if (msg.type === "attach") {
+      const err = handleAttach(room, player, msg.meldId, msg.tiles || []);
+      if (err) send(ws, { type: "error", msg: err });
+      return;
+    }
+    if (msg.type === "surrender") {
+      forfeitPlayer(room, player, { viaClose: false });
+      return;
+    }
+    if (msg.type === "reveal") {
+      // Jugador revela su ficha del sorteo
+      if (!room || !room.sorteo || room.phase !== "sorteo") return;
+      const entry = room.sorteo.find(s => s.playerId === player.id);
+      if (!entry || entry.revealed) return;
+      entry.revealed = true;
+      room.sorteoRevealed++;
+      broadcast(room);
+      // Si todos revelaron, determinar orden y pasar a dealing
+      if (room.sorteoRevealed >= room.players.length) {
+        setTimeout(() => finishSorteo(room), 2000);
+      }
+      return;
+    }
+    if (msg.type === "dealDraw") {
+      // Jugador agarra fichas de la bolsa durante el reparto
+      if (!room || room.phase !== "dealing") return;
+      const count = msg.all ? (14 - (room.dealCounts[player.id]||0)) : 1;
+      for (let i = 0; i < count; i++) {
+        if (room.bag.length === 0 || (room.dealCounts[player.id]||0) >= (room.initTiles||14)) break;
+        room.hands[player.id].push(room.bag.shift());
+        room.dealCounts[player.id] = (room.dealCounts[player.id]||0) + 1;
+      }
+      broadcast(room);
+      // Si todos tienen 14, pasar a playing
+      const allDealt = room.players.every(p => (room.dealCounts[p.id]||0) >= (room.initTiles||14));
+      if (allDealt) {
+        setTimeout(() => startPlayingPhase(room), 800);
+      }
+      return;
+    }
+    if (msg.type === "activity") {
+      // el jugador informa qué está haciendo (zona de trabajo) para que los demás lo vean.
+      // En team2v2 esto lleva las fichas REALES (no solo conteos) porque el destinatario
+      // es únicamente el propio compañero de equipo, que de todos modos ya ve su mano
+      // completa vía teammateHand — no se expone nada nuevo a un rival.
+      player.activity = msg.info || null; // ej: {groups:2, loose:3} o, en 2v2, {groups:[...], loose:[...]}
+      const recipients = room.gameMode === "team2v2"
+        ? room.players.filter((p) => p.id !== player.id && p.team && p.team === player.team)
+        : room.players.filter((p) => p.id !== player.id);
+      recipients.forEach((p) => {
+        if (p.ws) send(p.ws, { type: "playerActivity", playerId: player.id, playerName: player.name, info: player.activity });
+      });
+      return;
+    }
+    if (msg.type === "nudgeCancel") {
+      // "Empujón" para pedirle al compañero que cancele su jugada en progreso — SIN
+      // tocar su estado de forma remota (eso lo decidimos explícitamente evitar): solo
+      // le llega un aviso, y quien cancela sigue siendo él mismo con su propio botón.
+      if (!room || room.gameMode !== "team2v2" || !player.team) return;
+      const mate = room.players.find((p) => p.id !== player.id && p.team === player.team);
+      if (mate && mate.ws) send(mate.ws, { type: "nudgeCancel", byId: player.id, byName: player.name });
+      return;
+    }
+    if (msg.type === "markTiles") {
+      // Marcado táctico multi-ficha: sugerirle al compañero qué fichas de SU mano usar.
+      // Se valida contra la mano real del compañero para no poder "marcar" cualquier cosa.
+      if (!room || room.gameMode !== "team2v2" || !player.team) return;
+      const mate = room.players.find((p) => p.id !== player.id && p.team === player.team);
+      if (!mate || !mate.ws) return;
+      const mateHand = room.hands[mate.id] || [];
+      const validIds = (msg.tileIds || []).filter((id) => mateHand.some((t) => t.id === id));
+      send(mate.ws, { type: "tilesMarked", byId: player.id, byName: player.name, tileIds: validIds });
+      return;
+    }
+    if (msg.type === "draw") {
+      const err = handleDraw(room, player);
+      if (err) send(ws, { type: "error", msg: err });
+      return;
+    }
+    if (msg.type === "useAbility") {
+      const gateErr = canActivateAbility(room, player);
+      if (gateErr) { send(ws, { type: "error", msg: gateErr }); return; }
+      const hand = room.hands[player.id] || [];
+      const idx = hand.findIndex((t) => t.id === msg.tileId && t.ability);
+      if (idx === -1) { send(ws, { type: "error", msg: "No tenés esa ficha de habilidad." }); return; }
+      if (hand[idx].ability !== msg.ability) { send(ws, { type: "error", msg: "La ficha no coincide con la habilidad indicada." }); return; }
+
+      let result;
+      if (msg.ability === "escudo") result = useEscudo(room, player);
+      else if (msg.ability === "robo_doble") result = useRoboDoble(room, player);
+      else if (msg.ability === "teletransporte") result = useTeletransporte(room, player, msg);
+      else if (msg.ability === "robo") result = useRobo(room, player, msg);
+      else if (msg.ability === "intercambio") result = useIntercambio(room, player, msg);
+      else if (msg.ability === "bloqueo") result = useBloqueo(room, player, msg);
+      else if (msg.ability === "robo_dirigido") result = useRoboDirigido(room, player, msg);
+      else if (msg.ability === "vision") result = useVision(room, player, msg);
+      else if (msg.ability === "comodin") result = useComodin(room, player, msg);
+      else if (msg.ability === "atraccion") result = useAtraccion(room, player, msg);
+      else result = { ok: false, err: "Esa habilidad todavía no está disponible." };
+
+      if (!result.ok) { send(ws, { type: "error", msg: result.err || "No se pudo usar la habilidad." }); return; }
+      // Recalcular DESPUÉS del handler, y desde room.hands[player.id] en vivo (no la
+      // variable `hand` capturada arriba): algunos handlers (ej. Teletransporte) mutan
+      // ese mismo array con splice/push, y otros (ej. Atracción armando una combinación
+      // nueva desde la mano) lo REEMPLAZAN por un array nuevo — en ese segundo caso,
+      // `hand` queda apuntando a un array viejo y descartado, así que splicearlo ahí no
+      // saca la ficha de la mano real.
+      const finalHand = room.hands[player.id] || [];
+      const finalIdx = finalHand.findIndex((t) => t.id === msg.tileId);
+      if (finalIdx !== -1) finalHand.splice(finalIdx, 1);
+      room.abilityUsedThisTurn[player.id] = true;
+      // Resultado privado (ej. Visión): SOLO al que activó la habilidad, nunca al resto.
+      if (result.private) send(ws, result.private);
+      // abilityBy/abilityKey van aparte del texto largo del toast — el cliente los usa
+      // para el cartel grande "NOMBRE USÓ HABILIDAD" (no parsea el mensaje en español).
+      room.players.forEach((p) => { if (p.ws) send(p.ws, { type: "toast", msg: result.msg, kind: "ability", abilityBy: player.name, abilityKey: msg.ability }); });
+      // Algunas habilidades pueden bajar una combinación nueva (ej. Atracción armando
+      // un juego con fichas de la mano) — si eso vacía las fichas normales, se gana.
+      if (result.checkWin && handIsEmptyForWin(room, player.id)) {
+        room.players.forEach((p) => { if (p.ws) send(p.ws, { type: "toast", msg: "¡" + player.name + " ganó la partida! 🎉" }); });
+        finishMatch(room, player.id);
+        return;
+      }
+      broadcast(room);
+      return;
+    }
+    if (msg.type === "requestAbilityInfo") {
+      // Paso 1 de 2 de Robo dirigido: revela la mano completa del rival, PERO solo al
+      // que preguntó (mismo patrón de privacidad que teammateHand/markTiles en 2v2) —
+      // todavía no consume la ficha de habilidad ni cuenta como "usada" esta habilidad.
+      const gateErr = canActivateAbility(room, player);
+      if (gateErr) { send(ws, { type: "error", msg: gateErr }); return; }
+      if (msg.ability !== "robo_dirigido") { send(ws, { type: "error", msg: "Esa habilidad no necesita consulta previa." }); return; }
+      const hasTile = (room.hands[player.id] || []).some((t) => t.id === msg.tileId && t.ability === "robo_dirigido");
+      if (!hasTile) { send(ws, { type: "error", msg: "No tenés esa ficha de habilidad." }); return; }
+      const target = room.players.find((p) => p.id === msg.targetPlayerId);
+      if (!target) { send(ws, { type: "error", msg: "Ese jugador no existe." }); return; }
+      if (target.id === player.id) { send(ws, { type: "error", msg: "Elegí a un rival." }); return; }
+      if (room.shieldActive && room.shieldActive[target.id]) { send(ws, { type: "error", msg: `${target.name} tiene Escudo activo.` }); return; }
+      send(ws, { type: "abilityInfo", ability: "robo_dirigido", targetPlayerId: target.id, targetName: target.name, tiles: room.hands[target.id] || [] });
+      return;
+    }
+    if (msg.type === "teamAddLoose") {
+      const err = handleTeamAddLoose(room, player, msg.tileIds || []);
+      if (err) send(ws, { type: "error", msg: err });
+      return;
+    }
+    if (msg.type === "teamRemoveLoose") {
+      const err = handleTeamRemoveLoose(room, player, msg.tileIds || []);
+      if (err) send(ws, { type: "error", msg: err });
+      return;
+    }
+    if (msg.type === "teamFormGroup") {
+      const err = handleTeamFormGroup(room, player, msg.tileIds || []);
+      if (err) send(ws, { type: "error", msg: err });
+      return;
+    }
+    if (msg.type === "teamDissolveGroup") {
+      const err = handleTeamDissolveGroup(room, player, msg.groupId);
+      if (err) send(ws, { type: "error", msg: err });
+      return;
+    }
+    if (msg.type === "teamAddToGroup") {
+      const err = handleTeamAddToGroup(room, player, msg.groupId, msg.tileIds || []);
+      if (err) send(ws, { type: "error", msg: err });
+      return;
+    }
+    if (msg.type === "teamClearWork") {
+      const err = handleTeamClearWork(room, player);
+      if (err) send(ws, { type: "error", msg: err });
+      return;
+    }
+    if (msg.type === "teamOpenMeld") {
+      const err = handleTeamOpenMeld(room, player, msg.meldId);
+      if (err) send(ws, { type: "error", msg: err });
+      return;
+    }
+    if (msg.type === "teamConfirm") {
+      const err = handleTeamConfirm(room, player);
+      if (err) send(ws, { type: "error", msg: err });
+      return;
+    }
+    if (msg.type === "teamProposeDraw") {
+      if (!room || room.gameMode !== "team2v2") return;
+      const err = handleTeamProposeDraw(room, player);
+      if (err) send(ws, { type: "error", msg: err });
+      return;
+    }
+    if (msg.type === "teamProposeConfirm") {
+      if (!room || room.gameMode !== "team2v2") return;
+      const err = handleTeamProposeConfirm(room, player);
+      if (err) send(ws, { type: "error", msg: err });
+      return;
+    }
+    if (msg.type === "teamRespond") {
+      if (!room || room.gameMode !== "team2v2" || !player.team) return;
+      handleTeamRespond(room, player, !!msg.agree);
+      return;
+    }
+    if (msg.type === "quickChat") {
+      if (!room) return;
+      if (!QUICK_CHAT_OPTIONS.includes(msg.text)) return;
+      const now = Date.now();
+      if (player.lastChatAt && now - player.lastChatAt < QUICK_CHAT_COOLDOWN_MS) {
+        return send(ws, { type: "error", msg: "Esperá un toque antes de mandar otro mensaje." });
+      }
+      player.lastChatAt = now;
+      room.players.forEach((p) => {
+        if (p.ws) send(p.ws, { type: "chat", playerId: player.id, playerName: player.name, text: msg.text });
+      });
+      return;
+    }
+    if (msg.type === "teamChat") {
+      // Chat de equipo (2v2): mensaje NUEVO y aparte de quickChat (no una bandera sobre
+      // el mismo camino) a propósito — así no se toca el broadcast de quickChat, que hoy
+      // manda a TODA la sala sin filtro; acá el filtro por equipo es explícito.
+      if (!room || room.gameMode !== "team2v2" || !player.team) return;
+      if (!TEAM_CHAT_OPTIONS.includes(msg.text)) return;
+      const now = Date.now();
+      if (player.lastTeamChatAt && now - player.lastTeamChatAt < QUICK_CHAT_COOLDOWN_MS) {
+        return send(ws, { type: "error", msg: "Esperá un toque antes de mandar otro mensaje." });
+      }
+      player.lastTeamChatAt = now;
+      room.players.filter((p) => p.team === player.team).forEach((p) => {
+        if (p.ws) send(p.ws, { type: "teamChat", playerId: player.id, playerName: player.name, text: msg.text });
+      });
+      return;
+    }
+  });
+
+  ws.on("close", () => {
+    if (!room || !player) return;
+    const closedPlayer = player, closedRoom = room;
+    closedPlayer.connected = false;
+    // Si el admin se desconecta antes de empezar, remover y pasar admin al siguiente
+    if (!closedRoom.started) {
+      const idx = closedRoom.players.indexOf(closedPlayer);
+      if (idx !== -1) closedRoom.players.splice(idx, 1);
+    } else if (closedRoom.phase === "playing" && !closedPlayer.isAI) {
+      // Margen de gracia antes de tratar el cierre como rendición: un refresh de
+      // página o un corte de wifi momentáneo cierra el WS igual que cerrar la
+      // pestaña de verdad — sin esto, CUALQUIER micro-corte perdía la partida al
+      // instante. Si el jugador manda "rejoin" a tiempo (ver arriba), este timer
+      // se cancela y no pasa nada; si no, se aplica la rendición de siempre.
+      const GRACE_MS = 25000;
+      closedPlayer._forfeitGraceTimer = setTimeout(() => {
+        closedPlayer._forfeitGraceTimer = null;
+        if (closedPlayer.connected) return; // ya se reconectó por otro lado mientras tanto
+        forfeitPlayer(closedRoom, closedPlayer, { viaClose: true });
+      }, GRACE_MS);
+    }
+    broadcast(room);
+    // si la sala queda vacía de gente conectada, la limpiamos tras un rato
+    setTimeout(() => {
+      if (room.players.every((p) => !p.connected)) {
+        clearInterval(room.turnTimer);
+        rooms.delete(room.code);
+      }
+    }, 5 * 60 * 1000);
+  });
+});
+
+server.listen(PORT, () => {
+  const nets = os.networkInterfaces();
+  const ips = [];
+  for (const name of Object.keys(nets)) {
+    for (const net of nets[name]) {
+      if (net.family === "IPv4" && !net.internal) ips.push(net.address);
+    }
+  }
+  console.log("\n🀄 Burako LAN server corriendo");
+  console.log(`   Local:  http://localhost:${PORT}`);
+  ips.forEach((ip) => console.log(`   Red:    http://${ip}:${PORT}`));
+  console.log("\n   Compartí la URL de 'Red' con los demás jugadores en tu misma wifi/LAN.\n");
+});

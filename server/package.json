@@ -1,0 +1,23 @@
+{
+  "name": "burako-lan-server",
+  "version": "2.3.0",
+  "description": "Servidor autoritativo para jugar Burako multijugador en red local (LAN)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test:supabase": "node scripts/test-supabase-connection.mjs",
+    "db:push": "supabase db push",
+    "db:migration:new": "supabase migration new",
+    "migrate:players": "node scripts/migrate-players-to-supabase.mjs",
+    "validate:migration": "node scripts/validate-migration.mjs",
+    "test:auth": "node scripts/test-etapa4-auth.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.112.3",
+    "dotenv": "^17.4.2",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "supabase": "^2.114.0"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "appId": "com.burako.app",
+  "appName": "Burako",
+  "webDir": "www",
+  "backgroundColor": "#06132b",
+  "server": {
+    "androidScheme": "http",
+    "cleartext": true,
+    "allowNavigation": ["*"]
+  }
+}

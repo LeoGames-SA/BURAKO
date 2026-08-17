@@ -1,0 +1,35 @@
+# Dependencias
+node_modules/
+
+# Secretos — nunca al repo
+.env
+.env.local
+.env.*.local
+
+# Datos reales de usuarios (persistencia vieja, pre-Supabase) — nunca al repo
+server/players.json
+
+# Backups de seguridad locales antes de cada etapa (db.js, server.js,
+# players.json) — son artefactos de trabajo, no código versionado.
+server/*.bak-*
+
+# Logs
+server/*.log
+npm-debug.log*
+
+# Build output generado (se reconstruye con sync-www.mjs / cap sync / gradle)
+client/www/
+client/android/app/build/
+client/android/build/
+client/android/.gradle/
+client/android/capacitor-cordova-android-plugins/build/
+client/android/local.properties
+
+# APKs de prueba (se reconstruyen, no versionar binarios)
+*.apk
+
+# Editores / SO
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

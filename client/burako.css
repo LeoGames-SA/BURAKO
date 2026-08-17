@@ -1,0 +1,2655 @@
+:root{
+  --bg-deep:#06132b; --bg-mid:#1f5aa8; --wood:#1c3a63; --wood-dark:#122845; --wood-edge:#0d1f3a;
+  --ivory1:#fffdf5; --ivory2:#f2e8cf; --ivory3:#d9c9a3;
+  --gold:#fbbf24; --gold-dark:#d99b00; --gold-text:#ffe9a8;
+  --rojo:#c0392b; --azul:#1f5fa8; --verde:#1e7d3f; --amarillo:#c9970a; --comodin:#5a2d82;
+  /* acento de asiento — mismo color en el borde del opp-card y en el juego que baja ese jugador */
+  --seat-rojo:#c0392b; --seat-azul:#3b82f6; --seat-verde:#22c55e;
+  --seat-morado:#a855f7; --seat-celeste:#22d3ee; --seat-rosa:#f472b6; --seat-gris:#94a3b8;
+  /* identidad visual única: todos los paneles (menú, tienda, config, historial, atril, mesa…)
+     comparten este mismo fondo/borde/radio/sombra "madera + dorado" en vez de valores sueltos */
+  --panel-bg:rgba(0,0,0,.28);
+  --panel-bg-soft:rgba(0,0,0,.2);
+  --panel-border:rgba(184,150,63,.25);
+  --panel-radius:10px;
+  --panel-radius-lg:18px;
+  --panel-shadow:0 10px 40px rgba(0,0,0,.5);
+  --btn-gold-grad:linear-gradient(180deg,#fcd34d,#f59e0b);
+  --btn-gold-shadow:0 4px 0 #b45309;
+  /* Madera real (cálida) — separada de --wood/--wood-dark/--wood-edge de arriba,
+     que pese al nombre son azules oscuros usados como superficie estructural de
+     paneles. Esta familia es para lo que debe LEERSE como madera física: mesa de
+     juego, marcos premium, bordes de atril. Ver docs/redesign/02-design-dna.md §1. */
+  --wood-brown:#4a2f1c; --wood-brown-light:#6b4226; --wood-brown-edge:#2e1b0f;
+  /* Calidez secundaria, separada del dorado (que queda reservado para premium/CTA):
+     XP, progreso, acentos cálidos que no deben competir con --gold. */
+  --color-amber:#f97316; --color-amber-soft:rgba(249,115,22,.18);
+  --font-display:'Cinzel Decorative',Georgia,serif;
+  --font-heading:'Cinzel',Georgia,serif;
+  --font-body:'Manrope',system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+
+  /* ---------- Tamaño de ficha por contexto (Fase 12 §6) ----------
+     El atril NO tiene un token fijo a propósito: su tamaño sale del ancho real
+     del contenedor dividido en las 10 columnas de la grilla (`.rack{max-width:
+     760px}` / `.rackgrid{grid-template-columns:repeat(10,1fr)}`), así que ya es
+     responsive por diseño — forzarlo a un px fijo lo haría PEOR, no mejor. Mesa,
+     Preparación y el preview grande de skins sí eran valores fijos sueltos
+     (52px/38px/56px cada uno en su regla) — ahora son tokens acá, redefinibles
+     por breakpoint sin tocar cada selector. En mobile se redefinen más chicos
+     que el atril (ver `body.ingame` en el media query de mobile). */
+  --tile-size-table:52px; --tile-size-table-h:70px;
+  --tile-size-preparation:38px; --tile-size-preparation-h:52px;
+  --tile-size-preview:56px; --tile-size-preview-h:76px;
+
+  /* ---------- Lenguaje de movimiento compartido ----------
+     Toda animación NUEVA sale de acá en vez de inventar su propia duración
+     o color suelta — así se sienten parte de un mismo sistema en vez de
+     efectos pegados sin criterio. Los ~70 keyframes que ya existían antes
+     de esto son anteriores a esta convención y quedan como están por ahora
+     (retocarlos requiere volver a mirarlos en un navegador real, que hoy
+     no tenemos disponible en este entorno de trabajo).
+     Duraciones: fast = feedback inmediato (press/hover/tap), normal = la
+     mayoría de los efectos de una acción puntual, slow = ambiental/loop.
+     Color de contexto: cualquier componente que necesite "su propio color"
+     (una habilidad, un efecto de nombre, un banner) define UNA sola
+     variable en su propio elemento, --fx-rgb, como terna "R,G,B" (ej.
+     "168,85,247") — nunca un string de color ya armado con su alpha adentro.
+     Después en el CSS: rgba(var(--fx-rgb),X) para versiones translúcidas,
+     rgb(var(--fx-rgb)) para sólido — con una sola variable alcanza para
+     bordes, glows, degradés y texto, todos coordinados entre sí. */
+  --motion-fast:.15s;
+  --motion-normal:.4s;
+  --motion-slow:1.6s;
+  --motion-ease:cubic-bezier(.2,.8,.3,1.2);
+  --motion-ease-soft:ease-in-out;
+  /* Tier para eventos grandes (§7 del pedido): iniciar partida, repartir, bajar
+     Burako, romper comodín, ganar/perder, subir nivel, desbloquear skin, logro,
+     recompensa de pase. Coreografiado con GSAP en Fase 7 — no usar para hover/click. */
+  --motion-hero:1s;
+
+  /* ---------- Design tokens semánticos ----------
+     Todos ALIAS de valores que ya existían y ya se usaban en decenas de
+     lugares (nunca se tocó el valor en sí, solo se le puso un nombre) —
+     nada visual cambia con esto. A partir de acá, cualquier CSS NUEVO
+     debería salir de estos nombres en vez de escribir el color/radio/sombra
+     suelto de nuevo — así toda pantalla que se rediseñe de acá en más queda
+     hablando el mismo idioma sin tener que reescribir lo que ya funciona. */
+  --color-bg:var(--bg-deep);
+  --color-surface:var(--panel-bg);
+  --color-blue:var(--bg-mid);
+  --color-blue-electric:#38bdf8;
+  --color-violet:#a855f7;
+  --color-gold:var(--gold);
+  --color-wood:var(--wood);
+  --color-text:#e8eef7;
+  --color-muted:rgba(232,238,247,.55);
+  --radius-sm:8px;
+  --radius-md:var(--panel-radius);
+  --radius-lg:var(--panel-radius-lg);
+  --shadow-card:var(--panel-shadow);
+  --shadow-gold:var(--btn-gold-shadow);
+  --transition-fast:var(--motion-fast);
+  --transition-normal:var(--motion-normal);
+  --color-success:var(--seat-verde);
+  --color-danger:var(--rojo);
+  --color-info:var(--color-blue-electric);
+
+  /* ---------- Capas (z-index) ----------
+     Nombra la jerarquía que YA existe en la práctica (fondo en 0, mesa en 1-2,
+     selección/HUD en 4-10, toasts/banners en 40-50, overlays de pausa/modal en
+     60-70, flashes críticos en 90-99) en vez de números mágicos repartidos.
+     Remapeo de las reglas existentes a estos tokens: Fase 2 (progresivo, sin
+     romper el orden relativo actual). Ver docs/redesign/02-design-dna.md §5. */
+  --z-bg:0;
+  --z-ambient:1;
+  --z-table:2;
+  --z-objects:5;
+  --z-ui:20;
+  --z-notification:40;
+  --z-modal:60;
+  --z-critical:90;
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;overflow:hidden}
+body{
+  font-family:var(--font-body);
+  background:
+    radial-gradient(ellipse at 50% -10%, rgba(255,255,255,.06), transparent 40%),
+    radial-gradient(ellipse at 50% 15%, var(--bg-mid), var(--bg-deep) 75%);
+  color:#e8eef7; user-select:none; -webkit-user-select:none;
+  height:100dvh;
+}
+#app{height:100dvh;display:flex;flex-direction:column;position:relative;z-index:1}
+button{font-family:inherit;border:none;cursor:pointer}
+
+/* ============ FONDO GLOBAL DECORATIVO ============
+   Vive fuera de #app (que se reescribe entero en cada render), así las fichas
+   flotando de fondo no parpadean ni se cortan al cambiar de pantalla — el mismo
+   fondo "vivo" acompaña siempre, tanto en el menú como jugando. */
+#bgdecor{position:fixed;inset:0;z-index:0;overflow:hidden;pointer-events:none}
+#bgdecor .tile{position:absolute;opacity:.09;animation:floatTile linear infinite}
+body.ingame #bgdecor .tile{opacity:.07}
+
+/* ============================================================
+   MODO GALÁCTICO — ambientación cósmica de TODA la app (no solo la mesa),
+   activada con body.galactico-mode mientras estás en una sala de este modo.
+   ============================================================ */
+/* Antes esto vivía apagado (opacity:0) salvo en salas de Modo Galáctico — pero
+   un bug en el toggle de body.galactico-mode (ver 11-roadmap.md) lo dejaba
+   prendido por accidente en TODA la app, incluida la portada, y listo: eso es
+   justo lo que el usuario pidió no perder al arreglar el bug ("me gustaba
+   mucho ese resplandor violeta y las estrellas"). En vez de reintroducir el
+   bug, ahora es intencional: nebulosa+estrellas quedan como ambientación base
+   de TODA la app (Fase 11 §1/§2, la profundidad de fondo que pedía la
+   portada), y una sala galáctica de verdad la sube a full intensidad. */
+#galacticoBg{
+  position:fixed;inset:0;z-index:0;overflow:hidden;pointer-events:none;
+  opacity:.5;transition:opacity .8s ease;
+}
+body.galactico-mode #galacticoBg{opacity:1}
+#galacticoBg .gbg-stars{position:absolute;inset:0}
+.gbg-star{
+  position:absolute;border-radius:50%;
+  box-shadow:0 0 4px 1px currentColor;
+  animation-name:gbgTwinkle;animation-timing-function:ease-in-out;animation-iteration-count:infinite;
+}
+@keyframes gbgTwinkle{0%,100%{opacity:.15;transform:scale(.7)}50%{opacity:1;transform:scale(1.15)}}
+.gbg-shoot{
+  position:absolute;left:-8%;width:3px;height:3px;border-radius:50%;background:#fff;
+  box-shadow:0 0 6px 2px rgba(255,255,255,.8);
+  animation-name:gbgShoot;animation-timing-function:ease-in;animation-iteration-count:infinite;
+}
+.gbg-shoot::after{
+  content:"";position:absolute;right:0;top:50%;width:70px;height:1px;transform:translateY(-50%);
+  background:linear-gradient(90deg,rgba(255,255,255,.9),transparent);
+}
+@keyframes gbgShoot{
+  0%{transform:translate(0,0);opacity:0}
+  4%{opacity:1}
+  22%{transform:translate(122vw,55vh);opacity:0}
+  100%{transform:translate(122vw,55vh);opacity:0}
+}
+#galacticoBg .gbg-nebula{
+  position:absolute;inset:-20%;
+  background:
+    radial-gradient(ellipse 40% 30% at 15% 25%,rgba(124,58,237,.35),transparent 70%),
+    radial-gradient(ellipse 35% 28% at 85% 20%,rgba(56,189,248,.22),transparent 70%),
+    radial-gradient(ellipse 38% 32% at 30% 80%,rgba(217,70,239,.22),transparent 70%),
+    radial-gradient(ellipse 32% 30% at 78% 78%,rgba(96,165,250,.2),transparent 70%);
+  filter:blur(12px);
+  animation:gbgDrift 26s ease-in-out infinite alternate;
+}
+@keyframes gbgDrift{0%{transform:translate(0,0) scale(1)}100%{transform:translate(2%,-2%) scale(1.06)}}
+@media(prefers-reduced-motion:reduce){.gbg-star,.gbg-shoot,#galacticoBg .gbg-nebula{animation:none}}
+
+/* Reteñir todo lo que usa las variables de panel/fondo compartidas — así el look
+   cósmico llega "gratis" a cada tarjeta, panel e input sin tener que reescribir
+   cada selector uno por uno. */
+body.galactico-mode{
+  --panel-bg:rgba(46,10,82,.4);
+  --panel-bg-soft:rgba(32,6,62,.32);
+  --panel-border:rgba(168,85,247,.4);
+}
+body.galactico-mode #app{
+  background:
+    radial-gradient(ellipse at 50% -10%,rgba(216,180,254,.08),transparent 40%),
+    radial-gradient(ellipse at 30% 15%,rgba(88,28,135,.5),transparent 55%),
+    radial-gradient(ellipse at 75% 70%,rgba(30,64,175,.35),transparent 55%);
+}
+body.galactico-mode .card{border-color:rgba(168,85,247,.35);box-shadow:var(--panel-shadow),0 0 26px rgba(124,58,237,.15)}
+body.galactico-mode .hud{
+  background:linear-gradient(180deg,rgba(46,10,82,.55),rgba(20,4,40,.35));
+  border-bottom-color:rgba(168,85,247,.35);
+}
+body.galactico-mode .hud .title{color:#e9d5ff;text-shadow:0 0 10px rgba(168,85,247,.5)}
+body.galactico-mode .actions .act-ok{background:linear-gradient(180deg,#34d399,#059669)}
+body.galactico-mode .actions .act-work{background:linear-gradient(180deg,#a855f7,#6b21a8)}
+body.galactico-mode .actions .act-draw{background:linear-gradient(180deg,#60a5fa,#1d4ed8)}
+body.galactico-mode .col-history,body.galactico-mode .col-prep,body.galactico-mode .col-rack,body.galactico-mode .col-pouch,body.galactico-mode .col-teammate{
+  box-shadow:0 0 18px rgba(124,58,237,.12);
+}
+body.galactico-mode .ptitle{color:rgba(216,180,254,.85)}
+
+/* toast de mensajes */
+@keyframes toastIn{0%{transform:translate(-50%,-10px);opacity:0}8%{transform:translate(-50%,0);opacity:1}75%{opacity:1}100%{opacity:0;visibility:hidden}}
+.toast{
+  position:absolute;left:50%;top:calc(100px + env(safe-area-inset-top));transform:translateX(-50%);
+  z-index:40;max-width:92%;padding:8px 16px;border-radius:22px;
+  background:rgba(8,20,45,.92);border:1px solid rgba(251,191,36,.35);
+  color:#ffe9a8;font-size:12.5px;font-weight:600;text-align:center;
+  box-shadow:0 6px 18px rgba(0,0,0,.5);
+  animation:toastIn 4s ease-out forwards;pointer-events:none;
+}
+
+
+/* timer con anillo */
+.timerwrap{position:relative;width:40px;height:40px}
+.timerwrap svg{position:absolute;inset:0;transform:rotate(-90deg)}
+.timerwrap .num{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px}
+
+/* ---------- FICHAS ----------
+   Material real, no un color plano: base ivory + gradiente + DOS pseudo-
+   elementos que ninguna skin toca (verificado contra las 30+ existentes):
+   ::before es un brillo superior fijo (glass highlight, como si le pegara luz
+   desde arriba) y el borde/box-shadow combinan filo iluminado + sombra interna
+   + sombra de contacto + sombra difusa (la ficha "flota" un poco sobre el
+   fieltro). Solo sk-tecno define su propio ::before — al ser más específico
+   (.sk-tecno .tile::before vs .tile::before) gana ahí sin pisar nada acá. */
+.tile{
+  border-radius:8px; display:flex; align-items:center; justify-content:center;
+  font-weight:800;
+  background:linear-gradient(165deg, var(--ivory1) 0%, var(--ivory2) 45%, var(--ivory3) 100%);
+  border:1px solid #b7a983; border-bottom:3px solid #8f815d;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.9),
+    inset 0 -3px 4px rgba(0,0,0,.1),
+    0 2px 3px rgba(0,0,0,.3),
+    0 6px 9px -4px rgba(0,0,0,.4);
+  text-shadow:0 1px 0 rgba(255,255,255,.7);
+  transition:transform var(--motion-fast) var(--motion-ease), box-shadow var(--motion-fast) var(--motion-ease);
+  position:relative;
+}
+.tile:not(.back)::before{
+  content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+  background:linear-gradient(165deg, rgba(255,255,255,.5) 0%, rgba(255,255,255,0) 40%);
+}
+/* Gema de color — geometría GENÉRICA (antes vivía solo en .sk-clasica). El
+   color del juego es real hoy en dos lugares nada más: el texto del número y
+   este punto de 7px, que además queda idéntico para las 4 fichas de color
+   (docs/redesign/01-audit.md §1, la causa exacta de "parece una capa pegada").
+   Acá se agranda y se le da relieve real de gema engastada (highlight +
+   sombra interna + halo de su propio color) — Y se vuelve genérica a
+   propósito: las ~15 skins que no definían su propio ::after (fantasma, sin
+   acento visible) ahora heredan esta por defecto en vez de no mostrar nada.
+   Cualquier skin con su propio `.sk-X .tile::after` sigue ganando por
+   especificidad — no se tocó ninguna de esas 15+ reglas. */
+.tile:not(.back)::after{
+  content:"";position:absolute;bottom:5px;left:50%;transform:translateX(-50%);
+  width:10px;height:10px;border-radius:50%;
+  box-shadow:
+    inset 0 1.5px 1.5px rgba(255,255,255,.8),
+    inset 0 -1.5px 2px rgba(0,0,0,.3),
+    0 1px 2px rgba(0,0,0,.35),
+    0 0 6px var(--gem-glow,transparent);
+}
+.tile.sel{
+  transform:translateY(-6px);
+  border:2px solid var(--gold); border-bottom:3px solid var(--gold-dark);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.9),
+    0 3px 5px rgba(0,0,0,.35),
+    0 10px 16px -4px rgba(0,0,0,.5);
+}
+.tile.hint{border:2px solid #38bdf8; border-bottom:3px solid #0284c7}
+/* Sin translateY acá a propósito: el atril tiene solo 4px de gap entre
+   casillas (.rackgrid) y levantar la ficha 2px en hover le achicaba ese
+   margen lo suficiente como para que el cursor quedara "entre" dos fichas y
+   el hover parpadeara/temblara solo al quedarse quieto encima. El resalte
+   ahora es 100% sombra — se nota el mismo "esto responde" sin mover la caja
+   ni arriesgar el hit-test contra la ficha vecina. */
+.tile:hover:not(.sel):not(.back):not(.hint){box-shadow:
+  inset 0 1px 0 rgba(255,255,255,.9),
+  inset 0 -3px 4px rgba(0,0,0,.1),
+  0 4px 6px rgba(0,0,0,.32),
+  0 9px 14px -5px rgba(0,0,0,.45)}
+.tile.back{
+  background:repeating-linear-gradient(45deg,#274a7a,#274a7a 5px,#1d3a63 5px,#1d3a63 10px);
+  border:2px solid #12294a; border-bottom:3px solid #0a1a33;
+  box-shadow:0 3px 5px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.15);
+}
+/* El número lleva un halo sutil de su propio color (además del color de texto
+   que ya tenía) — así el color se lee integrado a la luz de la ficha, no solo
+   como un relleno de texto plano. Cualquier skin con su propio text-shadow
+   (neon, fuego, sombra...) ya es más específica y sigue ganando sin cambios. */
+.c-rojo{color:var(--rojo);text-shadow:0 1px 0 rgba(255,255,255,.7), 0 0 5px rgba(192,57,43,.25)}
+.c-azul{color:var(--azul);text-shadow:0 1px 0 rgba(255,255,255,.7), 0 0 5px rgba(31,95,168,.25)}
+.c-verde{color:var(--verde);text-shadow:0 1px 0 rgba(255,255,255,.7), 0 0 5px rgba(30,125,63,.25)}
+.c-amarillo{color:var(--amarillo);text-shadow:0 1px 0 rgba(255,255,255,.7), 0 0 5px rgba(201,151,10,.25)}
+.c-comodin{color:var(--comodin);text-shadow:0 1px 0 rgba(255,255,255,.7), 0 0 6px rgba(90,45,130,.3)}
+/* Comodín: además del material de siempre, un brillo violeta que respira —
+   pisa el ::before genérico de arriba (selector más específico) SOLO en fichas
+   comodín, así se distingue de un vistazo sin tocar el resto. Anima opacity
+   sobre un glow fijo (no el propio box-shadow) para que sea liviano en fps
+   incluso con varias fichas comodín en pantalla a la vez. */
+.tile.c-comodin:not(.back)::before{
+  background:
+    linear-gradient(165deg, rgba(255,255,255,.5) 0%, rgba(255,255,255,0) 40%),
+    radial-gradient(circle at 50% 40%, rgba(168,85,247,.35), transparent 70%);
+  animation:comodinShimmer var(--motion-slow) var(--motion-ease-soft) infinite;
+}
+@keyframes comodinShimmer{0%,100%{opacity:.7}50%{opacity:1}}
+@media(prefers-reduced-motion:reduce){.tile.c-comodin:not(.back)::before{animation:none}}
+@media(prefers-reduced-motion:reduce){.sk-fuego .tile:not(.back),.sk-neon .tile:not(.back),.sk-hielo .tile:not(.back){animation:none}}
+
+/* Modo Galáctico: ficha de habilidad — cara propia, sin número/color de juego normal.
+   El color puntual de cada habilidad llega por --fx-rgb (ver convención en :root);
+   168,85,247 (violeta) es el respaldo si algún día se pinta sin ese dato. */
+.tile.tile-ability{
+  --fx-rgb:168,85,247;
+  background:linear-gradient(165deg, rgba(var(--fx-rgb),.6) 0%, rgba(18,6,34,.92) 55%, rgba(var(--fx-rgb),.4) 100%);
+  border:1px solid rgb(var(--fx-rgb)); border-bottom:3px solid rgba(var(--fx-rgb),.6);
+  box-shadow:0 3px 5px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.25), 0 0 10px rgba(var(--fx-rgb),.55);
+  font-size:1.3em; text-shadow:0 0 6px rgba(var(--fx-rgb),.85);
+}
+
+/* 2v2 en equipo: marca en la esquina de las fichas que aportó la compañera IA */
+.tile-mate-badge{
+  position:absolute; top:-6px; right:-6px; width:14px; height:14px; line-height:14px;
+  font-size:9px; text-align:center; border-radius:50%;
+  background:#38bdf8; border:1px solid #0369a1; box-shadow:0 1px 3px rgba(0,0,0,.5);
+  pointer-events:none;
+}
+
+/* ---------- ANIMACIONES ---------- */
+@keyframes deal{0%{transform:translateY(-130px) scale(.4) rotate(-18deg);opacity:0}70%{transform:translateY(5px) scale(1.05);opacity:1}100%{transform:translateY(0) scale(1)}}
+@keyframes flip{0%{transform:rotateY(90deg) scale(.8)}100%{transform:rotateY(0) scale(1)}}
+@keyframes pop{0%{transform:scale(.6);opacity:0}70%{transform:scale(1.06)}100%{transform:scale(1);opacity:1}}
+@keyframes glow{0%,100%{box-shadow:0 0 0 0 rgba(251,191,36,.55)}50%{box-shadow:0 0 14px 5px rgba(251,191,36,.28)}}
+@keyframes shake{0%,100%{transform:rotate(0)}25%{transform:rotate(-5deg)}75%{transform:rotate(5deg)}}
+@keyframes slidein{0%{transform:translateY(-8px);opacity:0}100%{transform:translateY(0);opacity:1}}
+@keyframes blinkred{0%,100%{color:#fecaca}50%{color:#ef4444}}
+@keyframes think{0%{content:""}33%{content:"."}66%{content:".."}100%{content:"..."}}
+.a-deal{animation:deal .45s cubic-bezier(.2,.8,.3,1)}
+.a-flip{animation:flip .5s ease-out}
+.a-pop{animation:pop .4s ease-out}
+.a-glow{animation:glow 1.6s infinite}
+.a-slidein{animation:slidein .3s ease-out}
+.a-blink{animation:blinkred .8s infinite}
+@media (prefers-reduced-motion:reduce){.a-deal,.a-flip,.a-pop,.a-glow,.a-slidein,.a-blink{animation:none}}
+
+/* ---------- MENU ---------- */
+.screen-center{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:20px;overflow-y:auto}
+.card{background:rgba(20,14,4,.55);backdrop-filter:blur(6px);border:1px solid rgba(184,150,63,.35);border-radius:18px;padding:26px;max-width:400px;width:100%;position:relative;
+  box-shadow:0 10px 40px rgba(0,0,0,.5),inset 0 1px 0 rgba(232,197,90,.08),0 0 26px rgba(184,150,63,.08)}
+.card h2{color:#ffe9a8;text-shadow:0 0 10px rgba(232,197,90,.2)}
+/* Portada (pantalla intro, primera impresión del juego) — el logo de fichas +
+   la tarjeta de madera premium comparten un mismo halo de luz detrás, para dar
+   sensación de foco/profundidad en vez de quedar planos sobre el fondo. */
+.portada{position:relative}
+.portada-glow{
+  position:absolute;top:38%;left:50%;transform:translate(-50%,-50%);
+  width:min(720px,92vw);height:min(560px,72vh);pointer-events:none;z-index:0;
+  background:radial-gradient(ellipse at center, rgba(56,189,248,.16), rgba(168,85,247,.10) 45%, transparent 72%);
+  filter:blur(2px);
+}
+.portada .card{position:relative;z-index:1}
+/* El fan sale del flujo flex (absolute, como .portada-glow) a propósito: si
+   quedaba adentro, el flex centraba el BLOQUE fan+card completo, y como el
+   fan es chico y el card es grande, el card (donde está "Iniciar sesión")
+   terminaba visualmente más abajo del centro real de la pantalla. Así el
+   único elemento que participa del centrado vertical es el card — queda
+   centrado de verdad — y el fan flota arriba, anclado a su propia posición. */
+.portada .fan{position:absolute;top:14%;left:50%;transform:translateX(-50%);margin:0;z-index:1}
+@media(max-height:700px){.portada .fan{top:6%}}
+
+/* Logo en login/registro/reconectando/onboarding (Fase 11 §2/§5, continuidad con la portada
+   vía GSAP Flip — ver withLogoFlip). Mismo elemento (.fan) y mismo tamaño que en la portada,
+   a pedido explícito del usuario ("que el diseño de BURAKO arriba se mantenga" — una versión
+   achicada al 42% se sentía "chiquita"). Se apaga el fanIn propio de cada ficha (entrada
+   individual en abanico) porque acá el movimiento de entrada lo da Flip.
+   Igual de importante: se posiciona en absolute exactamente como `.portada .fan` (mismo
+   top:14%, mismo contenedor position:relative) para que la TARJETA sea la única hija en
+   flujo normal en las dos pantallas. Antes el logo estaba en flujo acá pero no en la
+   portada, así que el grupo (logo+tarjeta) se centraba distinto en cada pantalla — eso
+   generaba el "escalón" que reportó el usuario al pasar de portada a login, aparte de que la
+   tarjeta quedaba descentrada. Con las dos pantallas centrando la tarjeta de la misma forma
+   independiente del logo, la transición es realmente continua. */
+.auth-screen{gap:6px;position:relative}
+.auth-screen .fan-compact{position:absolute;top:14%;left:50%;transform:translateX(-50%);margin:0;pointer-events:none;z-index:1}
+@media(max-height:700px){.auth-screen .fan-compact{top:6%}}
+.fan-compact .fan .tile{animation:none}
+
+/* ---------- Cerrar consistente en TODAS las pantallas ----------
+   Fase 11 §7: antes CADA pantalla tenía esta X de acá Y un botón "← Volver"
+   grande pegado abajo con el MISMO handler (literalmente idéntico en las 21
+   pantallas que tenían ambos, confirmado uno por uno) — el usuario lo pidió
+   sacar. .btn-back-sticky ya no lo usa nada (verificado), se saca del todo en
+   vez de dejarlo como CSS muerto. */
+.card-x{
+  position:absolute;top:10px;right:10px;z-index:6;
+  width:28px;height:28px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);
+  color:#e8eef7;font-size:14px;font-weight:800;cursor:pointer;line-height:1;
+  transition:background .15s,border-color .15s,transform .1s;
+}
+.card-x:hover{background:rgba(220,38,38,.25);border-color:rgba(248,113,113,.45)}
+.card-x:active{transform:scale(.9)}
+/* Excepción explícita del usuario a la regla de arriba: en scroll MUY largo
+   (Pase de temporada, 100 niveles) la X absoluta se iba de la pantalla al
+   bajar — sin volver grande, pero la X sigue teniendo que alcanzarse. Sticky
+   en vez de absolute la deja pegada arriba durante todo el scroll. Solo estas
+   pantallas la usan — el resto sigue con el comportamiento normal (absolute,
+   sin ocupar espacio en el flujo). */
+.card-x.card-x-sticky{position:sticky;top:10px;display:block;margin:0 0 -28px auto}
+._old_h1_logo{font-family:Georgia,'Times New Roman',serif;font-size:52px;letter-spacing:3px;color:#ffe9a8;text-align:center;text-shadow:0 3px 0 rgba(0,0,0,.4), 0 0 30px rgba(251,191,36,.25)}
+.subtitle{text-align:center;color:rgba(232,238,247,.55);font-size:13px;margin-top:-6px}
+.btn{display:block;width:100%;padding:14px;border-radius:12px;font-size:16px;font-weight:800;margin-top:10px;transition:transform var(--transition-fast) var(--motion-ease),box-shadow var(--transition-fast) var(--motion-ease)}
+.btn:active{transform:scale(.97)}
+.btn-gold{background:var(--btn-gold-grad);color:#1a1200;box-shadow:var(--btn-gold-shadow), 0 6px 12px rgba(0,0,0,.4)}
+.btn-gold:hover{transform:translateY(-1px);box-shadow:var(--btn-gold-shadow), 0 9px 16px rgba(0,0,0,.45), 0 0 14px rgba(251,191,36,.25)}
+.btn-gold:active{box-shadow:0 1px 0 #b45309;transform:translateY(0) scale(.98)}
+.btn-ghost{
+  background:rgba(255,255,255,.06);color:#e8eef7;border:1px solid rgba(184,150,63,.28);
+  transition:background var(--motion-fast) var(--motion-ease),border-color var(--motion-fast) var(--motion-ease),
+    transform var(--motion-fast) var(--motion-ease),box-shadow var(--motion-fast) var(--motion-ease);
+}
+.btn-ghost:hover{
+  border-color:rgba(212,175,88,.5);background:rgba(184,150,63,.08);
+  transform:translateY(-1px);box-shadow:0 4px 10px rgba(0,0,0,.25),0 0 10px rgba(212,175,88,.15);
+}
+.btn-ghost:active{transform:translateY(0) scale(.97)}
+
+/* ---------- Materiales base del design system (docs/redesign/02-design-dna.md §2) ----------
+   Cristal ya existe de hecho (.card, --panel-* aplicados en mesa/columnas/HUD).
+   Metal dorado ya existe (.btn-gold). .panel-wood (madera premium) se probó en
+   portada/login/opciones/onboarding en una fase anterior pero quedó como la
+   ÚNICA superficie marrón fuera de la mesa de juego — rompía la identidad
+   "un solo universo azul/violeta" justo en las primeras pantallas que ve
+   cualquiera (Fase 11 §4/§18). Se sacó de las 6 pantallas que la usaban, que
+   ahora comparten el mismo `.card` de vidrio oscuro que el resto de la app;
+   la madera real queda reservada para la mesa (Fase 11 §11B). */
+.panel-stone{
+  background:linear-gradient(165deg,#141c2c,#0a0f1a);
+  border:1px solid rgba(255,255,255,.06);
+  box-shadow:var(--panel-shadow);
+  border-radius:var(--radius-lg);
+}
+/* Cada control de audio (efectos / música) en su propia caja — antes las dos
+   secciones eran solo un .lbl suelto seguido de un slider, sin ninguna
+   separación visual que reforzara que son dos controles independientes (§8:
+   "debe existir una configuración independiente para música y efectos"). */
+.audio-block{background:rgba(0,0,0,.22);border:1px solid var(--panel-border);border-radius:var(--radius-md);padding:12px;margin-bottom:10px}
+.badge-gold{
+  display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:999px;
+  background:var(--btn-gold-grad);color:#1a1200;font-weight:800;font-size:11px;
+  box-shadow:var(--shadow-gold);
+}
+.text-success{color:var(--color-success)}
+.text-danger{color:var(--color-danger)}
+.text-info{color:var(--color-info)}
+.text-amber{color:var(--color-amber)}
+
+/* ---------- Prueba: 2 técnicas del catálogo de animaciones, en los botones de Jugar ----------
+   #11 CSS Fizzy Button (burbujas subiendo) y #14 Storm Button (barrido eléctrico),
+   ambas gatilladas por hover Y active (así también se ven en touch, con tap sostenido). */
+.fx-fizzy{position:relative;overflow:visible}
+.fizz-bubbles{position:absolute;inset:0;pointer-events:none;overflow:visible}
+.fizz-bubbles span{
+  position:absolute;bottom:8px;width:5px;height:5px;border-radius:50%;
+  background:radial-gradient(circle at 30% 30%,#fff,#fde68a 55%,transparent 75%);
+  opacity:0;
+}
+.fx-fizzy:hover .fizz-bubbles span,.fx-fizzy:active .fizz-bubbles span{animation:fizzRise 1.1s ease-out infinite}
+.fizz-bubbles span:nth-child(1){left:10%;animation-delay:0s}
+.fizz-bubbles span:nth-child(2){left:28%;animation-delay:.15s}
+.fizz-bubbles span:nth-child(3){left:50%;animation-delay:.3s}
+.fizz-bubbles span:nth-child(4){left:70%;animation-delay:.1s}
+.fizz-bubbles span:nth-child(5){left:88%;animation-delay:.25s}
+@keyframes fizzRise{
+  0%{opacity:0;transform:translateY(0) scale(.4)}
+  15%{opacity:.9}
+  85%{opacity:.35}
+  100%{opacity:0;transform:translateY(-36px) scale(1)}
+}
+@media(prefers-reduced-motion:reduce){.fizz-bubbles span{animation:none!important;opacity:0!important}}
+
+.fx-spark{position:relative;isolation:isolate;transition:box-shadow .2s}
+.fx-spark::after{
+  content:"";position:absolute;inset:-3px;border-radius:inherit;pointer-events:none;z-index:-1;
+  background:linear-gradient(100deg,transparent 35%,rgba(125,211,252,.9) 50%,transparent 65%);
+  background-size:220% 100%;background-position:150% 0;opacity:0;
+}
+.fx-spark:hover,.fx-spark:active{box-shadow:0 0 0 1px rgba(125,211,252,.55),0 0 14px rgba(56,189,248,.5)}
+.fx-spark:hover::after,.fx-spark:active::after{animation:sparkSweep .9s ease-in-out infinite}
+@keyframes sparkSweep{
+  0%{opacity:0;background-position:150% 0}
+  35%{opacity:.9}
+  70%{opacity:.5}
+  100%{opacity:0;background-position:-50% 0}
+}
+@media(prefers-reduced-motion:reduce){.fx-spark::after{animation:none!important;opacity:0!important}}
+.btn-sm{padding:8px 12px;font-size:12px;border-radius:9px;font-weight:700}
+.seg{display:flex;gap:8px;margin-top:8px}
+.seg button{flex:1;padding:10px;border-radius:10px;font-weight:800;font-size:16px;background:rgba(255,255,255,.06);color:#e8eef7;border:1px solid rgba(255,255,255,.12)}
+.seg button.on{background:linear-gradient(180deg,#fcd34d,#f59e0b);color:#1a1200;border-color:#f59e0b;box-shadow:0 0 10px rgba(251,191,36,.35)}
+.seg button{border:1px solid var(--panel-border)}
+.lbl{font-size:12px;color:rgba(232,238,247,.6);margin-top:14px;text-transform:uppercase;letter-spacing:1px}
+input[type="range"]{accent-color:#f59e0b;height:20px;cursor:pointer}
+input[type="range"]:disabled{opacity:.35;cursor:default}
+
+/* ---------- Botones de modo (menú Multijugador): pill + chip de ícono ---------- */
+.mode-btn{
+  display:flex;align-items:center;gap:10px;width:100%;padding:7px 16px 7px 7px;
+  border-radius:999px;border:none;cursor:pointer;text-align:left;
+  font-family:var(--font-heading);font-weight:800;font-size:15px;
+  transition:transform .12s;position:relative;overflow:hidden;
+}
+.mode-btn:active{transform:scale(.97)}
+.mode-btn-icon{
+  flex-shrink:0;width:38px;height:38px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;font-size:19px;
+  background:rgba(255,255,255,.18);box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 2px 4px rgba(0,0,0,.3);
+}
+.mode-btn-label{flex:1}
+.mode-btn-ffa{
+  background:linear-gradient(180deg,#fde68a 0%,#f59e0b 55%,#d97706 100%);color:#3a2405;
+  border:1px solid rgba(255,255,255,.4);box-shadow:0 4px 10px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.5);
+}
+.mode-btn-team{
+  background:linear-gradient(180deg,#7dd3fc 0%,#38bdf8 55%,#0369a1 100%);color:#04263e;
+  border:1px solid rgba(255,255,255,.4);box-shadow:0 4px 10px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.5);
+}
+.mode-btn-galactico{
+  color:#f3e8ff;text-shadow:0 1px 3px rgba(0,0,0,.6);
+  background:
+    radial-gradient(ellipse 90% 140% at 20% -20%,rgba(96,165,250,.5),transparent 55%),
+    radial-gradient(ellipse 90% 140% at 85% 120%,rgba(217,70,239,.5),transparent 55%),
+    linear-gradient(160deg,#4c1d95 0%,#1e1b4b 45%,#312e81 100%);
+  border:1px solid rgba(251,191,36,.55);
+  box-shadow:0 4px 14px rgba(88,28,135,.5),inset 0 1px 0 rgba(255,255,255,.15),0 0 18px rgba(168,85,247,.35);
+}
+.mode-btn-galactico .mode-btn-icon{background:rgba(251,191,36,.22);box-shadow:inset 0 1px 0 rgba(255,255,255,.3),0 0 10px rgba(251,191,36,.4)}
+.mode-btn-galactico::after{
+  content:"";position:absolute;top:-60%;left:-30%;width:26%;height:220%;
+  background:linear-gradient(120deg,transparent 0%,rgba(255,255,255,.28) 50%,transparent 100%);
+  transform:rotate(18deg);animation:modeBtnShimmer 3.4s ease-in-out infinite;pointer-events:none;
+}
+@keyframes modeBtnShimmer{0%{left:-30%}55%{left:130%}100%{left:130%}}
+@media(prefers-reduced-motion:reduce){.mode-btn-galactico::after{animation:none}}
+
+/* ---------- Tarjeta y banner temáticos del hub de Modo Galáctico ---------- */
+.galactico-card{
+  background:
+    radial-gradient(1px 1px at 15% 22%,rgba(255,255,255,.8),transparent 60%),
+    radial-gradient(1px 1px at 72% 14%,rgba(255,255,255,.6),transparent 60%),
+    radial-gradient(1.5px 1.5px at 40% 68%,rgba(216,180,254,.8),transparent 60%),
+    radial-gradient(1px 1px at 85% 58%,rgba(147,197,253,.7),transparent 60%),
+    radial-gradient(1px 1px at 25% 86%,rgba(255,255,255,.6),transparent 60%),
+    linear-gradient(160deg,rgba(30,10,60,.5) 0%,rgba(10,4,24,.65) 100%),
+    rgba(20,14,4,.55);
+  border-color:rgba(168,85,247,.4);
+}
+.galactico-title-banner{
+  display:flex;align-items:center;justify-content:center;gap:8px;
+  width:100%;padding:10px 14px;border-radius:14px;margin-bottom:8px;
+  background:
+    radial-gradient(ellipse 90% 140% at 20% -20%,rgba(96,165,250,.45),transparent 55%),
+    radial-gradient(ellipse 90% 140% at 85% 120%,rgba(217,70,239,.45),transparent 55%),
+    linear-gradient(160deg,#4c1d95 0%,#1e1b4b 45%,#312e81 100%);
+  border:1px solid rgba(251,191,36,.6);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.15),0 0 16px rgba(168,85,247,.35);
+  color:#f3e8ff;font-family:'Cinzel Decorative',Georgia,serif;font-size:19px;font-weight:800;
+  text-shadow:0 1px 3px rgba(0,0,0,.6);
+}
+
+/* ---------- Pase Galáctico: efectos de nombre (cosméticos, se equipan) ---------- */
+@keyframes nameFxFuego{
+  0%,100%{text-shadow:0 0 4px #fbbf24,0 0 10px #f97316,0 0 16px #ef4444,0 -2px 6px #fde047}
+  50%{text-shadow:0 0 7px #fde047,0 0 15px #dc2626,0 0 22px #f97316,0 -3px 9px #fbbf24}
+}
+.name-fx-fuego{
+  display:inline-block;font-weight:900;
+  background:linear-gradient(180deg,#fde047 0%,#f97316 45%,#dc2626 80%,#991b1b 100%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  animation:nameFxFuego 1.4s ease-in-out infinite;
+}
+@keyframes nameFxHielo{
+  0%,100%{text-shadow:0 0 4px #e0f2fe,0 0 10px #7dd3fc,0 0 16px #38bdf8}
+  50%{text-shadow:0 0 8px #ffffff,0 0 16px #93c5fd,0 0 24px #38bdf8}
+}
+.name-fx-hielo{
+  display:inline-block;font-weight:900;
+  background:linear-gradient(180deg,#ffffff 0%,#bae6fd 40%,#38bdf8 75%,#0369a1 100%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  animation:nameFxHielo 2.2s ease-in-out infinite;
+}
+@keyframes nameFxPlasma{
+  0%,19%,21%,54%,56%,100%{text-shadow:0 0 4px #e9d5ff,0 0 10px #a78bfa,0 0 18px #7c3aed}
+  20%,55%{text-shadow:0 0 2px #fff,0 0 6px #c4b5fd,0 0 10px #7c3aed}
+}
+.name-fx-plasma{
+  display:inline-block;font-weight:900;
+  background:linear-gradient(180deg,#f5f3ff 0%,#c4b5fd 40%,#7c3aed 75%,#4c1d95 100%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  animation:nameFxPlasma 1.8s steps(1) infinite;
+}
+@keyframes nameFxVacio{
+  0%,100%{text-shadow:0 0 6px #e879f9,0 0 14px #a21caf,0 0 24px #581c87}
+  50%{text-shadow:0 0 10px #f0abfc,0 0 22px #c026d3,0 0 34px #7e22ce}
+}
+.name-fx-vacio{
+  display:inline-block;font-weight:900;
+  background:linear-gradient(180deg,#f0abfc 0%,#c026d3 35%,#6b21a8 70%,#1e1033 100%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  animation:nameFxVacio 2.6s ease-in-out infinite;
+}
+@media(prefers-reduced-motion:reduce){
+  .name-fx-fuego,.name-fx-hielo,.name-fx-plasma,.name-fx-vacio{animation:none}
+}
+
+/* ---------- Pase Galáctico: banners (anillo decorativo alrededor del avatar) ---------- */
+.opp-avatar.banner-aureola,.opp-avatar.banner-plasma{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:32px;height:32px;border-radius:50%;
+}
+@keyframes bannerAureolaSpin{
+  0%,100%{box-shadow:0 0 0 2px #fbbf24,0 0 10px 2px rgba(251,191,36,.5)}
+  50%{box-shadow:0 0 0 2px #fde047,0 0 16px 4px rgba(253,224,71,.7)}
+}
+.banner-aureola{animation:bannerAureolaSpin 3s ease-in-out infinite}
+@keyframes bannerPlasmaPulse{
+  0%,100%{box-shadow:0 0 0 2px #38bdf8,0 0 8px 2px rgba(56,189,248,.5)}
+  50%{box-shadow:0 0 0 3px #7dd3fc,0 0 16px 5px rgba(125,211,252,.8)}
+}
+.banner-plasma{animation:bannerPlasmaPulse 1.6s ease-in-out infinite}
+@media(prefers-reduced-motion:reduce){.banner-aureola,.banner-plasma{animation:none}}
+
+/* ---------- Pase Galáctico: skin exclusiva "Agujero Negro" (nivel 9) ---------- */
+.sk-agujero_negro .tile:not(.back){
+  background:radial-gradient(circle at 50% 40%,#1a0b2e 0%,#0a0416 55%,#000 100%);
+  border-color:#a855f7; border-bottom-color:#4c1d95;
+  color:#e9d5ff !important; text-shadow:0 0 8px rgba(216,180,254,.8);
+  box-shadow:0 3px 5px rgba(0,0,0,.5), inset 0 0 10px rgba(168,85,247,.35), 0 0 6px rgba(88,28,135,.5);
+}
+.sk-agujero_negro .tile.dotc-rojo{color:#f87171 !important}
+.sk-agujero_negro .tile.dotc-azul{color:#60a5fa !important}
+.sk-agujero_negro .tile.dotc-verde{color:#4ade80 !important}
+.sk-agujero_negro .tile.dotc-amarillo{color:#fbbf24 !important}
+.sk-agujero_negro .tile.dotc-comodin{color:#e9d5ff !important}
+
+/* ---------- HUD juego ---------- */
+.hud{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:8px 14px;background:rgba(0,0,0,.35);border-bottom:1px solid rgba(255,255,255,.08);padding-top:calc(8px + env(safe-area-inset-top))}
+.hud .title{font-family:var(--font-heading);font-size:18px;color:#ffe9a8;letter-spacing:1px;flex-shrink:0}
+.hud .right{display:flex;align-items:center;gap:10px;font-size:12px;flex-wrap:wrap;justify-content:flex-end;row-gap:4px}
+.timer{width:36px;height:36px;border-radius:50%;border:2.5px solid var(--gold);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px}
+.hud-matchclock{font-weight:800;font-size:12px;color:#ffe9a8;background:rgba(0,0,0,.3);border:1px solid rgba(255,233,168,.25);border-radius:8px;padding:3px 7px;letter-spacing:.5px}
+.msg{padding:5px 12px;text-align:center;font-size:12px;background:var(--panel-bg);color:rgba(232,238,247,.9);min-height:24px}
+.thinking::after{content:"...";display:inline-block;animation:think 1.2s steps(1) infinite}
+
+/* ============================================================
+   BLOQUE: mesa real — oponentes sentados alrededor, mesa en el medio
+   ============================================================ */
+.table-felt{display:grid;grid-template-columns:150px minmax(0,1fr) 150px;grid-template-rows:auto 1fr;grid-template-areas:"seat-top seat-top seat-top" "seat-left mesa-area seat-right";gap:6px;flex:1;min-height:0;padding:2px 6px}
+.seat{display:flex;min-width:0;gap:10px}
+.seat-top{grid-area:seat-top;justify-content:center;flex-wrap:wrap}
+.seat-left{grid-area:seat-left;flex-direction:column;align-items:flex-start;justify-content:center}
+.seat-right{grid-area:seat-right;flex-direction:column;align-items:flex-end;justify-content:center}
+.table-felt>.board{grid-area:mesa-area}
+@media(max-width:820px),(max-height:480px){
+  /* Mismo punto de corte que abajo (antes eran 820/600 distintos y quedaba una zona
+     intermedia donde las tarjetas de rival, con min-width, no entraban en la columna
+     angosta de 110px) — ahora las columnas se apilan apenas se achican. La condición
+     de altura (además del ancho) cubre mobile en landscape: ahí el ancho solo no
+     activaría este apilado y la mesa se quedaría en la grilla de escritorio, que a
+     esa altura no entra (Fase 12 §18). */
+  .table-felt{display:flex;flex-direction:column;gap:6px}
+  .seat-left,.seat-right{flex-direction:row;align-items:center;justify-content:center;flex-wrap:wrap}
+  /* Todos los oponentes van a seat-top en mobile (ver seatForOppIndex en burako.js) —
+     estos quedan vacíos siempre; sin esto igual sumaban su gap del flex-column. */
+  .seat-left:empty,.seat-right:empty{display:none}
+}
+@media(min-width:821px) and (min-height:481px){
+  /* En el layout de grilla (mesa fija con columnas laterales de 150px), la tarjeta
+     de rival genérica pedía hasta 220px de ancho y desbordaba su columna — como
+     align-items:flex-start/flex-end no la encoge, terminaba pintándose atrás de la
+     mesa (columna izquierda, que va antes en el DOM) o encima de ella (columna
+     derecha, que va después). Acá la angostamos y apilamos en vertical para que
+     entre entera dentro de los 150px de su columna. */
+  .seat-left .opp-card,.seat-right .opp-card{
+    width:100%;max-width:136px;flex-direction:column;text-align:center;gap:3px;padding:6px 4px 5px;
+  }
+  .seat-left .opp-card .opp-info,.seat-right .opp-card .opp-info{width:100%}
+  .seat-left .opp-card .opp-name,.seat-right .opp-card .opp-name{white-space:normal;text-align:center;line-height:1.25}
+  .seat-left .opp-card .opp-meta,.seat-right .opp-card .opp-meta{justify-content:center}
+}
+
+/* mesa */
+.mesa{flex:1;min-height:0;margin:6px 10px;border-radius:14px;padding:10px;overflow:auto;background:var(--panel-bg-soft);border:1px solid var(--panel-border);display:flex;flex-direction:column;transition:box-shadow .3s;cursor:grab;scrollbar-width:none}
+.mesa::-webkit-scrollbar{display:none}
+.mesa.panning{cursor:grabbing}
+@keyframes mesaPremiumGlow{0%{box-shadow:inset 0 0 0 rgba(251,191,36,0),0 0 0 rgba(251,191,36,0)}30%{box-shadow:inset 0 0 30px rgba(251,191,36,.35),0 0 26px rgba(251,191,36,.4)}100%{box-shadow:inset 0 0 0 rgba(251,191,36,0),0 0 0 rgba(251,191,36,0)}}
+.mesa-premium-glow{animation:mesaPremiumGlow .9s ease-out}
+/* Aro de luz del color del efecto elegido, alrededor del juego recién bajado */
+@keyframes meldFxGlow{0%{box-shadow:0 0 0 0 var(--fx-color,rgba(255,255,255,.55))}55%{box-shadow:0 0 26px 7px var(--fx-color,rgba(255,255,255,.55))}100%{box-shadow:0 0 0 0 rgba(0,0,0,0)}}
+.meld-fx-glow{animation:meldFxGlow 1.1s ease-out}
+/* Relámpago: destello blanco/dorado (o azul para plasma) en toda la pantalla al bajar un juego */
+@keyframes lightningFlash{0%{opacity:1}100%{opacity:0}}
+.lightning-flash{position:absolute;inset:0;z-index:97;pointer-events:none;background:linear-gradient(rgba(255,255,255,.5),rgba(253,224,71,.12));animation:lightningFlash .3s ease-out forwards}
+.lightning-flash.plasma{background:linear-gradient(rgba(191,219,254,.6),rgba(96,165,250,.18))}
+/* Glitch: tirón de pantalla con bandas RGB desfasadas, como una señal que se corta */
+@keyframes glitchShift{0%,100%{transform:translate(0)}10%{transform:translate(-2px,1px)}20%{transform:translate(2px,-1px)}30%{transform:translate(-1px,2px)}40%{transform:translate(1px,-2px)}50%{transform:translate(-2px,0)}60%{transform:translate(2px,1px)}70%{transform:translate(-1px,-1px)}80%{transform:translate(1px,1px)}}
+.a-glitch{animation:glitchShift .35s steps(2,end)}
+.a-glitch::before,.a-glitch::after{content:"";position:fixed;inset:0;z-index:96;pointer-events:none;mix-blend-mode:screen}
+.a-glitch::before{background:rgba(255,0,90,.4);transform:translateX(-3px)}
+.a-glitch::after{background:rgba(0,220,255,.4);transform:translateX(3px)}
+/* Ola de Mesa: onda de color que recorre TODA la superficie de la mesa, no un punto */
+@keyframes mesaWaveSweep{0%{background-position:-120% 0;opacity:0}15%{opacity:1}100%{background-position:220% 0;opacity:0}}
+.mesa-wave-fx{position:absolute;inset:0;pointer-events:none;z-index:2;border-radius:inherit;
+  background:linear-gradient(100deg,transparent 35%,var(--fx-color,rgba(45,212,191,.4)) 50%,transparent 65%);
+  background-size:300% 100%;animation:mesaWaveSweep 1.1s ease-out forwards}
+/* Pulso de Atril: el atril entero (no la mesa) destella con el color del efecto */
+@keyframes rackPulseSweep{0%{box-shadow:inset 0 0 0 0 var(--fx-color,rgba(251,191,36,.65)),0 0 0 0 var(--fx-color,rgba(251,191,36,.65))}40%{box-shadow:inset 0 0 28px 6px var(--fx-color,rgba(251,191,36,.5)),0 0 22px 4px var(--fx-color,rgba(251,191,36,.4))}100%{box-shadow:inset 0 0 0 0 rgba(0,0,0,0),0 0 0 0 rgba(0,0,0,0)}}
+.rack-pulse-fx{animation:rackPulseSweep 1s ease-out}
+/* Luces de Fiesta: barrido giratorio de luces de colores sobre la mesa */
+@keyframes discoSpin{0%{transform:rotate(0deg);opacity:0}10%{opacity:.5}90%{opacity:.5}100%{transform:rotate(300deg);opacity:0}}
+.mesa-disco-fx{position:absolute;inset:0;pointer-events:none;z-index:2;border-radius:inherit;overflow:hidden}
+.mesa-disco-fx::before{content:"";position:absolute;inset:-50%;
+  background:conic-gradient(from 0deg,#f87171,#fbbf24,#4ade80,#38bdf8,#c084fc,#f87171);
+  mix-blend-mode:screen;animation:discoSpin 1.3s linear forwards}
+/* ---------- Estelas de vuelo: el camino que recorre cada ficha al volar del
+   atril a la mesa al bajar una jugada — independiente de lo de arriba (efecto
+   de bajada), se combinan. El movimiento en sí lo arma JS (Element.animate)
+   sobre un clon de la ficha real; estas clases son solo las partículas que
+   deja cada estilo en el camino. Ver client/burako.js: FLY_TRAIL. ---------- */
+@keyframes trailStreakFade{0%{opacity:0;transform-origin:0 50%;transform:scaleX(.15) rotate(var(--ang))}12%{opacity:1;transform:scaleX(1) rotate(var(--ang))}100%{opacity:0;transform:scaleX(1) rotate(var(--ang))}}
+.trail-streak{
+  position:fixed;z-index:80;pointer-events:none;height:5px;border-radius:3px;
+  transform-origin:0 50%;opacity:0;filter:blur(.3px);
+  background:linear-gradient(90deg,transparent,rgb(var(--fx,255,255,255)) 55%,#fff);
+  animation:trailStreakFade .28s ease-out forwards;
+}
+@keyframes trailSparkPop{0%{opacity:1;transform:scale(.3)}100%{opacity:0;transform:scale(1.6) translate(var(--sx),var(--sy))}}
+.trail-spark{position:fixed;z-index:81;pointer-events:none;border-radius:50%;opacity:0;animation:trailSparkPop .32s ease-out forwards}
+@keyframes trailShardFall{0%{opacity:1;transform:translate(0,0) rotate(0deg) scale(1)}100%{opacity:0;transform:translate(var(--dx,0px),28px) rotate(200deg) scale(.4)}}
+.trail-shard{position:fixed;z-index:80;pointer-events:none;width:7px;height:7px;
+  background:linear-gradient(135deg,#e0f2fe,#38bdf8);clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%);
+  animation:trailShardFall .48s ease-in forwards}
+@keyframes trailEmberRise{0%{opacity:1;transform:translate(0,0) rotate(0deg) scale(1)}100%{opacity:0;transform:translate(var(--dx,0px),-34px) rotate(90deg) scale(.3)}}
+.trail-ember{position:fixed;z-index:80;pointer-events:none;border-radius:50% 50% 50% 0;animation:trailEmberRise .5s ease-out forwards}
+@keyframes trailRingPulse{0%{opacity:1;transform:translate(-50%,-50%) scale(.15)}100%{opacity:0;transform:translate(-50%,-50%) scale(3)}}
+.trail-ring{position:fixed;z-index:79;pointer-events:none;width:26px;height:26px;border-radius:50%;
+  border:2px solid rgb(var(--fx));box-shadow:0 0 16px rgba(var(--fx),.85),inset 0 0 10px rgba(var(--fx),.6);
+  animation:trailRingPulse .4s ease-out forwards}
+@keyframes trailPopFx{0%{opacity:.9;transform:translate(-50%,-50%) scale(.4)}55%{opacity:.75;transform:translate(-50%,-50%) scale(1.3)}100%{opacity:0;transform:translate(-50%,-50%) scale(1.7)}}
+.trail-pop{position:fixed;z-index:80;pointer-events:none;width:9px;height:9px;border-radius:50%;
+  background:radial-gradient(circle at 35% 30%,rgba(255,255,255,.9),rgba(255,255,255,.5) 70%);
+  transform:translate(-50%,-50%);animation:trailPopFx .4s ease-out forwards}
+@media(prefers-reduced-motion:reduce){.trail-streak,.trail-spark,.trail-shard,.trail-ember,.trail-ring,.trail-pop{animation:none!important;opacity:0!important}}
+
+.mesa-label{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:rgba(232,238,247,.45);margin-bottom:8px;text-align:center;display:flex;align-items:center;justify-content:center;gap:8px}
+/* Los juegos mantienen su tamaño natural (NO se estiran) — se centran en filas de
+   hasta ~5-6 juegos según su ancho, y si no entran más arman otra fila abajo. */
+.mesa-inner{flex:1;display:flex;flex-wrap:wrap;gap:10px 12px;align-content:flex-start;justify-content:center;max-width:1500px;margin:0 auto;padding:6px}
+.mesa-empty{color:rgba(232,238,247,.3);font-style:italic;font-size:13px;margin:auto;text-align:center}
+
+/* ============================================================
+   MODO "VER MESA" (⛶): vista ampliada/focus de la mesa a pedido del
+   usuario, para inspeccionar todos los juegos con números grandes sin
+   recurrir al zoom del navegador. El resto de la interfaz se oscurece
+   (backdrop) y la mesa pasa a ocupar casi todo el viewport.
+   ============================================================ */
+/* Pestaña anclada al borde inferior-izquierdo del marco de la mesa (a propósito
+   NO adentro de .mesa, que scrollea — así se queda fija en el borde pase lo que
+   pase con el pan/scroll interno), medio "montada" sobre el marco como una ficha
+   más del tablero. */
+.tableview-btn{
+  position:absolute;left:10px;bottom:10px;z-index:3;
+  width:38px;height:38px;border-radius:50%;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;font-size:16px;
+  background:linear-gradient(165deg,rgba(20,28,50,.92),rgba(8,14,32,.92));
+  border:1.5px solid rgba(212,175,88,.55);color:#ffe9a8;cursor:pointer;
+  box-shadow:0 4px 12px rgba(0,0,0,.45),0 0 0 3px rgba(4,10,25,.4);
+  transition:transform .15s,box-shadow .15s,border-color .15s;
+}
+.tableview-btn:hover{transform:scale(1.08);border-color:rgba(251,191,36,.85);box-shadow:0 6px 16px rgba(0,0,0,.5),0 0 0 3px rgba(4,10,25,.4),0 0 14px rgba(251,191,36,.35)}
+/* Frosted glass: se ve la propia mesa/partida de fondo, difuminada y oscurecida,
+   no una pantalla negra aparte — pedido explícito del usuario. */
+.tableview-backdrop{
+  position:fixed;inset:0;z-index:92;padding:18px;
+  background:rgba(4,10,24,.42);backdrop-filter:blur(16px) saturate(115%);-webkit-backdrop-filter:blur(16px) saturate(115%);
+  display:flex;align-items:center;justify-content:center;
+  animation:tvFadeIn .18s ease-out;
+}
+@keyframes tvFadeIn{from{opacity:0}to{opacity:1}}
+@media(prefers-reduced-motion:reduce){.tableview-backdrop{animation:none}}
+/* Crece desde donde vive el botón ⛶ (medido con Playwright: ronda ~11%/44% del
+   viewport en mobile y en desktop, valores lo bastante parecidos como para usar
+   uno solo) con una animación CSS pura — ver la nota grande en openTableView()/
+   closeTableView() (burako.js) sobre por qué NO es GSAP: un tween de JS se
+   reiniciaba a mitad de camino cada vez que algo de fondo disparaba un render()
+   durante la partida (timer, actividad online, IA...), y ESO era el "queda
+   trancada"/"pestañea raro" reportado, no un error de cálculo del origen. */
+.tableview-panel{
+  width:100%;height:100%;max-width:1500px;
+  display:flex;flex-direction:column;min-height:0;
+  background:rgba(6,12,28,.75);border:1px solid rgba(212,175,88,.4);border-radius:18px;
+  box-shadow:0 20px 60px rgba(0,0,0,.6);overflow:hidden;
+  transform-origin:12% 44%;
+  animation:tvGrow .32s cubic-bezier(.22,.9,.32,1.05) both;
+}
+.tableview-panel.closing{animation:tvShrink .22s cubic-bezier(.5,0,.85,0) both}
+@keyframes tvGrow{from{transform:scale(.06);opacity:.25}to{transform:scale(1);opacity:1}}
+@keyframes tvShrink{from{transform:scale(1);opacity:1}to{transform:scale(.06);opacity:0}}
+@media(prefers-reduced-motion:reduce){
+  .tableview-panel{animation:none}
+  .tableview-panel.closing{animation:none}
+}
+.tableview-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px;flex-shrink:0;border-bottom:1px solid rgba(255,255,255,.1)}
+.tableview-head .mesa-label{justify-content:flex-start;font-size:11px !important;margin-bottom:0 !important}
+.tableview-close{padding:8px 16px;border-radius:10px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2);color:#e8eef7;font-weight:800;font-size:12.5px;cursor:pointer;flex-shrink:0}
+.tableview-close:hover{background:rgba(248,113,113,.22);border-color:rgba(248,113,113,.45)}
+.tableview-mesa{flex:1;min-height:0;margin:0 14px 14px;cursor:grab}
+/* Números grandes y claros: sin la inclinación 3D que sí tiene la mesa chica normal
+   (Fase responsive — pedido explícito: "ver los números claramente") y fichas bien
+   separadas (mismo cuidado de siempre con :first-child, ver CHANGELOG.md). */
+.tableview-mesa{--tile-size-table:64px;--tile-size-table-h:86px}
+.tableview-mesa .meld{transform:none!important;box-shadow:0 4px 10px rgba(0,0,0,.35)}
+.tableview-mesa .meld .tiles .tile{margin-left:-6px}
+.tableview-mesa .meld .tiles .tile:first-child{margin-left:0}
+.tableview-mesa .mesa-inner{gap:16px 18px}
+@media(max-width:640px),(max-height:480px){
+  .tableview-backdrop{padding:0}
+  .tableview-panel{border-radius:0;border:none;max-width:none}
+  .tableview-head{padding:10px 12px calc(10px + env(safe-area-inset-top))}
+  /* Pedido explícito: en el celular NO agrandar las fichas de la mesa ampliada —
+     mantenerlas al tamaño normal de la mesa chica para que entren varios juegos
+     a la vez sin tener que scrollear tanto (la prioridad acá es densidad, no
+     legibilidad extra — al revés que en PC, donde sí conviene agrandarlas). */
+  .tableview-mesa{--tile-size-table:27px;--tile-size-table-h:37px}
+  /* !important a propósito: .tableview-mesa comparte la clase .mesa con la mesa
+     chica normal, y las reglas mobile de ESA (body.ingame .mesa/.mesa-inner/.meld,
+     pensadas para una grilla fija de 2 columnas bien compacta) tienen más
+     especificidad que un simple .tableview-mesa{...} — sin esto ganarían igual y
+     esta vista "ampliada" terminaría con el mismo layout apretado que se quiere
+     evitar acá. Mismo recurso que ya usa el resto del archivo en este tipo de
+     choque entre un contexto general y uno especial (ver .tableview-mesa .meld
+     más arriba). */
+  .tableview-mesa{margin:0 8px calc(10px + env(safe-area-inset-bottom)) !important;padding:8px !important;min-height:0 !important}
+  .tableview-mesa .mesa-inner{display:flex !important;flex-wrap:wrap;gap:10px 12px;width:auto !important}
+  .tableview-mesa .mesa-inner .meld{width:auto !important}
+}
+/* Landscape móvil (celular acostado): mismo criterio que portrait — tamaño normal,
+   no agrandar (Fase responsive §15, corregido a pedido del usuario). */
+@media(max-width:900px) and (max-height:480px){
+  .tableview-mesa{--tile-size-table:27px;--tile-size-table-h:37px}
+}
+.meld{position:relative;display:flex;flex-direction:column;gap:4px;padding:9px 8px 5px;border-radius:10px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.15);border-left:4px solid rgba(255,255,255,.25)}
+.meld.own-vos{border-left-color:var(--gold)}
+.meld.own-rojo{border-left-color:var(--seat-rojo)}
+.meld.own-azul{border-left-color:var(--seat-azul)}
+.meld.own-verde{border-left-color:var(--seat-verde)}
+.meld.own-morado{border-left-color:var(--seat-morado)}
+.meld.own-celeste{border-left-color:var(--seat-celeste)}
+.meld.own-rosa{border-left-color:var(--seat-rosa)}
+.meld.own-gris{border-left-color:var(--seat-gris)}
+.meld.bad{background:rgba(200,40,40,.25);border-color:rgba(255,80,80,.6)}
+.meld.drop-ok{outline:2.5px solid #34d399;outline-offset:2px;box-shadow:0 0 14px 2px rgba(52,211,153,.55);background:rgba(52,211,153,.14)}
+.meld.drop-bad{outline:2.5px solid #ef4444;outline-offset:2px;box-shadow:0 0 14px 2px rgba(239,68,68,.5);background:rgba(239,68,68,.14)}
+.mesa.drop-ok{box-shadow:inset 0 0 0 3px rgba(52,211,153,.6),0 0 18px rgba(52,211,153,.35)}
+.mesa.drop-bad{box-shadow:inset 0 0 0 3px rgba(239,68,68,.55),0 0 18px rgba(239,68,68,.3)}
+.meld .tiles{display:flex;flex-wrap:wrap}
+.meld .tiles .tile{width:var(--tile-size-table);height:var(--tile-size-table-h);font-size:23px;margin-left:-11px;box-shadow:-2px 2px 4px rgba(0,0,0,.35),0 2px 4px rgba(0,0,0,.3)}
+.meld .tiles .tile:first-child{margin-left:0}
+.meld .info{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:9px;color:rgba(232,238,247,.65)}
+.meld .info b{color:#ffe9a8}
+.meld .badge{position:absolute;top:-8px;left:-8px;background:linear-gradient(180deg,#fcd34d,#f59e0b);color:#1a1200;font-size:9px;font-weight:800;border-radius:20px;padding:2px 7px;box-shadow:0 2px 4px rgba(0,0,0,.4)}
+.meld .openbtn{font-size:9px;padding:2px 7px;border-radius:6px;background:rgba(251,191,36,.3);color:#ffe9a8;font-weight:700}
+
+/* pozo */
+.bag{position:relative;width:64px;height:74px;cursor:pointer}
+.bag:active{animation:shake .25s}
+.bag .b{position:absolute;width:50px;height:62px;border-radius:9px;background:repeating-linear-gradient(45deg,#274a7a,#274a7a 5px,#1d3a63 5px,#1d3a63 10px);border:2px solid #12294a}
+.bag .cnt{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#ffe9a8;font-weight:800;font-size:17px;text-shadow:0 1px 4px #000}
+
+/* atril */
+.rackzone{padding:4px 10px calc(8px + env(safe-area-inset-bottom));background:linear-gradient(180deg,transparent,rgba(0,0,0,.4))}
+.rackhead{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px}
+.rackhead .t{font-size:12px;font-weight:800}
+.rackhead .modes{display:flex;gap:5px}
+.rackhead .modes button{font-size:10px;padding:5px 9px;border-radius:8px;font-weight:800;background:rgba(255,255,255,.1);color:#e8eef7}
+.rackhead .modes button.on{background:linear-gradient(180deg,#fcd34d,#f59e0b);color:#1a1200}
+.rack{border-radius:14px;padding:7px;background:linear-gradient(180deg,var(--wood),var(--wood-dark));border:2px solid var(--wood-edge);box-shadow:inset 0 2px 8px rgba(0,0,0,.5), 0 4px 12px rgba(0,0,0,.4);max-width:760px;margin:0 auto}
+.rackgrid{display:grid;grid-template-columns:repeat(10,1fr);gap:4px}
+.slot{aspect-ratio:3/4.2;border-radius:7px;background:var(--panel-bg);border:1px solid rgba(0,0,0,.35);display:flex;min-width:0;cursor:pointer;touch-action:none}
+.slot.dropover{border:2px solid #38bdf8;background:rgba(56,189,248,.15)}
+.slot.movesrc{border:2px solid var(--gold)}
+.slot.movedst{border:2px dashed rgba(251,191,36,.5)}
+.slot .tile{width:100%;height:100%;font-size:clamp(13px,4.6vw,22px)}
+.rackhint{text-align:center;font-size:9px;color:rgba(232,238,247,.4);margin-top:4px;min-height:12px}
+/* Vista chica de solo lectura del atril del compañero de equipo (2v2 online) */
+.rack-mini{padding:5px;max-width:100%}
+.rackgrid-mini{display:flex;flex-wrap:wrap;gap:3px;justify-content:center}
+.slot-mini{width:26px}
+.slot-mini .tile{width:100%;aspect-ratio:3/4.2;font-size:11px}
+.marked-suggest .tile,.marked-suggest{outline:2px solid #fbbf24;box-shadow:0 0 6px rgba(251,191,36,.6);border-radius:6px}
+.actions{display:flex;gap:7px;justify-content:center;margin-top:7px}
+.actions button{flex:1;max-width:165px;padding:10px 6px;border-radius:10px;font-size:11.5px;font-weight:800;color:#fff}
+.actions-disabled{opacity:.45}
+.actions-disabled button{cursor:not-allowed}
+.actions button:disabled{opacity:.3}
+.act-work{background:linear-gradient(180deg,#0ea5e9,#0369a1);box-shadow:0 3px 0 #075985}
+.act-ok{background:linear-gradient(180deg,#34d399,#059669);box-shadow:0 3px 0 #047857}
+.act-draw{background:linear-gradient(180deg,#fbbf24,#d97706);box-shadow:0 3px 0 #92400e;color:#1a1200}
+.actions button:active{transform:translateY(2px);box-shadow:none}
+.waitmsg{text-align:center;font-size:11px;color:rgba(232,238,247,.5);margin-top:8px}
+
+/* ---------- MODO ESPECTADOR ---------- */
+.spectator-banner{text-align:center;font-size:12px;font-weight:700;color:#c084fc;background:rgba(192,132,252,.1);border:1px solid rgba(192,132,252,.3);border-radius:10px;padding:8px 12px;margin-top:7px}
+.spectator-scores{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:5px}
+.spectator-score-row{display:flex;justify-content:space-between;align-items:center;padding:7px 9px;border-radius:8px;background:rgba(0,0,0,.2);border:1px solid rgba(184,150,63,.15);font-size:12px}
+.spectator-score-row.turn{border-color:rgba(251,191,36,.55);background:rgba(251,191,36,.1)}
+.spectator-score-row.out{opacity:.5}
+
+/* ---------- EMBLEMAS DE RANGO ---------- */
+.tier-badge{display:inline-flex;align-items:center;justify-content:center;border-radius:50%;flex-shrink:0;box-shadow:0 1px 3px rgba(0,0,0,.5),inset 0 1px 1px rgba(255,255,255,.4)}
+.tier-badge.tier-bronce{background:radial-gradient(circle at 35% 30%,#e8a662,#cd7f32 55%,#7a4a1e);border:1px solid #8b5a2b}
+.tier-badge.tier-plata{background:radial-gradient(circle at 35% 30%,#f5f6f7,#c0c0c0 55%,#7d7d7d);border:1px solid #9ca3af}
+.tier-badge.tier-oro{background:radial-gradient(circle at 35% 30%,#fff3b0,#ffd700 55%,#b8860b);border:1px solid #d4af37}
+.tier-badge.tier-platino{background:radial-gradient(circle at 35% 30%,#e0feff,#00e5ff 55%,#00838f);border:1px solid #00acc1}
+@keyframes tierDiamondShine{0%,100%{filter:brightness(1) saturate(1)}50%{filter:brightness(1.3) saturate(1.3)}}
+.tier-badge.tier-diamante{background:radial-gradient(circle at 35% 30%,#ffffff,#b9f2ff 45%,#60a5fa 80%,#a78bfa);border:1px solid #93c5fd;animation:tierDiamondShine 2.2s ease-in-out infinite}
+@keyframes tierLegendaryShine{0%,100%{filter:brightness(1) hue-rotate(0deg)}50%{filter:brightness(1.4) hue-rotate(25deg)}}
+.tier-badge.tier-legendario{background:radial-gradient(circle at 35% 30%,#fff0fa,#ff5ec4 45%,#c026d3 80%,#7c3aed);border:1px solid #f0abfc;animation:tierLegendaryShine 1.8s ease-in-out infinite}
+.spectator-exit{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;padding:14px}
+
+/* help */
+.help{max-width:440px;width:100%;font-size:14px;line-height:1.65;color:rgba(232,238,247,.9)}
+.help h2{font-family:var(--font-heading);color:#ffe9a8;margin-bottom:8px;font-size:22px;text-align:center}
+.help h3{color:#7dd3fc;font-size:14px;margin:16px 0 4px}
+.help .ex{display:flex;gap:3px;margin:6px 0}
+.help .ex .tile{width:26px;height:36px;font-size:13px}
+.help p{margin-bottom:6px}
+
+/* ---------- SKINS DE FICHAS ---------- */
+.tile[data-c]{position:relative}
+/* negra con dorado */
+.sk-negra .tile:not(.back){
+  background:
+    radial-gradient(circle at 0 0,rgba(201,162,39,.28) 0 3px,transparent 4px),
+    radial-gradient(circle at 100% 0,rgba(201,162,39,.28) 0 3px,transparent 4px),
+    radial-gradient(circle at 0 100%,rgba(201,162,39,.28) 0 3px,transparent 4px),
+    radial-gradient(circle at 100% 100%,rgba(201,162,39,.28) 0 3px,transparent 4px),
+    linear-gradient(165deg,#232329,#141418);
+  border:1.5px solid #c9a227;border-bottom:3px solid #8a6d14;
+  box-shadow:inset 0 0 0 1px rgba(201,162,39,.2),0 3px 5px rgba(0,0,0,.45);
+  color:currentColor !important;text-shadow:0 0 5px rgba(232,197,90,.3)}
+.sk-negra .tile.dotc-rojo{color:#ef4444 !important}
+.sk-negra .tile.dotc-azul{color:#60a5fa !important}
+.sk-negra .tile.dotc-verde{color:#4ade80 !important}
+.sk-negra .tile.dotc-amarillo{color:#fde047 !important}
+.sk-negra .tile.dotc-comodin{color:#d8b4fe !important}
+.sk-negra .tile:not(.back)::after{content:"";position:absolute;bottom:3px;left:50%;transform:translateX(-50%);width:7px;height:7px;border-radius:50%}
+/* circulo de color */
+.sk-circulo .tile:not(.back){background:linear-gradient(165deg,#ffffff,#eef0f4)}
+.sk-circulo .tile:not(.back)::after{content:"";position:absolute;bottom:3px;left:50%;transform:translateX(-50%);width:9px;height:9px;border-radius:50%;border:2.5px solid;background:transparent}
+/* madera — antes el número era #291807 fijo para los 4 colores del juego
+   (Fase 11 §10, exactamente la queja del usuario: "no se sabía si era rojo,
+   azul, verde o amarillo"), y el punto de color (::after) no tenía ningún
+   color asignado (quedaba invisible). Ahora el número usa currentColor (cada
+   dotc-* de abajo lo fija distinto, mismo patrón que fuego/hielo/neón) con un
+   grabado real (sombra hundida + filo claro, no un simple text-shadow) y el
+   punto queda como una pequeña incrustación de metal cálido en vez de un
+   círculo transparente. */
+.sk-madera .tile:not(.back){
+  background:
+    repeating-linear-gradient(93deg,transparent 0 7px,rgba(0,0,0,.08) 7px 9px),
+    linear-gradient(165deg,#9a6a3d,#7a4e28 70%,#6a4222);
+  border:2px solid #4e321a;border-bottom:3px solid #35220f;
+  box-shadow:inset 0 0 0 2px rgba(255,255,255,.08),0 3px 5px rgba(0,0,0,.4);
+  color:currentColor !important;
+  text-shadow:0 1.5px 0 rgba(255,255,255,.22),0 -1px 1px rgba(0,0,0,.55) !important;
+}
+.sk-madera .tile.dotc-rojo{color:#a52a1e !important}
+.sk-madera .tile.dotc-azul{color:#1e4a7a !important}
+.sk-madera .tile.dotc-verde{color:#2f5c22 !important}
+.sk-madera .tile.dotc-amarillo{color:#8a6410 !important}
+.sk-madera .tile.dotc-comodin{color:#4a2a63 !important}
+.sk-madera .tile:not(.back)::after{
+  content:"";position:absolute;bottom:3px;left:50%;transform:translateX(-50%);width:8px;height:8px;border-radius:50%;
+  background:radial-gradient(circle at 32% 28%,#e8c48a,currentColor 60%,#2e1b0f 100%);
+  box-shadow:inset 0 1px 1px rgba(255,255,255,.5),0 1px 1px rgba(0,0,0,.4);
+}
+/* piedra */
+.sk-piedra .tile:not(.back){
+  background:
+    linear-gradient(125deg,transparent 30%,rgba(0,0,0,.12) 31%,transparent 33%),
+    linear-gradient(215deg,transparent 55%,rgba(0,0,0,.1) 56%,transparent 58%),
+    radial-gradient(ellipse at 30% 25%,rgba(255,255,255,.18),transparent 50%),
+    linear-gradient(165deg,#aeb2b8,#84888e 70%,#6f7378);
+  border:2px solid #55585d;border-bottom:3px solid #3c3f43;
+  color:currentColor !important;text-shadow:0 1px 0 rgba(255,255,255,.4)}
+.sk-piedra .tile.dotc-rojo{color:#b91c1c !important}
+.sk-piedra .tile.dotc-azul{color:#1d4ed8 !important}
+.sk-piedra .tile.dotc-verde{color:#15803d !important}
+.sk-piedra .tile.dotc-amarillo{color:#92400e !important}
+.sk-piedra .tile.dotc-comodin{color:#6d28d9 !important}
+.sk-piedra .tile:not(.back)::after{content:"";position:absolute;bottom:3px;left:50%;transform:translateX(-50%);width:7px;height:7px;border-radius:50%}
+/* elite */
+.sk-elite .tile:not(.back){background:linear-gradient(165deg,#1a1f2e,#10131d);border:1.5px solid #d4af37;border-bottom:3px solid #9a7c1e;color:currentColor !important;text-shadow:0 0 6px rgba(232,197,90,.45)}
+.sk-elite .tile.dotc-rojo{color:#f87171 !important}
+.sk-elite .tile.dotc-azul{color:#60a5fa !important}
+.sk-elite .tile.dotc-verde{color:#4ade80 !important}
+.sk-elite .tile.dotc-amarillo{color:#f5b40a !important}
+.sk-elite .tile.dotc-comodin{color:#c084fc !important}
+.sk-elite .tile:not(.back)::after{content:"◆";position:absolute;bottom:1px;left:50%;transform:translateX(-50%);font-size:8px}
+/* místico oriental: pergamino con pinceladas y sello kanji de color */
+.sk-oriental .tile:not(.back){
+  background:
+    radial-gradient(ellipse at 20% 85%, rgba(120,90,50,.14), transparent 45%),
+    radial-gradient(ellipse at 80% 15%, rgba(160,60,40,.10), transparent 40%),
+    linear-gradient(165deg,#f3ecd5,#e4d7ae);
+  font-family:Georgia,"Times New Roman",serif;font-style:italic;
+  color:currentColor !important;text-shadow:0 1px 0 rgba(255,255,255,.5)}
+.sk-oriental .tile.dotc-rojo{color:#9a2b1f !important}
+.sk-oriental .tile.dotc-azul{color:#1e4a7a !important}
+.sk-oriental .tile.dotc-verde{color:#2f5c22 !important}
+.sk-oriental .tile.dotc-amarillo{color:#8a6410 !important}
+.sk-oriental .tile.dotc-comodin{color:#5b2a6b !important}
+.sk-oriental .tile:not(.back)::after{
+  position:absolute;bottom:1px;left:50%;transform:translateX(-50%);
+  width:11px;height:11px;border-radius:50%;font-size:7px;font-style:normal;
+  display:flex;align-items:center;justify-content:center;color:#f3ecd5 !important;line-height:1}
+.sk-oriental .tile.dotc-rojo::after{content:"火";background:#b91c1c}
+.sk-oriental .tile.dotc-azul::after{content:"水";background:#1d4ed8}
+.sk-oriental .tile.dotc-verde::after{content:"木";background:#15803d}
+.sk-oriental .tile.dotc-amarillo::after{content:"土";background:#a16207}
+.sk-oriental .tile.dotc-comodin::after{content:"金";background:#6d28d9}
+/* hielo/fuego: el glow/copo/diamante de acá abajo (::after) se mantienen —
+   los redefine cada skin más adelante en el bloque "FIX" nuevo, pero SOLO el
+   material base (fondo/borde/color) — este glyph no tiene equivalente ahí,
+   así que sigue siendo el acento propio de cada una. */
+.sk-hielo .tile:not(.back)::after{content:"❆";position:absolute;bottom:0;left:50%;transform:translateX(-50%);font-size:9px;background:transparent !important;width:auto;height:auto;text-shadow:0 0 4px currentColor}
+.sk-hielo .tile.dotc-rojo::after{color:#dc2626}.sk-hielo .tile.dotc-azul::after{color:#1d4ed8}
+.sk-hielo .tile.dotc-verde::after{color:#15803d}.sk-hielo .tile.dotc-amarillo::after{color:#d97706}
+.sk-hielo .tile.dotc-comodin::after{color:#7c3aed}
+/* puntos de color para skins con ::after — degradé tipo gema (highlight arriba-
+   izquierda) + --gem-glow que consume la geometría genérica de arriba */
+.dotc-rojo::after{background:radial-gradient(circle at 32% 28%,#ff9585,#e74c3c 55%,#b83323 100%);border-color:#e74c3c;color:#e74c3c;--gem-glow:rgba(231,76,60,.55)}
+.dotc-azul::after{background:radial-gradient(circle at 32% 28%,#8fbaff,#3b82f6 55%,#1d4ed8 100%);border-color:#3b82f6;color:#3b82f6;--gem-glow:rgba(59,130,246,.55)}
+.dotc-verde::after{background:radial-gradient(circle at 32% 28%,#8ef0ab,#22c55e 55%,#15803d 100%);border-color:#22c55e;color:#22c55e;--gem-glow:rgba(34,197,94,.55)}
+.dotc-amarillo::after{background:radial-gradient(circle at 32% 28%,#ffe58f,#f5b40a 55%,#b8850a 100%);border-color:#f5b40a;color:#f5b40a;--gem-glow:rgba(245,180,10,.55)}
+.dotc-comodin::after{background:radial-gradient(circle at 32% 28%,#e2c3ff,#a855f7 55%,#7c2fd6 100%);border-color:#a855f7;color:#a855f7;--gem-glow:rgba(168,85,247,.6)}
+.sk-circulo .tile.dotc-rojo::after,.sk-circulo .tile.dotc-azul::after,.sk-circulo .tile.dotc-verde::after,.sk-circulo .tile.dotc-amarillo::after,.sk-circulo .tile.dotc-comodin::after{background:transparent}
+
+/* ---------- EFECTO SLAM (fichas que caen de un pum) ---------- */
+@keyframes slam{0%{transform:scale(2.1) rotate(-4deg);opacity:0}55%{transform:scale(.94) rotate(1deg);opacity:1}75%{transform:scale(1.04)}100%{transform:scale(1)}}
+@keyframes shakeApp{0%,100%{transform:translate(0,0)}20%{transform:translate(-3px,2px)}40%{transform:translate(3px,-2px)}60%{transform:translate(-2px,-1px)}80%{transform:translate(2px,1px)}}
+@keyframes dust{0%{transform:translate(-50%,0) scale(.4);opacity:.8}100%{transform:translate(-50%,0) scale(2.4);opacity:0}}
+.a-slam{animation:slam .45s cubic-bezier(.2,.9,.3,1.2)}
+.shake-it{animation:shakeApp .35s ease-out}
+.meld{overflow:visible}
+.a-slam::before{content:"";position:absolute;bottom:-4px;left:50%;width:80%;height:10px;border-radius:50%;background:radial-gradient(ellipse,rgba(255,255,255,.5),transparent 70%);animation:dust .5s ease-out forwards;pointer-events:none}
+
+
+/* menú rediseñado */
+@keyframes floatTile{0%{transform:translateY(105dvh) rotate(0)}100%{transform:translateY(-15dvh) rotate(360deg)}}
+.floaters{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:0}
+.floaters .tile{position:absolute;opacity:.10;animation:floatTile linear infinite}
+.menu-hero{display:flex;align-items:center;gap:12px;background:linear-gradient(135deg,rgba(251,191,36,.14),rgba(0,0,0,.25));border:1px solid rgba(251,191,36,.3);border-radius:16px;padding:12px 14px;margin-bottom:14px}
+.menu-hero .av{font-size:40px;line-height:1;background:rgba(0,0,0,.3);border-radius:14px;width:58px;height:58px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,.12)}
+.menu-hero .nm{font-size:16px;font-weight:800;color:#ffe9a8}
+.menu-hero .sub{font-size:11px;color:rgba(232,238,247,.6)}
+.menu-hero .coins{margin-left:auto;text-align:right;font-size:13px;font-weight:800;color:#ffe9a8}
+.menu-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.menu-grid .mbtn{display:flex;flex-direction:column;align-items:center;gap:4px;padding:13px 6px;border-radius:13px;background:rgba(255,255,255,.05);border:1px solid var(--panel-border);color:#e8eef7;font-weight:800;font-size:12px;transition:transform .1s, background .15s, border-color .15s}
+.menu-grid .mbtn:hover{border-color:rgba(212,175,88,.5)}
+.menu-grid .mbtn:active{transform:scale(.96)}
+.menu-grid .mbtn .ic{font-size:23px}
+.menu-grid .mbtn.hot{background:linear-gradient(160deg,rgba(251,191,36,.22),rgba(180,83,9,.18));border-color:rgba(251,191,36,.45)}
+
+
+/* élite: símbolos de palo por color (como la imagen) */
+.sk-elite .tile:not(.back)::after{background:transparent !important;width:auto;height:auto;font-size:9px;bottom:1px}
+.sk-elite .tile.dotc-rojo::after{content:"♥";color:#ef4444}
+.sk-elite .tile.dotc-azul::after{content:"♠";color:#3b82f6}
+.sk-elite .tile.dotc-verde::after{content:"♣";color:#22c55e}
+.sk-elite .tile.dotc-amarillo::after{content:"♦";color:#f5b40a}
+.sk-elite .tile.dotc-comodin::after{content:"★";color:#c084fc}
+/* Keyframes + glyphs propios que se mantienen (ver bloque "FIX" más abajo
+   para el material base actualizado de cada una — acá solo queda lo que ESE
+   bloque no redefine: la animación de ambiente y el símbolo distintivo). */
+@keyframes bordefuego{0%,100%{box-shadow:0 0 6px 2px rgba(249,115,22,.7),inset 0 0 8px rgba(249,115,22,.5)}50%{box-shadow:0 0 14px 4px rgba(251,191,36,.85),inset 0 0 12px rgba(239,68,68,.6)}}
+.sk-fuego .tile:not(.back)::after{content:"◆";position:absolute;bottom:1px;left:50%;transform:translateX(-50%);font-size:8px;text-shadow:0 0 5px currentColor}
+.sk-fuego .tile.dotc-rojo::after{color:#ef4444}.sk-fuego .tile.dotc-azul::after{color:#60a5fa}
+.sk-fuego .tile.dotc-verde::after{color:#4ade80}.sk-fuego .tile.dotc-amarillo::after{color:#fbbf24}
+.sk-fuego .tile.dotc-comodin::after{color:#c084fc}
+@keyframes neonpulse{0%,100%{filter:brightness(1)}50%{filter:brightness(1.45)}}
+.sk-neon .tile:not(.back)::after{content:"";position:absolute;top:2px;left:2px;width:6px;height:6px;border-top:1.5px solid currentColor;border-left:1.5px solid currentColor;opacity:.7;background:transparent !important;border-radius:0}
+.sk-galaxia .tile:not(.back)::after{content:"🪐";position:absolute;bottom:0;left:50%;transform:translateX(-50%);font-size:8px;background:transparent !important;width:auto;height:auto;filter:drop-shadow(0 0 3px currentColor)}
+
+/* ---------- MENÚ DE PAUSA ---------- */
+.pauseovl{position:absolute;inset:0;z-index:60;background:rgba(4,10,25,.82);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center}
+.pausecard{background:rgba(10,22,48,.95);border:1px solid rgba(251,191,36,.3);border-radius:18px;padding:24px;width:min(280px,88vw);box-shadow:0 14px 50px rgba(0,0,0,.6)}
+
+/* ---------- Modo Galáctico: ventana de activación de habilidad ---------- */
+.ability-modal-ovl{z-index:65;padding:16px}
+.ability-modal-card{
+  max-width:400px;width:100%;max-height:86dvh;overflow-y:auto;
+  background:linear-gradient(165deg, rgba(24,7,44,.97) 0%, rgba(8,2,16,.98) 100%);
+  border:1.5px solid rgba(var(--fx-rgb),.55);
+  border-radius:18px;padding:16px;
+  box-shadow:0 20px 60px rgba(0,0,0,.6), 0 0 40px rgba(var(--fx-rgb),.25), inset 0 1px 0 rgba(255,255,255,.06);
+}
+.ability-modal-head{display:flex;align-items:center;gap:10px;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid rgba(var(--fx-rgb),.3)}
+.ability-modal-emoji{
+  font-size:26px;flex-shrink:0;width:46px;height:46px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(circle at 35% 30%, rgba(var(--fx-rgb),.6), rgba(var(--fx-rgb),.15) 70%);
+  box-shadow:0 0 14px rgba(var(--fx-rgb),.5), inset 0 1px 0 rgba(255,255,255,.25);
+}
+.ability-modal-headtext{display:flex;flex-direction:column;gap:2px;min-width:0}
+.ability-modal-headtext b{font-family:'Cinzel Decorative',Georgia,serif;font-size:16px;color:#fff}
+.ability-modal-headtext span{font-size:10.5px;color:rgba(232,238,247,.65);line-height:1.35}
+.ability-modal-step{font-size:11px;font-weight:800;color:rgb(var(--fx-rgb));letter-spacing:.3px;margin-bottom:10px;text-align:center}
+.ability-modal-grid{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;max-height:260px;overflow-y:auto}
+.ability-modal-grid .tile,.ability-modal-meld .tile{width:36px;height:49px;font-size:17px}
+.ability-modal-empty{font-size:11px;color:rgba(232,238,247,.5)}
+.ability-modal-oppList{display:flex;flex-direction:column;gap:6px}
+.ability-modal-opp{
+  display:flex;align-items:center;justify-content:center;gap:6px;padding:9px;border-radius:10px;cursor:pointer;
+  background:rgba(255,255,255,.06);color:#e8eef7;font-weight:700;font-size:13px;
+  border:1px solid rgba(var(--fx-rgb),.35);transition:background .15s;
+}
+.ability-modal-opp:not(:disabled):hover{background:rgba(var(--fx-rgb),.22)}
+.ability-modal-opp:disabled{opacity:.35;cursor:default}
+.ability-modal-meldlist{display:flex;flex-direction:column;gap:8px;max-height:320px;overflow-y:auto}
+.ability-modal-meld{border:1px solid rgba(var(--fx-rgb),.3);border-radius:10px;padding:8px;background:rgba(255,255,255,.03)}
+.ability-modal-meld-click{cursor:pointer;transition:background .15s,border-color .15s}
+.ability-modal-meld-click:hover{background:rgba(var(--fx-rgb),.14);border-color:rgba(var(--fx-rgb),.6)}
+.ability-modal-meld-owner{font-size:10px;color:rgba(232,238,247,.55);margin-bottom:5px;font-weight:700}
+.ability-modal-note{font-size:10px;color:rgba(232,238,247,.5);text-align:center;margin-top:8px}
+.ability-modal-substep{font-size:10px;color:rgba(232,238,247,.6);margin-bottom:5px}
+.ability-modal-preview{display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:8px;padding:7px;border-radius:8px;font-size:10.5px;font-weight:700}
+.ability-modal-preview.ok{background:rgba(52,211,153,.14);border:1px solid rgba(52,211,153,.4);color:#6ee7b7}
+.ability-modal-preview.bad{background:rgba(220,38,38,.12);border:1px solid rgba(220,38,38,.35);color:#fca5a5}
+.ability-modal-confirm{width:100%;border-radius:10px;padding:9px;font-weight:800;font-size:12px;background:linear-gradient(180deg, rgb(var(--fx-rgb)), rgba(var(--fx-rgb),.6));color:#fff;box-shadow:0 3px 8px rgba(0,0,0,.4)}
+.ability-modal-confirm:disabled{background:rgba(255,255,255,.08);color:rgba(232,238,247,.35);box-shadow:none;cursor:default}
+
+/* ---------- CHAT RÁPIDO ---------- */
+@keyframes chatBubbleIn{0%{transform:translate(-50%,4px) scale(.6);opacity:0}60%{transform:translate(-50%,-2px) scale(1.06);opacity:1}100%{transform:translate(-50%,0) scale(1)}}
+.chat-bubble{position:absolute;bottom:100%;left:50%;transform:translateX(-50%);margin-bottom:4px;background:rgba(10,22,48,.95);border:1px solid rgba(192,132,252,.5);border-radius:10px;padding:3px 7px;font-size:12px;white-space:nowrap;box-shadow:0 4px 10px rgba(0,0,0,.4);animation:chatBubbleIn .3s cubic-bezier(.2,.8,.3,1.2)}
+
+
+/* onda de energía al bajar un juego (reemplaza las partículas) */
+@keyframes fxring{0%{box-shadow:0 0 0 0 var(--fxc)}100%{box-shadow:0 0 0 28px rgba(0,0,0,0)}}
+.a-slam{--fxc:rgba(255,255,255,.55);animation:slam .45s cubic-bezier(.2,.9,.3,1.2), fxring .65s ease-out}
+.fx-explosion{--fxc:rgba(249,115,22,.85)}
+.fx-escarcha{--fxc:rgba(125,211,252,.85)}
+.fx-rayo{--fxc:rgba(253,224,71,.9)}
+.fx-confeti{--fxc:rgba(192,132,252,.85)}
+/* pegar una ficha a un juego existente: pulso liviano, sin sacudir toda la pantalla */
+@keyframes snapPulse{0%{transform:scale(1.08)}60%{transform:scale(.98)}100%{transform:scale(1)}}
+.a-snap{--fxc:rgba(255,255,255,.4);animation:snapPulse .3s ease-out, fxring .5s ease-out}
+
+
+/* dejar aire al símbolo inferior en todas las skins con dot */
+.tile:not(.back){padding-bottom:7px}
+.tile.back{padding-bottom:0}
+
+
+.mesa3d{min-height:0;display:flex;position:relative}
+.mesa3d .mesa{flex:1;margin:0}
+.mesa .mesa-inner{perspective:800px}
+.mesa .meld{transform:rotateX(17deg);transform-origin:50% 100%;box-shadow:0 10px 16px rgba(0,0,0,.45)}
+.mesa .meld:hover{transform:rotateX(10deg) scale(1.03);z-index:2}
+.rackpersp{perspective:900px}
+.rackpersp .rack{transform:rotateX(16deg);transform-origin:50% 100%;box-shadow:inset 0 2px 8px rgba(0,0,0,.5),0 14px 22px rgba(0,0,0,.55)}
+.reserve-tiles{display:flex;flex-wrap:wrap;gap:2px;align-content:flex-start}
+.reserve-tiles .tile{width:22px;height:31px;font-size:11px}
+@media(max-width:760px){
+  .mesa .meld{transform:rotateX(12deg)}
+}
+
+
+/* Antes esta pantalla era la única con fondo marrón madera de pared a pared —
+   con eso, CUALQUIER panel translúcido (historial, preparación, atril, pozo)
+   terminaba viéndose marrón sin importar qué color tuviera su propio token,
+   porque el marrón de atrás se transparentaba a través de todos (Fase 11 §4/§B:
+   "demasiados rectángulos marrones separados"). La madera ahora queda SOLO en
+   la mesa física (el tapete elegido, .tp-*) — el fondo de la pantalla vuelve
+   al mismo universo azul/violeta que el resto de la app, más oscuro para no
+   competir con las fichas. */
+body.ingame{background:
+  radial-gradient(ellipse at 50% -5%, rgba(56,189,248,.05), transparent 50%),
+  radial-gradient(ellipse at 50% 100%, rgba(168,85,247,.08), transparent 55%),
+  radial-gradient(ellipse at 50% 20%, var(--bg-mid), var(--bg-deep) 78%)}
+
+/* logo BURAKO como imagen */
+@keyframes logoBreath{0%,100%{transform:scale(1);filter:brightness(1)}50%{transform:scale(1.03);filter:brightness(1.25)}}
+
+/* GANASTE en pantalla final */
+@keyframes winZoom{0%{transform:scale(.3);opacity:0}30%{transform:scale(1.15);opacity:1}55%{transform:scale(.98)}100%{transform:scale(1)}}
+.winimg{width:100%;max-width:340px;display:block;margin:0 auto 6px;animation:winZoom .9s cubic-bezier(.2,.9,.3,1.3);filter:drop-shadow(0 0 20px rgba(251,191,36,.45))}
+
+/* posición de rivales según cantidad */
+.oppbar[data-n="1"]{justify-content:center}
+.oppbar[data-n="2"]{justify-content:space-between;padding-left:60px;padding-right:60px}
+.oppbar[data-n="3"]{justify-content:space-between;padding-left:20px;padding-right:20px}
+.opp .avatar-badge{font-size:15px}
+
+/* ============ MENÚ — mismo universo azul/violeta que la portada, más oscuro ============
+   Antes esta pantalla vivía en un gradiente marrón/negro ("estilo casino") totalmente
+   aislado del resto de la app — era el salto de continuidad más notorio de todos
+   (Fase 11, pedido §3/§A: portada azul → menú negro → perfil azul otra vez). Ahora
+   usa la MISMA familia de tokens que .body (--bg-mid/--bg-deep) con un tercer stop
+   más profundo — sigue siendo "el mismo mundo", solo más noche/elegante, como pidió
+   el usuario, en vez de un color distinto. */
+.menu-elegant{position:fixed;inset:0;z-index:0;overflow:hidden;
+  background:
+    radial-gradient(ellipse at 50% 28%, rgba(56,189,248,.06), transparent 55%),
+    radial-gradient(ellipse at 50% 105%, rgba(168,85,247,.10), transparent 60%),
+    radial-gradient(ellipse at 50% 35%, var(--bg-mid) 0%, var(--bg-deep) 65%, #03081a 100%)}
+/* Layout del menú: en desktop usa el espacio vacío a los costados (Fase 11 §3/§A)
+   con el mini-perfil y el destacado de temporada como columnas laterales; en
+   mobile todo se apila en una sola columna centrada (donde ese espacio no sobra). */
+.menu-layout{display:flex;flex-direction:column;align-items:center;gap:16px;width:100%}
+.menu-side{width:100%;max-width:320px}
+.menu-side-card{
+  background:var(--panel-bg-soft);border:1px solid var(--panel-border);border-radius:var(--radius-lg);
+  padding:14px;cursor:pointer;transition:border-color var(--motion-fast) var(--motion-ease),transform var(--motion-fast) var(--motion-ease);
+}
+.menu-side-card:hover{border-color:rgba(251,191,36,.4);transform:translateY(-1px)}
+/* El perfil se mudó al header (.hud-profile-chip) — .menu-side-left ahora es
+   solo un espaciador invisible para que el menú central quede ópticamente
+   centrado en desktop (misma anchura que la tarjeta de la derecha). En mobile
+   no aporta nada y solo agregaría un hueco vacío, así que se saca del todo. */
+.menu-side-left{display:none}
+@media(min-width:920px){
+  .menu-layout{flex-direction:row;align-items:center;justify-content:center;gap:32px;max-width:1080px}
+  .menu-side{width:230px;flex-shrink:0}
+  .menu-side-left{display:block;order:1}
+  .menu-main{order:2}
+  .menu-side-right{order:3}
+}
+/* atriles fantasma en las esquinas */
+.menu-rack-ghost{position:absolute;bottom:-40px;display:flex;gap:5px;opacity:.10;perspective:600px}
+.menu-rack-ghost.left{left:-30px;transform:rotateX(55deg) rotateZ(-18deg)}
+.menu-rack-ghost.right{right:-30px;transform:rotateX(55deg) rotateZ(18deg)}
+.menu-rack-ghost .tile{width:52px;height:70px;font-size:24px}
+/* abanico de fichas que deletrea BURAKO */
+.fan{position:relative;height:150px;margin:10px auto 4px;width:340px}
+@media(max-width:400px){
+  .fan{transform:scale(.82);transform-origin:top center;margin-bottom:-22px}
+}
+.fan .tile{position:absolute;left:50%;top:20px;width:56px;height:76px;font-size:17px;font-weight:800;
+  transform-origin:50% 130%;box-shadow:0 6px 14px rgba(0,0,0,.6);
+  transform:var(--final-t);
+  animation:fanIn .8s var(--motion-ease) backwards}
+@keyframes fanIn{
+  0%{opacity:0;transform:translateX(-50%) translateY(50px) scale(.5) rotate(0deg)}
+  55%{opacity:1}
+  78%{transform:var(--final-t) scale(1.08)}
+  100%{transform:var(--final-t) scale(1)}
+}
+.fan .letter{font-family:var(--font-heading);font-weight:800;font-size:20px;color:#3a2d10;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1}
+.fan .letter small{font-size:9px;font-weight:600;opacity:.6}
+/* botones dorados grandes del menú principal — misma familia dorada que .btn-gold,
+   solo más grandes/ceremoniosos por ser la puerta de entrada al juego */
+.big-gold{display:block;width:min(290px,86vw);margin:11px auto 0;padding:15px;border-radius:10px;
+  font-family:var(--font-display);font-size:clamp(15px,4.6vw,19px);font-weight:700;letter-spacing:2px;
+  color:#1a1200;text-shadow:none;
+  background:var(--btn-gold-grad);
+  border:1px solid var(--gold-dark);
+  box-shadow:var(--btn-gold-shadow), 0 6px 14px rgba(0,0,0,.45);
+  transition:transform .12s, box-shadow .2s, filter .2s}
+.big-gold:hover{filter:brightness(1.08)}
+.big-gold:active{transform:translateY(2px);box-shadow:0 2px 0 #b45309}
+.big-gold.primary{width:min(320px,90vw);font-size:clamp(18px,6vw,24px);padding:19px;
+  box-shadow:var(--btn-gold-shadow), 0 0 30px rgba(251,191,36,.35), 0 8px 18px rgba(0,0,0,.5)}
+.big-gold.primary:hover{box-shadow:var(--btn-gold-shadow), 0 0 40px rgba(251,191,36,.5), 0 8px 18px rgba(0,0,0,.5)}
+@keyframes newsDotPulse{0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,.65)}50%{box-shadow:0 0 0 5px rgba(239,68,68,0)}}
+.news-dot{position:absolute;top:6px;right:10px;width:9px;height:9px;border-radius:50%;background:#ef4444;border:1.5px solid #1a1200;animation:newsDotPulse 1.6s ease-out infinite}
+@keyframes betPending{0%,100%{box-shadow:0 0 0 0 rgba(251,191,36,.5)}50%{box-shadow:0 0 0 6px rgba(251,191,36,0)}}
+.bet-pending{animation:betPending 1.6s ease-out infinite}
+.elegant-hud{position:absolute;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:12px 18px;font-size:13px;color:#c9b78a;z-index:2}
+/* Chip de perfil en el header (reemplaza el "☰ Burako" decorativo — no hacía
+   nada al tocarlo). Fase 11: a pedido del usuario, el mini-perfil que estaba
+   como tarjeta grande en la barra lateral se mudó acá arriba, compacto. */
+.hud-profile-chip{display:flex;align-items:center;gap:8px;cursor:pointer;padding:4px 10px 4px 4px;border-radius:999px;
+  background:rgba(0,0,0,.22);border:1px solid var(--panel-border);transition:border-color var(--motion-fast) var(--motion-ease)}
+.hud-profile-chip:hover{border-color:rgba(251,191,36,.45)}
+.hud-profile-avatar{font-size:19px;line-height:1;width:28px;height:28px;border-radius:50%;background:rgba(184,150,63,.22);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.hud-profile-text{display:flex;flex-direction:column;line-height:1.2}
+.hud-profile-name{font-weight:800;font-size:12px;color:#ffe9a8;max-width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hud-profile-level{font-size:9.5px;color:rgba(232,238,247,.55)}
+.elegant-sub{text-align:center;color:#8a7d5f;font-size:13px;font-style:italic;margin-bottom:8px}
+
+/* ---------- TAPETES DE MESA ---------- */
+/* Luz ambiente que se mueve despacio sobre el fieltro — un solo mecanismo compartido,
+   cada tapete solo cambia el color vía --tapete-glow. El clásico usa la MISMA animación
+   pero con un --tapete-glow bien tenue (dorado, el acento neutro de toda la app) — así
+   sigue leyéndose "sobrio" al lado de los demás sin quedar completamente estático
+   (era la única mesa sin nada de vida fuera de Modo Galáctico). */
+@keyframes tapeteGlow{0%,100%{transform:translate(-8%,-6%) scale(1);opacity:.55}50%{transform:translate(9%,6%) scale(1.2);opacity:.95}}
+.mesa{position:relative}
+.mesa::before{content:"";position:absolute;inset:0;pointer-events:none;border-radius:inherit;z-index:0;
+  background:radial-gradient(circle at 50% 35%,var(--tapete-glow,transparent) 0%,transparent 62%);
+  animation:tapeteGlow 7s ease-in-out infinite}
+.mesa>*{position:relative;z-index:1}
+.tp-clasico .mesa{--tapete-glow:rgba(251,191,36,.07);background:rgba(0,0,0,.2)}
+.tp-fieltroverde .mesa{--tapete-glow:rgba(52,211,153,.16);background:
+  repeating-linear-gradient(115deg,rgba(255,255,255,.02) 0 2px,transparent 2px 5px),
+  radial-gradient(ellipse at 50% 20%,#1a6b3a,#0c3a1f 80%)}
+.tp-fieltroazul .mesa{--tapete-glow:rgba(56,189,248,.16);background:
+  repeating-linear-gradient(115deg,rgba(255,255,255,.02) 0 2px,transparent 2px 5px),
+  radial-gradient(ellipse at 50% 20%,#1e4f8c,#0c2445 80%)}
+.tp-fieltrorojo .mesa{--tapete-glow:rgba(248,113,113,.16);background:
+  repeating-linear-gradient(115deg,rgba(255,255,255,.02) 0 2px,transparent 2px 5px),
+  radial-gradient(ellipse at 50% 20%,#7a1f2a,#3a0d13 80%)}
+.tp-caoba .mesa{--tapete-glow:rgba(217,160,102,.14);background:
+  repeating-linear-gradient(93deg,transparent 0 55px,rgba(0,0,0,.12) 55px 58px),
+  linear-gradient(165deg,#6b4226,#3f2513 75%)}
+.tp-marmol .mesa{--tapete-glow:rgba(255,255,255,.1);background:
+  linear-gradient(120deg,transparent 40%,rgba(255,255,255,.06) 42%,transparent 45%),
+  linear-gradient(200deg,transparent 55%,rgba(255,255,255,.05) 57%,transparent 60%),
+  linear-gradient(165deg,#3a3a42,#232328 75%)}
+.tp-dorado .mesa{--tapete-glow:rgba(251,191,36,.22);background:
+  repeating-radial-gradient(circle at 50% 0%,rgba(212,175,88,.06) 0 2px,transparent 2px 40px),
+  radial-gradient(ellipse at 50% 15%,#3a2d10,#181206 80%)}
+.tp-neon .mesa{--tapete-glow:rgba(56,189,248,.28);background:
+  linear-gradient(rgba(56,189,248,.06) 1px,transparent 1px) 0 0/26px 26px,
+  linear-gradient(90deg,rgba(56,189,248,.06) 1px,transparent 1px) 0 0/26px 26px,
+  radial-gradient(ellipse at 50% 15%,#0f1b2e,#050a14 80%)}
+.tp-esmeraldatp .mesa{--tapete-glow:rgba(16,185,129,.18);background:
+  repeating-linear-gradient(115deg,rgba(255,255,255,.02) 0 2px,transparent 2px 5px),
+  radial-gradient(ellipse at 50% 20%,#0f5c42,#052e22 80%)}
+.tp-medianoche .mesa{--tapete-glow:rgba(129,140,248,.2);background:
+  radial-gradient(1px 1px at 20% 30%,rgba(255,255,255,.5),transparent),
+  radial-gradient(1px 1px at 70% 22%,rgba(255,255,255,.4),transparent),
+  radial-gradient(1.5px 1.5px at 45% 62%,rgba(255,255,255,.5),transparent),
+  radial-gradient(1px 1px at 85% 72%,rgba(255,255,255,.35),transparent),
+  radial-gradient(1.5px 1.5px at 12% 80%,rgba(255,255,255,.4),transparent),
+  radial-gradient(ellipse at 50% 10%,#1e1b4b,#0b0a1f 85%)}
+.tp-cobre .mesa{--tapete-glow:rgba(217,119,6,.2);background:
+  repeating-linear-gradient(70deg,rgba(255,255,255,.03) 0 2px,transparent 2px 6px),
+  radial-gradient(ellipse at 50% 15%,#9a4b26,#3d1c0d 80%)}
+.tp-purpura .mesa{--tapete-glow:rgba(167,139,250,.22);background:
+  repeating-linear-gradient(115deg,rgba(255,255,255,.025) 0 3px,transparent 3px 7px),
+  radial-gradient(ellipse at 50% 18%,#5b21b6,#20063f 82%)}
+.tp-onix .mesa{--tapete-glow:rgba(255,255,255,.12);background:
+  linear-gradient(120deg,transparent 42%,rgba(255,255,255,.05) 45%,transparent 48%),
+  radial-gradient(ellipse at 50% 15%,#26262c,#08080a 82%)}
+.tp-coral .mesa{--tapete-glow:rgba(45,212,191,.22);background:
+  radial-gradient(circle at 20% 25%,rgba(251,146,60,.1) 0 3px,transparent 4px),
+  radial-gradient(circle at 70% 60%,rgba(251,146,60,.1) 0 3px,transparent 4px),
+  radial-gradient(circle at 45% 80%,rgba(251,146,60,.08) 0 3px,transparent 4px),
+  radial-gradient(ellipse at 50% 18%,#0e7490,#042f2e 82%)}
+.tp-artico .mesa{--tapete-glow:rgba(186,230,253,.28);background:
+  radial-gradient(1px 1px at 15% 25%,rgba(255,255,255,.6),transparent),
+  radial-gradient(1.5px 1.5px at 55% 15%,rgba(255,255,255,.5),transparent),
+  radial-gradient(1px 1px at 80% 45%,rgba(255,255,255,.5),transparent),
+  radial-gradient(1.5px 1.5px at 30% 70%,rgba(255,255,255,.45),transparent),
+  radial-gradient(ellipse at 50% 15%,#0c4a6e,#020617 85%)}
+.tp-bambu .mesa{--tapete-glow:rgba(163,230,53,.2);background:
+  repeating-linear-gradient(90deg,rgba(0,0,0,.1) 0 4px,transparent 4px 34px),
+  radial-gradient(ellipse at 50% 20%,#3f6212,#141c04 82%)}
+.tp-vitral .mesa{--tapete-glow:rgba(244,114,182,.24);background:
+  conic-gradient(from 45deg at 30% 30%,rgba(248,113,113,.14) 0 60deg,transparent 60deg 360deg),
+  conic-gradient(from 200deg at 75% 65%,rgba(56,189,248,.14) 0 70deg,transparent 70deg 360deg),
+  conic-gradient(from 100deg at 65% 20%,rgba(250,204,21,.12) 0 50deg,transparent 50deg 360deg),
+  radial-gradient(ellipse at 50% 15%,#241b3d,#0a0714 85%)}
+
+/* El "marco" (fondo general detrás de mesa+pozo) también sigue al tapete elegido,
+   no solo el fieltro — así cambia el diseño completo, no un único color suelto. */
+.tp-clasico .board{background:rgba(0,0,0,.08)}
+.tp-fieltroverde .board{background:radial-gradient(ellipse at 50% -10%,rgba(26,107,58,.16),transparent 70%)}
+.tp-fieltroazul .board{background:radial-gradient(ellipse at 50% -10%,rgba(30,79,140,.16),transparent 70%)}
+.tp-fieltrorojo .board{background:radial-gradient(ellipse at 50% -10%,rgba(122,31,42,.16),transparent 70%)}
+.tp-caoba .board{background:radial-gradient(ellipse at 50% -10%,rgba(107,66,38,.18),transparent 70%)}
+.tp-marmol .board{background:radial-gradient(ellipse at 50% -10%,rgba(255,255,255,.06),transparent 70%)}
+.tp-dorado .board{background:radial-gradient(ellipse at 50% -10%,rgba(212,175,88,.16),transparent 70%)}
+.tp-neon .board{background:radial-gradient(ellipse at 50% -10%,rgba(56,189,248,.16),transparent 70%)}
+.tp-esmeraldatp .board{background:radial-gradient(ellipse at 50% -10%,rgba(16,185,129,.18),transparent 70%)}
+.tp-medianoche .board{background:radial-gradient(ellipse at 50% -10%,rgba(99,102,241,.18),transparent 70%)}
+.tp-cobre .board{background:radial-gradient(ellipse at 50% -10%,rgba(184,110,58,.2),transparent 70%)}
+.tp-purpura .board{background:radial-gradient(ellipse at 50% -10%,rgba(124,58,237,.2),transparent 70%)}
+.tp-onix .board{background:radial-gradient(ellipse at 50% -10%,rgba(255,255,255,.08),transparent 70%)}
+.tp-coral .board{background:radial-gradient(ellipse at 50% -10%,rgba(45,212,191,.2),transparent 70%)}
+.tp-artico .board{background:radial-gradient(ellipse at 50% -10%,rgba(125,211,252,.2),transparent 70%)}
+.tp-bambu .board{background:radial-gradient(ellipse at 50% -10%,rgba(163,230,53,.18),transparent 70%)}
+.tp-vitral .board{background:radial-gradient(ellipse at 50% -10%,rgba(244,114,182,.2),transparent 70%)}
+
+/* ---------- Modo Galáctico: mesa temática (siempre, no depende del tapete elegido) ---------- */
+.tp-galactico .board{background:radial-gradient(ellipse at 50% -10%,rgba(124,58,237,.28),transparent 70%)}
+.tp-galactico .mesa{
+  background:linear-gradient(165deg,rgba(28,9,58,.6) 0%,rgba(12,4,28,.75) 55%,rgba(28,9,58,.6) 100%);
+  border-color:rgba(168,85,247,.45);
+  box-shadow:inset 0 0 44px rgba(124,58,237,.28),0 0 22px rgba(88,28,135,.35);
+}
+.tp-galactico .mesa-label{color:#e9d5ff;text-shadow:0 0 8px rgba(168,85,247,.65)}
+.tp-galactico .mesa-empty{color:rgba(216,180,254,.55)}
+
+/* Fondo de toda la zona de mesa (asientos + tablero) con estrellas + nebulosa a la deriva */
+.galactico-felt{position:relative}
+.galactico-felt>.seat,.galactico-felt>.board{position:relative;z-index:1}
+.galactico-stars{
+  position:absolute;inset:0;z-index:0;pointer-events:none;overflow:hidden;border-radius:14px;
+  background-repeat:no-repeat;
+  background-image:
+    radial-gradient(1.5px 1.5px at 10% 20%,rgba(255,255,255,.9),transparent 60%),
+    radial-gradient(1px 1px at 30% 72%,rgba(255,255,255,.7),transparent 60%),
+    radial-gradient(2px 2px at 50% 15%,rgba(216,180,254,.9),transparent 60%),
+    radial-gradient(1px 1px at 68% 46%,rgba(255,255,255,.8),transparent 60%),
+    radial-gradient(1.5px 1.5px at 85% 82%,rgba(147,197,253,.8),transparent 60%),
+    radial-gradient(1px 1px at 16% 86%,rgba(255,255,255,.6),transparent 60%),
+    radial-gradient(1.5px 1.5px at 92% 26%,rgba(255,255,255,.85),transparent 60%),
+    radial-gradient(1px 1px at 44% 92%,rgba(216,180,254,.7),transparent 60%),
+    radial-gradient(2px 2px at 60% 58%,rgba(255,255,255,.7),transparent 60%),
+    radial-gradient(1px 1px at 24% 42%,rgba(147,197,253,.6),transparent 60%),
+    radial-gradient(1.5px 1.5px at 5% 55%,rgba(255,255,255,.75),transparent 60%),
+    radial-gradient(1px 1px at 78% 8%,rgba(216,180,254,.65),transparent 60%);
+  animation:galacticoTwinkle 4s ease-in-out infinite;
+}
+.galactico-stars::before{
+  content:"";position:absolute;inset:-15%;
+  background:
+    radial-gradient(ellipse 45% 35% at 20% 30%,rgba(124,58,237,.28),transparent 70%),
+    radial-gradient(ellipse 40% 30% at 82% 72%,rgba(56,189,248,.2),transparent 70%),
+    radial-gradient(ellipse 35% 40% at 60% 15%,rgba(217,70,239,.16),transparent 70%);
+  filter:blur(6px);
+  animation:galacticoDrift 18s ease-in-out infinite alternate;
+}
+@keyframes galacticoTwinkle{0%,100%{opacity:.55}50%{opacity:1}}
+@keyframes galacticoDrift{0%{transform:translate(0,0) scale(1)}100%{transform:translate(3%,-2%) scale(1.08)}}
+@media(prefers-reduced-motion:reduce){.galactico-stars,.galactico-stars::before{animation:none}}
+
+/* ---------- SELECCIÓN: siempre visible por encima de cualquier skin ---------- */
+.tile.sel{
+  outline:3px solid #fbbf24 !important;
+  outline-offset:2px;
+  box-shadow:0 0 0 4px rgba(251,191,36,.3),0 10px 18px rgba(0,0,0,.55) !important;
+  transform:translateY(-10px) scale(1.07) !important;
+  z-index:6;position:relative;
+}
+.tile.sel::before{
+  content:"✓";position:absolute;top:-8px;right:-7px;width:16px;height:16px;border-radius:50%;
+  background:#fbbf24;color:#1a1200;font-size:10px;font-weight:900;line-height:1;
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:0 2px 5px rgba(0,0,0,.55);z-index:7;
+}
+/* Paso 3 del plan de animaciones: halo pulsante mientras la ficha sigue
+   seleccionada. NO va en ::after: casi treinta skins de ficha (madera,
+   oriental, hielo, fuego, etc.) ya usan .sk-X .tile::after para su propio
+   decorado de esquina (un puntito, un símbolo) — pelear por ese mismo lugar
+   hacía que el decorado de la skin se deformara y tapara la ficha cuando la
+   seleccionabas. Por eso el halo es un <span class="sel-halo"> real, propio,
+   que ninguna skin toca — se agrega SIEMPRE al armar la ficha (tileHTML/
+   tileBtn) pero queda invisible salvo que la ficha tenga .sel. */
+/* Rendimiento: el brillo que "late" es SIEMPRE el mismo box-shadow fijo (se
+   calcula una sola vez) — lo que se anima es solo su opacity. Animar box-shadow
+   directamente (blur/spread cambiando cuadro a cuadro) obliga al navegador a
+   repintar esa zona en cada frame; opacity es puramente del compositor (va
+   directo a la GPU), así que con una sola ficha seleccionada esto no debería
+   costar nada de fps. */
+.tile .sel-halo{display:none}
+.tile.sel .sel-halo{
+  display:block;position:absolute;inset:-2px;border-radius:9px;pointer-events:none;z-index:4;
+  box-shadow:0 0 14px 4px rgba(251,191,36,.55);
+  animation:tileSelPulse var(--motion-slow) var(--motion-ease-soft) infinite;
+}
+@keyframes tileSelPulse{
+  0%,100%{opacity:.5}
+  50%{opacity:1}
+}
+@media(prefers-reduced-motion:reduce){.tile.sel .sel-halo{animation:none;opacity:.85}}
+.tile.hint{
+  outline:3px solid #38bdf8 !important;
+  outline-offset:2px;
+  box-shadow:0 0 0 4px rgba(56,189,248,.28),0 0 14px rgba(56,189,248,.5) !important;
+  z-index:5;
+}
+
+/* ---------- TIENDA: layout adaptado a escritorio ---------- */
+@media(min-width:820px){
+  #app .screen-center .card:has(.shop-grid){max-width:900px}
+  .shop-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px}
+  .shop-grid .shop-section-title{grid-column:1 / -1}
+}
+.shop-item{display:flex;align-items:center;gap:10px;padding:8px;border-radius:12px;margin-bottom:6px;
+  background:var(--panel-bg-soft);border:1px solid var(--panel-border);
+  transition:background var(--motion-fast) var(--motion-ease),border-color var(--motion-fast) var(--motion-ease)}
+/* Estado activo: cada tab de la tienda define su propio acento con --fx-rgb
+   (mismo patrón ya documentado en :root para cualquier color de contexto) en
+   vez de repetir un bloque de estilo inline por fila — así todas las filas de
+   todos los tabs comparten un único lenguaje visual de "esto es lo que uso". */
+.shop-item.is-active{background:rgba(var(--fx-rgb,251,191,36),.13);border-color:rgba(var(--fx-rgb,251,191,36),.5)}
+.shop-btn{border-radius:8px;font-size:10px;flex-shrink:0;padding:5px 10px;font-weight:800;border:none;cursor:pointer;
+  transition:filter var(--motion-fast) var(--motion-ease),transform var(--motion-fast) var(--motion-ease)}
+.shop-btn:hover{filter:brightness(1.08)}
+.shop-btn:active{transform:scale(.96)}
+.shop-btn[data-state="active"]{background:rgba(255,255,255,.1);color:#e8eef7}
+.shop-btn[data-state="owned"]{background:var(--btn-gold-grad);color:#1a1200}
+.shop-btn[data-state="buy"]{background:linear-gradient(180deg,#34d399,#059669);color:#fff}
+.shop-btn[data-state="locked"]{background:rgba(255,255,255,.07);color:rgba(232,238,247,.35);cursor:not-allowed}
+.shop-btn-ghost{border-radius:7px;font-size:10px;flex-shrink:0;padding:5px 8px;background:rgba(184,150,63,.25);
+  color:#ffe9a8;border:1px solid var(--panel-border);cursor:pointer;margin-right:4px}
+.shop-item.is-previewing{border-color:rgba(255,233,168,.55)}
+
+/* Vista previa grande de skin: aparece entre las pestañas y la lista al tocar el
+   ojo de una fila (Fase 11 §9 — antes solo había fichas mini de 24px en la fila). */
+.shop-skin-preview{position:relative;flex-shrink:0;margin-bottom:10px;padding:16px 12px 12px;
+  border-radius:14px;background:var(--panel-bg-soft);border:1px solid rgba(255,233,168,.3);
+  animation:shopPreviewIn .22s var(--motion-ease)}
+@keyframes shopPreviewIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
+@media(prefers-reduced-motion:reduce){.shop-skin-preview{animation:none}}
+
+/* ---------- Filas de recompensa: Pase de temporada, Pase Galáctico y Rangos ----------
+   Los tres eran divs con un bloque de estilo inline armado a mano por fila (mismo
+   problema que .shop-item de arriba) — ahora comparten este único componente. */
+.reward-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:11px;margin-bottom:6px;
+  background:var(--panel-bg-soft);border:1px solid var(--panel-border);
+  transition:background var(--motion-fast) var(--motion-ease),border-color var(--motion-fast) var(--motion-ease)}
+.reward-row[data-state="locked"],.reward-row[data-state="milestone"]{opacity:.5}
+.reward-row[data-state="unlocked"]{background:rgba(251,191,36,.13);border-color:rgba(251,191,36,.55)}
+.reward-row[data-state="milestone"]{background:rgba(56,189,248,.08);border-color:rgba(56,189,248,.25)}
+.reward-row[data-state="claimed"]{background:rgba(52,211,153,.1);border-color:rgba(52,211,153,.35)}
+.reward-row[data-state="current"]{background:rgba(251,191,36,.14);border-color:rgba(251,191,36,.6)}
+/* Pase Galáctico: mismo componente, acento violeta en vez de dorado */
+.reward-row.is-galactic[data-state="unlocked"]{background:rgba(168,85,247,.16);border-color:rgba(168,85,247,.55)}
+
+/* "Reclamar todo" (Fase 12 §13) — banner arriba de la lista de niveles, solo
+   aparece si hay algo reclamable; la tarjeta de resumen reusa .pauseovl/
+   .pausecard (mismo componente que el menú de pausa) en vez de un modal nuevo. */
+.claim-all-banner{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:9px 12px;margin-bottom:10px;border-radius:11px;
+  background:linear-gradient(135deg,rgba(251,191,36,.18),rgba(217,119,6,.1));
+  border:1px solid rgba(251,191,36,.4);
+}
+.claim-all-banner span{font-size:12.5px;font-weight:800;color:#ffe9a8}
+.claim-all-banner button{background:var(--btn-gold-grad);color:#1a1200;border-radius:8px;padding:6px 14px;font-size:11.5px;font-weight:800;border:none;cursor:pointer;flex-shrink:0}
+.claim-all-summary{max-width:340px}
+
+/* timer al lado del atril para que se vea mejor */
+.timer-inline{display:flex;align-items:center;gap:6px;margin-left:auto}
+
+/* ============ LOGO BURAKO (texto animado) ============ */
+@keyframes logoGlow{
+  0%,100%{text-shadow:0 0 12px rgba(59,130,246,.6),0 0 40px rgba(59,130,246,.25),0 4px 0 rgba(0,0,0,.5)}
+  50%{text-shadow:0 0 20px rgba(96,165,250,.85),0 0 60px rgba(59,130,246,.45),0 0 90px rgba(37,99,235,.2),0 4px 0 rgba(0,0,0,.5)}
+}
+@keyframes logoFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+.logo-text{
+  font-family:'Cinzel Decorative',Georgia,serif;font-size:clamp(42px,10vw,68px);font-weight:900;
+  color:#60a5fa;letter-spacing:8px;text-align:center;
+  animation:logoGlow 3s ease-in-out infinite, logoFloat 5s ease-in-out infinite;
+  -webkit-text-stroke:1px rgba(37,99,235,.4);
+  margin-bottom:4px;
+}
+
+/* ============ TU TURNO (banner animado) ============ */
+@keyframes turnZoomIn{
+  0%{transform:translate(-50%,-50%) scale(.3) rotateX(40deg);opacity:0;filter:blur(8px)}
+  50%{transform:translate(-50%,-50%) scale(1.12) rotateX(-5deg);opacity:1;filter:blur(0)}
+  70%{transform:translate(-50%,-50%) scale(.96);filter:blur(0)}
+  100%{transform:translate(-50%,-50%) scale(1);filter:blur(0)}
+}
+@keyframes turnPulse{
+  0%,100%{text-shadow:0 0 20px rgba(52,211,153,.7),0 0 50px rgba(16,185,129,.4),0 4px 0 rgba(0,0,0,.6)}
+  50%{text-shadow:0 0 35px rgba(52,211,153,.95),0 0 80px rgba(16,185,129,.6),0 0 120px rgba(5,150,105,.3),0 4px 0 rgba(0,0,0,.6)}
+}
+@keyframes turnFadeOut{
+  0%{opacity:1;transform:translate(-50%,-50%) scale(1)}
+  100%{opacity:0;transform:translate(-50%,-50%) scale(1.6)}
+}
+/* Rediseñado en Fase 12 §8: antes esto era texto GIGANTE (hasta 60px) centrado
+   arriba de la mesa, tapando al rival y la mesa por ~2.4s — exactamente la "caja
+   grande" que reportó el usuario. Ahora es un toast HUD compacto, mismo lenguaje
+   visual que .ach-toast (logro desbloqueado): chip chico, cerca del header, entra/
+   sale suave y dura ~1.6s en total (el timeout de JS que saca `.turnBanner` está
+   calibrado a 1650ms — ver endTurn()/goSorteo() — para no cortar la animación a
+   mitad de camino, el bug que tenía la versión anterior). */
+@keyframes turnToastIn{0%{transform:translate(-50%,-10px);opacity:0}100%{transform:translate(-50%,0);opacity:1}}
+@keyframes turnToastOut{0%{opacity:1}100%{opacity:0}}
+.turnbanner{
+  position:fixed;left:50%;top:calc(54px + env(safe-area-inset-top));z-index:60;pointer-events:none;
+  transform:translate(-50%,0);
+  display:inline-flex;align-items:center;gap:6px;white-space:nowrap;
+  font-family:var(--font-heading);font-size:15px;font-weight:800;letter-spacing:1.5px;
+  color:#34d399;text-shadow:0 0 10px rgba(52,211,153,.55);
+  background:linear-gradient(135deg,rgba(16,12,4,.95),rgba(10,30,20,.92));
+  border:1.5px solid rgba(52,211,153,.55);border-radius:999px;padding:7px 18px;
+  box-shadow:0 8px 20px rgba(0,0,0,.5),0 0 16px rgba(52,211,153,.25);
+  animation:turnToastIn .22s ease-out forwards, turnToastOut .3s ease-in 1.3s forwards;
+}
+@media(prefers-reduced-motion:reduce){.turnbanner{animation:none}}
+
+/* ============ ¡GRAN JUGADA! / COMBO (banner dorado) ============ */
+@keyframes bigPlayPulse{
+  0%,100%{text-shadow:0 0 20px rgba(251,191,36,.75),0 0 50px rgba(217,119,6,.45),0 4px 0 rgba(0,0,0,.6)}
+  50%{text-shadow:0 0 38px rgba(251,191,36,1),0 0 85px rgba(217,119,6,.65),0 0 130px rgba(180,83,9,.35),0 4px 0 rgba(0,0,0,.6)}
+}
+.bigplaybanner{
+  position:absolute;left:50%;top:58%;z-index:51;pointer-events:none;white-space:nowrap;
+  font-family:'Cinzel Decorative',Georgia,serif;font-size:clamp(22px,5.4vw,34px);font-weight:900;
+  color:#fde68a;letter-spacing:3px;-webkit-text-stroke:1px rgba(146,64,14,.55);
+  animation:turnZoomIn .7s cubic-bezier(.2,.8,.3,1.1) forwards, bigPlayPulse 1s ease-in-out .7s 1, turnFadeOut .5s ease-out 1.4s forwards;
+}
+
+/* ============ Aviso de coordinación de equipo (2v2, timeout cerca) ============ */
+@keyframes teamWarnPulse{
+  0%,100%{box-shadow:0 0 18px rgba(248,113,113,.55),inset 0 0 0 rgba(0,0,0,0)}
+  50%{box-shadow:0 0 34px rgba(248,113,113,.9),inset 0 0 0 rgba(0,0,0,0)}
+}
+.teamwarnbanner{
+  position:absolute;left:50%;top:28%;z-index:52;pointer-events:none;white-space:nowrap;
+  transform:translateX(-50%);text-align:center;
+  font-family:'Cinzel Decorative',Georgia,serif;font-size:clamp(14px,3.6vw,20px);font-weight:800;
+  color:#fecaca;letter-spacing:.5px;
+  background:rgba(20,0,0,.65);padding:9px 20px;border-radius:14px;border:1px solid rgba(248,113,113,.55);
+  animation:turnZoomIn .5s cubic-bezier(.2,.8,.3,1.1) forwards, teamWarnPulse .8s ease-in-out .5s 2, turnFadeOut .5s ease-out 2.1s forwards;
+}
+
+/* ============ Modo Galáctico: "NOMBRE USÓ HABILIDAD" ============ */
+@keyframes abilityBannerPulse{
+  0%,100%{text-shadow:0 0 20px rgba(168,85,247,.85),0 0 50px rgba(126,34,206,.5),0 4px 0 rgba(0,0,0,.7)}
+  50%{text-shadow:0 0 40px rgba(216,180,254,1),0 0 90px rgba(147,51,234,.7),0 0 130px rgba(88,28,135,.45),0 4px 0 rgba(0,0,0,.7)}
+}
+.abilitybanner{
+  position:absolute;left:50%;top:34%;z-index:53;pointer-events:none;white-space:nowrap;
+  transform:translate(-50%,-50%);text-align:center;line-height:1.3;
+  font-family:'Cinzel Decorative',Georgia,serif;font-size:clamp(18px,4.6vw,30px);font-weight:900;
+  color:#f3e8ff;letter-spacing:3px;-webkit-text-stroke:1px rgba(88,28,135,.65);
+  animation:turnZoomIn .6s cubic-bezier(.2,.8,.3,1.1) forwards, abilityBannerPulse 1s ease-in-out .6s 1, turnFadeOut .5s ease-out 1.7s forwards;
+}
+.abilitybanner .ab-emoji{font-size:1.35em;-webkit-text-stroke:0;display:inline-block;vertical-align:-.08em}
+
+/* ============ Propuesta de "ficha y pasar" / "bajar todo" (2v2) — se queda hasta
+   que el compañero responde, no se autodesvanece como los otros carteles ============ */
+.teampropcard{
+  position:fixed;left:50%;top:14px;transform:translateX(-50%);z-index:80;
+  background:rgba(10,20,30,.94);border:1px solid rgba(56,189,248,.5);border-radius:14px;
+  padding:10px 16px;text-align:center;box-shadow:0 6px 24px rgba(0,0,0,.5);
+  min-width:220px;max-width:92vw;
+}
+.teampropcard-title{font-size:11.5px;font-weight:800;color:#7dd3fc;margin-bottom:2px;letter-spacing:.3px}
+.teampropcard-desc{font-size:13.5px;color:#e8eef7;font-weight:700}
+
+/* ============ GANASTE (pantalla de victoria) ============ */
+@keyframes winReveal{
+  0%{transform:scale(.3) rotateY(90deg);opacity:0}
+  40%{transform:scale(1.15) rotateY(-10deg);opacity:1}
+  60%{transform:scale(.95) rotateY(5deg)}
+  100%{transform:scale(1) rotateY(0)}
+}
+@keyframes winShine{
+  0%{background-position:200% center}
+  100%{background-position:-200% center}
+}
+.win-text{
+  font-family:'Cinzel Decorative',Georgia,serif;font-size:clamp(38px,9vw,58px);font-weight:900;
+  background:linear-gradient(90deg,#d4af37,#fde68a 30%,#fff 50%,#fde68a 70%,#d4af37);
+  background-size:200% 100%;
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+  animation:winReveal .9s cubic-bezier(.2,.9,.3,1.3), winShine 3s linear 1s infinite;
+  text-shadow:none;
+  text-align:center;margin-bottom:10px;
+}
+
+/* ============ PERDISTE ============ */
+.lose-text{
+  font-family:'Cinzel Decorative',Georgia,serif;font-size:clamp(30px,7vw,48px);font-weight:900;
+  color:#ef4444;text-align:center;margin-bottom:10px;
+  text-shadow:0 0 15px rgba(239,68,68,.5),0 4px 0 rgba(0,0,0,.5);
+}
+
+/* ============ subtítulo elegante ============ */
+.elegant-sub{font-family:'Cinzel Decorative',Georgia,serif;font-size:13px;font-style:normal;letter-spacing:2px}
+
+/* ============ TIENDA: tabs horizontales + grilla ============ */
+.shop-tabs{display:flex;gap:6px;margin-bottom:12px;border-bottom:2px solid rgba(184,150,63,.2);padding-bottom:8px}
+.shop-tabs button{flex:1;padding:10px 6px;border-radius:10px 10px 0 0;font-weight:800;font-size:12px;
+  background:rgba(255,255,255,.04);color:rgba(232,238,247,.6);border:1px solid transparent;border-bottom:none;
+  transition:all .15s}
+.shop-tabs button.active{background:rgba(184,150,63,.15);color:#ffe9a8;border-color:rgba(184,150,63,.35)}
+/* height fija (no max-height): antes cada tab de Perfil/Tienda con MENOS contenido
+   encogía la tarjeta entera, y como .screen-center centra verticalmente, el header
+   (foto, nombre, nivel) saltaba de posición al cambiar de pestaña — reportado
+   como "la ventana se mueve de arriba y abajo". Con altura fija, la tarjeta mide
+   siempre lo mismo sin importar la pestaña: el header queda quieto y solo el
+   contenido de abajo cambia (con su propio scroll interno si hace falta). */
+.shop-content{height:55dvh;overflow-y:auto;padding-right:4px}
+.shop-content::-webkit-scrollbar{width:5px}
+.shop-content::-webkit-scrollbar-thumb{background:rgba(184,150,63,.3);border-radius:4px}
+@media(min-width:820px){
+  .shop-content .shop-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  #app .screen-center .card.shop-card{max-width:840px}
+}
+
+/* ============ PERFIL: layout horizontal en desktop ============ */
+@media(min-width:720px){
+  #app .screen-center .card.profile-card{max-width:700px}
+  .profile-top{display:grid;grid-template-columns:200px 1fr;gap:16px;align-items:start}
+  .profile-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+  .profile-achs{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+}
+.profile-stat{background:rgba(0,0,0,.25);border-radius:10px;padding:10px;text-align:center}
+.profile-stat b{display:block;font-size:18px;color:#ffe9a8}
+.profile-stat span{font-size:10px;color:rgba(232,238,247,.55)}
+
+/* ================================================================
+   FIX: Skins con distinción clara de colores por ficha
+   ================================================================ */
+
+/* HÉROE ARÁCNIDO — malla roja/azul, número en color propio brillante */
+.sk-aracnido .tile:not(.back){
+  background:
+    radial-gradient(circle at 30% 25%,rgba(255,255,255,.12) 0 8%,transparent 9%),
+    linear-gradient(165deg,#1a1a2e 0%,#0f0f1f 100%);
+  border:1.5px solid #333;border-bottom:3px solid #111;
+  color:currentColor !important;text-shadow:0 0 8px currentColor,0 1px 2px rgba(0,0,0,.8) !important;
+}
+.sk-aracnido .tile.dotc-rojo{color:#ef4444 !important}
+.sk-aracnido .tile.dotc-azul{color:#3b82f6 !important}
+.sk-aracnido .tile.dotc-verde{color:#22c55e !important}
+.sk-aracnido .tile.dotc-amarillo{color:#fbbf24 !important}
+.sk-aracnido .tile.dotc-comodin{color:#c084fc !important}
+.sk-aracnido .tile:not(.back)::after{
+  content:"";position:absolute;inset:2px;border-radius:5px;
+  background:
+    linear-gradient(45deg,transparent 46%,currentColor 47%,currentColor 53%,transparent 54%),
+    linear-gradient(-45deg,transparent 46%,currentColor 47%,currentColor 53%,transparent 54%);
+  opacity:.15;pointer-events:none
+}
+
+/* HÉROE TECNO — armadura metálica con LED del color de la ficha */
+.sk-tecno .tile:not(.back){
+  background:linear-gradient(165deg,#dc2626,#7f1d1d);
+  border:1.5px solid #b91c1c;border-bottom:3px solid #7f1d1d;
+  color:#fff !important;text-shadow:0 0 6px currentColor,0 1px 2px rgba(0,0,0,.8) !important;
+}
+.sk-tecno .tile:not(.back)::before{
+  content:"";position:absolute;top:2px;left:50%;transform:translateX(-50%);width:60%;height:2px;
+  background:currentColor;box-shadow:0 0 6px currentColor;border-radius:2px;pointer-events:none
+}
+.sk-tecno .tile.dotc-rojo{color:#fca5a5 !important}
+.sk-tecno .tile.dotc-azul{color:#7dd3fc !important}
+.sk-tecno .tile.dotc-verde{color:#86efac !important}
+.sk-tecno .tile.dotc-amarillo{color:#fde047 !important}
+.sk-tecno .tile.dotc-comodin{color:#e9d5ff !important}
+
+/* HÉROE SOMBRA — gris oscuro con aura del color */
+.sk-sombra .tile:not(.back){
+  background:linear-gradient(165deg,#374151,#111827);
+  border:1.5px solid #000;border-bottom:3px solid #000;
+  color:currentColor !important;text-shadow:0 0 10px currentColor,0 0 3px currentColor,0 1px 2px rgba(0,0,0,.9) !important;
+}
+.sk-sombra .tile.dotc-rojo{color:#ef4444 !important;box-shadow:inset 0 0 12px rgba(239,68,68,.35)}
+.sk-sombra .tile.dotc-azul{color:#60a5fa !important;box-shadow:inset 0 0 12px rgba(96,165,250,.35)}
+.sk-sombra .tile.dotc-verde{color:#4ade80 !important;box-shadow:inset 0 0 12px rgba(74,222,128,.35)}
+.sk-sombra .tile.dotc-amarillo{color:#facc15 !important;box-shadow:inset 0 0 12px rgba(250,204,21,.35)}
+.sk-sombra .tile.dotc-comodin{color:#c084fc !important;box-shadow:inset 0 0 12px rgba(192,132,252,.35)}
+
+/* GALÁCTICO ESPACIAL — fondo estrellado con planeta del color */
+.sk-galaxia .tile:not(.back){
+  background:
+    radial-gradient(circle at 20% 30%,#fff 0.5px,transparent 1px),
+    radial-gradient(circle at 70% 20%,#fff 0.5px,transparent 1px),
+    radial-gradient(circle at 40% 70%,#fff 0.5px,transparent 1px),
+    radial-gradient(circle at 85% 80%,#fff 0.5px,transparent 1px),
+    linear-gradient(165deg,#1e1b4b,#0f0a2e);
+  border:1.5px solid #4c1d95;border-bottom:3px solid #2e1065;
+  color:currentColor !important;text-shadow:0 0 8px currentColor,0 1px 2px rgba(0,0,0,.9) !important;
+}
+.sk-galaxia .tile.dotc-rojo{color:#f87171 !important}
+.sk-galaxia .tile.dotc-azul{color:#60a5fa !important}
+.sk-galaxia .tile.dotc-verde{color:#4ade80 !important}
+.sk-galaxia .tile.dotc-amarillo{color:#fbbf24 !important}
+.sk-galaxia .tile.dotc-comodin{color:#e9d5ff !important}
+
+/* TECNO FUTURISTA / NEÓN — cada color propio */
+.sk-neon .tile:not(.back){
+  background:linear-gradient(165deg,#000,#0a0a12);
+  border:2px solid currentColor;border-bottom:3px solid currentColor;
+  color:currentColor !important;text-shadow:0 0 12px currentColor,0 0 4px currentColor !important;
+  box-shadow:0 0 10px currentColor,inset 0 0 6px currentColor;
+  animation:neonpulse 2.4s ease-in-out infinite;
+}
+.sk-neon .tile.dotc-rojo{color:#ff2d55 !important}
+.sk-neon .tile.dotc-azul{color:#00d4ff !important}
+.sk-neon .tile.dotc-verde{color:#00ff88 !important}
+.sk-neon .tile.dotc-amarillo{color:#ffcc00 !important}
+.sk-neon .tile.dotc-comodin{color:#ff00ff !important}
+
+/* FUEGO ARDIENTE — llamas con número del color propio destacado */
+.sk-fuego .tile:not(.back){
+  background:
+    linear-gradient(0deg,#7a1d00 0%,#c2410c 40%,#ea580c 60%,#f59e0b 85%,#fde68a 100%);
+  border:1.5px solid #7c2d12;border-bottom:3px solid #431407;
+  color:#fff !important;text-shadow:0 0 8px currentColor,0 1px 3px rgba(0,0,0,.8),0 0 3px currentColor !important;
+  animation:bordefuego 1.8s ease-in-out infinite;
+}
+/* Antes los 4 colores eran variantes casi-blancas (fee2e2/dbeafe/dcfce7/
+   fef3c7) — imposibles de distinguir entre sí de un vistazo sobre el fondo
+   de fuego (Fase 11 §10, "los 4 colores tienen que seguir siendo
+   inequívocos"). Ahora cada uno es un tono de brasa/llama bien saturado y
+   distinto, no una variación de blanco. */
+.sk-fuego .tile.dotc-rojo{color:#ff5533 !important}
+.sk-fuego .tile.dotc-azul{color:#7dd3fc !important}
+.sk-fuego .tile.dotc-verde{color:#bef264 !important}
+.sk-fuego .tile.dotc-amarillo{color:#fef08a !important}
+.sk-fuego .tile.dotc-comodin{color:#f0abfc !important}
+
+/* HIELO GLACIAL — cristal azul con número del color */
+@keyframes hieloShimmer{0%,100%{filter:brightness(1) saturate(1)}50%{filter:brightness(1.12) saturate(1.15)}}
+.sk-hielo .tile:not(.back){
+  background:
+    linear-gradient(135deg,rgba(255,255,255,.15) 0%,transparent 45%),
+    linear-gradient(165deg,#bae6fd,#7dd3fc 50%,#38bdf8);
+  border:1.5px solid #0284c7;border-bottom:3px solid #075985;
+  color:currentColor !important;text-shadow:0 1px 2px rgba(255,255,255,.5),0 0 6px rgba(255,255,255,.4) !important;
+  animation:hieloShimmer 3s ease-in-out infinite;
+}
+.sk-hielo .tile.dotc-rojo{color:#b91c1c !important}
+.sk-hielo .tile.dotc-azul{color:#1e3a8a !important}
+.sk-hielo .tile.dotc-verde{color:#166534 !important}
+.sk-hielo .tile.dotc-amarillo{color:#a16207 !important}
+.sk-hielo .tile.dotc-comodin{color:#6d28d9 !important}
+
+/* ORO REAL — dorado premium */
+.sk-oro .tile:not(.back){
+  background:linear-gradient(165deg,#fde68a,#f59e0b 50%,#b45309);
+  border:1.5px solid #92400e;border-bottom:3px solid #78350f;
+  color:currentColor !important;text-shadow:0 1px 2px rgba(0,0,0,.4) !important;
+}
+.sk-oro .tile.dotc-rojo{color:#7f1d1d !important}
+.sk-oro .tile.dotc-azul{color:#1e3a8a !important}
+.sk-oro .tile.dotc-verde{color:#14532d !important}
+.sk-oro .tile.dotc-amarillo{color:#78350f !important}
+.sk-oro .tile.dotc-comodin{color:#581c87 !important}
+
+/* ============================================================
+   10 SKINS NUEVAS
+   ============================================================ */
+/* Pingüino Tux — cuerpo negro, panza blanca con el número, piquito naranja */
+.sk-pinguino .tile:not(.back){
+  background:radial-gradient(ellipse 62% 66% at 50% 58%,#fefefe 0%,#fefefe 90%,transparent 95%),linear-gradient(180deg,#161616,#000);
+  border:2px solid #000;border-bottom:3px solid #050505;
+  color:#0a0a0a !important;text-shadow:none;
+  box-shadow:0 3px 5px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.35);
+}
+.sk-pinguino .tile:not(.back)::after{content:"";position:absolute;left:50%;bottom:3px;transform:translateX(-50%);width:0;height:0;border-left:3px solid transparent;border-right:3px solid transparent;border-top:4px solid #f59e0b}
+.sk-pinguino .tile.dotc-rojo{color:#c0392b !important}
+.sk-pinguino .tile.dotc-azul{color:#1f5fa8 !important}
+.sk-pinguino .tile.dotc-verde{color:#1e7d3f !important}
+.sk-pinguino .tile.dotc-amarillo{color:#a3720a !important}
+.sk-pinguino .tile.dotc-comodin{color:#5a2d82 !important}
+
+/* Océano Profundo — azules con vaivén de olas + burbuja de color */
+@keyframes oceanoWave{0%,100%{background-position:0 0}50%{background-position:0 14px}}
+.sk-oceano .tile:not(.back){background:linear-gradient(175deg,#a5f3fc,#0891b2 45%,#0c4a6e 100%);background-size:100% 220%;animation:oceanoWave 3.4s ease-in-out infinite;border-color:#0e7490;border-bottom-color:#083344;color:#f0fdff !important;text-shadow:0 1px 3px rgba(3,50,71,.7)}
+.sk-oceano .tile:not(.back)::after{content:"";position:absolute;bottom:3px;left:50%;transform:translateX(-50%);width:8px;height:8px;border-radius:50%;border:2px solid currentColor;background:transparent;opacity:.75}
+.sk-oceano .tile.dotc-rojo{color:#fecaca !important}
+.sk-oceano .tile.dotc-azul{color:#bfdbfe !important}
+.sk-oceano .tile.dotc-verde{color:#bbf7d0 !important}
+.sk-oceano .tile.dotc-amarillo{color:#fef08a !important}
+.sk-oceano .tile.dotc-comodin{color:#e9d5ff !important}
+
+/* Fibra de Carbono — textura tejida */
+.sk-carbon .tile:not(.back){background:repeating-linear-gradient(45deg,#0f0f10 0 6px,#1c1c1f 6px 12px);border-color:#3a3a40;border-bottom-color:#0a0a0c;color:#e5e7eb !important;text-shadow:0 0 6px rgba(255,255,255,.25)}
+.sk-carbon .tile.dotc-rojo{color:#f87171 !important}
+.sk-carbon .tile.dotc-azul{color:#60a5fa !important}
+.sk-carbon .tile.dotc-verde{color:#4ade80 !important}
+.sk-carbon .tile.dotc-amarillo{color:#fbbf24 !important}
+.sk-carbon .tile.dotc-comodin{color:#c084fc !important}
+
+/* Sakura — pastel rosado con florcita */
+.sk-sakura .tile:not(.back){background:linear-gradient(165deg,#fff1f5,#ffd6e7 55%,#ffb3d1 100%);border-color:#f7a8c4;border-bottom-color:#e0699a;color:currentColor !important;text-shadow:0 1px 0 rgba(255,255,255,.7)}
+.sk-sakura .tile.dotc-rojo{color:#b3231a !important}
+.sk-sakura .tile.dotc-azul{color:#1d4ed8 !important}
+.sk-sakura .tile.dotc-verde{color:#15803d !important}
+.sk-sakura .tile.dotc-amarillo{color:#a3610a !important}
+.sk-sakura .tile.dotc-comodin{color:#831843 !important}
+.sk-sakura .tile:not(.back)::after{content:"❀";position:absolute;bottom:1px;left:50%;transform:translateX(-50%);font-size:8px;color:#e0699a;text-shadow:none}
+
+/* Retro Pixel — 8-bit */
+.sk-pixel .tile:not(.back){background:#0f172a;border-radius:2px;border:3px solid #1e293b;border-bottom:3px solid #020617;box-shadow:inset 0 0 0 2px #334155,0 3px 0 #020617;color:#4ade80 !important;font-family:'Courier New',monospace;text-shadow:0 0 4px currentColor}
+.sk-pixel .tile.dotc-rojo{color:#f87171 !important}
+.sk-pixel .tile.dotc-azul{color:#60a5fa !important}
+.sk-pixel .tile.dotc-verde{color:#4ade80 !important}
+.sk-pixel .tile.dotc-amarillo{color:#fde047 !important}
+.sk-pixel .tile.dotc-comodin{color:#f0abfc !important}
+
+/* Tesoro Pirata — pergamino con calavera */
+.sk-pirata .tile:not(.back){background:linear-gradient(165deg,#e8d4a8,#c9a86a 55%,#a3854f);border:2px solid #6b4f2a;border-bottom:3px solid #4a3418;color:currentColor !important;text-shadow:0 1px 0 rgba(255,255,255,.3)}
+.sk-pirata .tile.dotc-rojo{color:#7a1f1f !important}
+.sk-pirata .tile.dotc-azul{color:#1e3a5f !important}
+.sk-pirata .tile.dotc-verde{color:#2f4f2f !important}
+.sk-pirata .tile.dotc-amarillo{color:#6b4f00 !important}
+.sk-pirata .tile.dotc-comodin{color:#3a2610 !important}
+.sk-pirata .tile:not(.back)::after{content:"☠";position:absolute;top:1px;right:2px;font-size:8px;color:#4a3418;opacity:.55;text-shadow:none}
+
+/* Plata Cromada — metálico con brillo que recorre y marca de quilate */
+@keyframes plataShine{0%,100%{background-position:0% 50%}50%{background-position:100% 50%}}
+.sk-plata .tile:not(.back){background:linear-gradient(120deg,#f8fafc 0%,#cbd5e1 25%,#64748b 45%,#f8fafc 60%,#94a3b8 80%,#e2e8f0 100%);background-size:250% 100%;animation:plataShine 3.6s ease-in-out infinite;border-color:#94a3b8;border-bottom-color:#475569;color:currentColor !important;text-shadow:0 1px 0 rgba(255,255,255,.6)}
+.sk-plata .tile.dotc-rojo{color:#b91c1c !important}
+.sk-plata .tile.dotc-azul{color:#1d4ed8 !important}
+.sk-plata .tile.dotc-verde{color:#15803d !important}
+.sk-plata .tile.dotc-amarillo{color:#a16207 !important}
+.sk-plata .tile.dotc-comodin{color:#6d28d9 !important}
+.sk-plata .tile:not(.back)::after{content:"◆";position:absolute;bottom:0;left:50%;transform:translateX(-50%);font-size:7px;text-shadow:none}
+.sk-plata .tile.dotc-rojo::after{color:#b91c1c}
+.sk-plata .tile.dotc-azul::after{color:#1d4ed8}
+.sk-plata .tile.dotc-verde::after{color:#15803d}
+.sk-plata .tile.dotc-amarillo::after{color:#a16207}
+.sk-plata .tile.dotc-comodin::after{color:#6d28d9}
+
+/* Esmeralda Tallada — gema facetada con destello de corte por color */
+.sk-esmeralda .tile:not(.back){background:linear-gradient(135deg,#6ee7b7 0%,#059669 45%,#022c22 100%);border-color:#10b981;border-bottom-color:#022c22;color:#ecfdf5 !important;text-shadow:0 1px 3px rgba(2,44,34,.8);box-shadow:0 3px 5px rgba(0,0,0,.4),inset 0 1px 0 rgba(255,255,255,.35),inset 0 0 8px rgba(16,185,129,.4)}
+.sk-esmeralda .tile:not(.back)::after{content:"";position:absolute;top:3px;right:4px;width:6px;height:6px;clip-path:polygon(50% 0%,100% 50%,50% 100%,0% 50%);background:currentColor;opacity:.85}
+.sk-esmeralda .tile.dotc-rojo{color:#fca5a5 !important}
+.sk-esmeralda .tile.dotc-azul{color:#93c5fd !important}
+.sk-esmeralda .tile.dotc-verde{color:#d9f99d !important}
+.sk-esmeralda .tile.dotc-amarillo{color:#fde68a !important}
+.sk-esmeralda .tile.dotc-comodin{color:#e9d5ff !important}
+
+/* Arcoíris — degradé animado con destello de estrella */
+@keyframes arcoirisShift{0%{filter:hue-rotate(0deg)}100%{filter:hue-rotate(360deg)}}
+.sk-arcoiris .tile:not(.back){background:linear-gradient(120deg,#f87171,#fbbf24,#4ade80,#38bdf8,#c084fc);border-color:#fff;border-bottom-color:#e5e7eb;color:currentColor !important;text-shadow:0 1px 1px rgba(255,255,255,.85),0 0 4px rgba(255,255,255,.5);animation:arcoirisShift 5s linear infinite}
+.sk-arcoiris .tile.dotc-rojo{color:#7f1d1d !important}
+.sk-arcoiris .tile.dotc-azul{color:#1e3a8a !important}
+.sk-arcoiris .tile.dotc-verde{color:#14532d !important}
+.sk-arcoiris .tile.dotc-amarillo{color:#78350f !important}
+.sk-arcoiris .tile.dotc-comodin{color:#1a1200 !important}
+.sk-arcoiris .tile:not(.back)::after{content:"✦";position:absolute;bottom:0;left:50%;transform:translateX(-50%);font-size:8px;color:#fff;text-shadow:0 0 3px rgba(0,0,0,.3)}
+
+/* Holograma — iridiscente con marca de prisma */
+@keyframes holoShift{0%,100%{background-position:0% 50%}50%{background-position:100% 50%}}
+.sk-holograma .tile:not(.back){background:linear-gradient(120deg,#f0abfc,#93c5fd,#5eead4,#fef08a,#f0abfc);background-size:300% 300%;animation:holoShift 4s ease infinite;border-color:#e9d5ff;border-bottom-color:#c084fc;color:currentColor !important;text-shadow:0 1px 2px rgba(255,255,255,.5)}
+.sk-holograma .tile.dotc-rojo{color:#9f1239 !important}
+.sk-holograma .tile.dotc-azul{color:#1e40af !important}
+.sk-holograma .tile.dotc-verde{color:#166534 !important}
+.sk-holograma .tile.dotc-amarillo{color:#92400e !important}
+.sk-holograma .tile.dotc-comodin{color:#312e81 !important}
+.sk-holograma .tile:not(.back)::after{content:"◈";position:absolute;bottom:0;left:50%;transform:translateX(-50%);font-size:8px;color:#4c1d95;text-shadow:none;opacity:.7}
+
+/* Steampunk Gears — cobre remachado con engranaje que gira */
+@keyframes gearSpin{0%{transform:translateX(-50%) rotate(0)}100%{transform:translateX(-50%) rotate(360deg)}}
+.sk-steampunk .tile:not(.back){
+  background:
+    radial-gradient(circle at 3px 3px,rgba(0,0,0,.35) 0 1.4px,transparent 1.6px),
+    radial-gradient(circle at calc(100% - 3px) 3px,rgba(0,0,0,.35) 0 1.4px,transparent 1.6px),
+    radial-gradient(circle at 3px calc(100% - 3px),rgba(0,0,0,.35) 0 1.4px,transparent 1.6px),
+    radial-gradient(circle at calc(100% - 3px) calc(100% - 3px),rgba(0,0,0,.35) 0 1.4px,transparent 1.6px),
+    linear-gradient(165deg,#c98a44,#8a5a26 55%,#5e3a16);
+  border:2px solid #4a2e12;border-bottom:3px solid #2e1c0a;
+  box-shadow:inset 0 1px 0 rgba(255,214,158,.35),0 3px 5px rgba(0,0,0,.45);
+  color:currentColor !important;text-shadow:0 1px 0 rgba(255,214,158,.4)}
+.sk-steampunk .tile.dotc-rojo{color:#7a1f1f !important}
+.sk-steampunk .tile.dotc-azul{color:#1e3a5f !important}
+.sk-steampunk .tile.dotc-verde{color:#2f4f2f !important}
+.sk-steampunk .tile.dotc-amarillo{color:#5c4400 !important}
+.sk-steampunk .tile.dotc-comodin{color:#3a2610 !important}
+.sk-steampunk .tile:not(.back)::after{content:"⚙";position:absolute;bottom:-1px;left:50%;transform:translateX(-50%);font-size:9px;color:rgba(46,28,10,.55);text-shadow:none;animation:gearSpin 6s linear infinite}
+
+/* Furia Vikinga — madera curtida con runas grabadas por color */
+.sk-vikingo .tile:not(.back){
+  background:
+    repeating-linear-gradient(100deg,transparent 0 8px,rgba(0,0,0,.12) 8px 10px),
+    linear-gradient(165deg,#5a4632,#3d3020 65%,#2a2013);
+  border:2px solid #241a0e;border-bottom:3px solid #150f08;
+  box-shadow:inset 0 0 0 1.5px rgba(180,150,100,.25),0 3px 5px rgba(0,0,0,.5);
+  color:currentColor !important;text-shadow:0 1px 0 rgba(0,0,0,.5)}
+.sk-vikingo .tile.dotc-rojo{color:#f87171 !important}
+.sk-vikingo .tile.dotc-azul{color:#7dd3fc !important}
+.sk-vikingo .tile.dotc-verde{color:#86efac !important}
+.sk-vikingo .tile.dotc-amarillo{color:#fde047 !important}
+.sk-vikingo .tile.dotc-comodin{color:#e9d5ff !important}
+.sk-vikingo .tile:not(.back)::after{
+  position:absolute;bottom:1px;left:50%;transform:translateX(-50%);
+  font-size:9px;text-shadow:0 0 4px currentColor}
+.sk-vikingo .tile.dotc-rojo::after{content:"ᛟ";color:#f87171}
+.sk-vikingo .tile.dotc-azul::after{content:"ᚦ";color:#7dd3fc}
+.sk-vikingo .tile.dotc-verde::after{content:"ᚨ";color:#86efac}
+.sk-vikingo .tile.dotc-amarillo::after{content:"ᛗ";color:#fde047}
+.sk-vikingo .tile.dotc-comodin::after{content:"ᚱ";color:#e9d5ff}
+
+/* Samurái de Élite — laca negra y borde carmesí con kanji de honor */
+.sk-samurai .tile:not(.back){
+  background:linear-gradient(165deg,#191012,#0a0607 60%,#000);
+  border:1.5px solid #b91c1c;border-bottom:3px solid #7f1d1d;
+  box-shadow:inset 0 0 0 1px rgba(185,28,28,.3),0 3px 6px rgba(0,0,0,.55);
+  color:currentColor !important;text-shadow:0 0 6px rgba(185,28,28,.55)}
+.sk-samurai .tile.dotc-rojo{color:#fca5a5 !important}
+.sk-samurai .tile.dotc-azul{color:#7dd3fc !important}
+.sk-samurai .tile.dotc-verde{color:#86efac !important}
+.sk-samurai .tile.dotc-amarillo{color:#fde047 !important}
+.sk-samurai .tile.dotc-comodin{color:#e9d5ff !important}
+.sk-samurai .tile:not(.back)::after{content:"武";position:absolute;bottom:0px;left:50%;transform:translateX(-50%);font-size:9px;color:#b91c1c;text-shadow:0 0 3px rgba(185,28,28,.7)}
+
+/* Reino de Cristal — gema facetada translúcida con brillo que recorre */
+@keyframes cristalShine{0%,100%{background-position:0% 50%}50%{background-position:100% 50%}}
+.sk-cristal .tile:not(.back){
+  background:
+    linear-gradient(125deg,transparent 30%,rgba(255,255,255,.55) 34%,transparent 38%),
+    linear-gradient(200deg,rgba(255,255,255,.15),transparent 55%),
+    linear-gradient(155deg,#dbeafe,#a5b4fc 45%,#818cf8 80%,#c7d2fe);
+  background-size:220% 220%,100% 100%,100% 100%;
+  animation:cristalShine 4.5s ease-in-out infinite;
+  border:1.5px solid #a5b4fc;border-bottom:3px solid #6366f1;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.6),0 3px 6px rgba(67,56,202,.35);
+  color:currentColor !important;text-shadow:0 1px 2px rgba(255,255,255,.6)}
+.sk-cristal .tile.dotc-rojo{color:#b91c1c !important}
+.sk-cristal .tile.dotc-azul{color:#1e3a8a !important}
+.sk-cristal .tile.dotc-verde{color:#15803d !important}
+.sk-cristal .tile.dotc-amarillo{color:#92400e !important}
+.sk-cristal .tile.dotc-comodin{color:#581c87 !important}
+.sk-cristal .tile:not(.back)::after{content:"◇";position:absolute;bottom:0;left:50%;transform:translateX(-50%);font-size:9px;color:#4338ca;text-shadow:none}
+
+/* Senda del Dragón — escamas oscuras con veta dorada */
+.sk-dragon .tile:not(.back){
+  background:
+    repeating-radial-gradient(circle at 0 0,rgba(0,0,0,.22) 0 3px,transparent 3px 7px),
+    linear-gradient(165deg,#7f1d1d,#450a0a 60%,#2a0505);
+  border:2px solid #d4af37;border-bottom:3px solid #92400e;
+  box-shadow:inset 0 0 0 1px rgba(212,175,55,.3),0 3px 6px rgba(0,0,0,.5);
+  color:currentColor !important;text-shadow:0 0 6px rgba(239,68,68,.6)}
+.sk-dragon .tile.dotc-rojo{color:#fca5a5 !important}
+.sk-dragon .tile.dotc-azul{color:#7dd3fc !important}
+.sk-dragon .tile.dotc-verde{color:#86efac !important}
+.sk-dragon .tile.dotc-amarillo{color:#fde68a !important}
+.sk-dragon .tile.dotc-comodin{color:#e9d5ff !important}
+.sk-dragon .tile:not(.back)::after{content:"🐉";position:absolute;bottom:-1px;left:50%;transform:translateX(-50%);font-size:8px;background:transparent !important;width:auto;height:auto;filter:drop-shadow(0 0 2px rgba(212,175,55,.7))}
+
+/* ---------- SKINS DE TEMPORADA ---------- */
+/* Noche de Brujas — negro con calabaza que titila */
+@keyframes pumpkinFlicker{0%,100%{opacity:1}45%{opacity:1}50%{opacity:.55}55%{opacity:1}}
+.sk-halloween .tile:not(.back){
+  background:radial-gradient(ellipse at 50% 100%,rgba(249,115,22,.25),transparent 60%),linear-gradient(165deg,#1c1410,#0a0705 70%);
+  border:2px solid #ea580c;border-bottom:3px solid #7c2d12;
+  color:currentColor !important;text-shadow:0 0 6px rgba(249,115,22,.7)}
+.sk-halloween .tile.dotc-rojo{color:#f87171 !important}
+.sk-halloween .tile.dotc-azul{color:#7dd3fc !important}
+.sk-halloween .tile.dotc-verde{color:#86efac !important}
+.sk-halloween .tile.dotc-amarillo{color:#fde047 !important}
+.sk-halloween .tile.dotc-comodin{color:#e9d5ff !important}
+.sk-halloween .tile:not(.back)::after{content:"🎃";position:absolute;bottom:-1px;left:50%;transform:translateX(-50%);font-size:9px;background:transparent !important;width:auto;height:auto;animation:pumpkinFlicker 3s ease-in-out infinite}
+/* Espíritu Navideño — rojo/verde con nieve */
+.sk-navidena .tile:not(.back){
+  background:linear-gradient(165deg,#166534 0%,#166534 48%,#f8fafc 48%,#f8fafc 54%,#b91c1c 54%,#7f1d1d 100%);
+  border:2px solid #f8fafc;border-bottom:3px solid #14532d;
+  color:currentColor !important;text-shadow:0 1px 3px rgba(0,0,0,.65),0 0 2px rgba(0,0,0,.6)}
+.sk-navidena .tile.dotc-rojo{color:#fecaca !important}
+.sk-navidena .tile.dotc-azul{color:#bfdbfe !important}
+.sk-navidena .tile.dotc-verde{color:#d9f99d !important}
+.sk-navidena .tile.dotc-amarillo{color:#fef08a !important}
+.sk-navidena .tile.dotc-comodin{color:#e9d5ff !important}
+.sk-navidena .tile:not(.back)::after{content:"❄";position:absolute;bottom:0;left:50%;transform:translateX(-50%);font-size:8px;color:#f8fafc;text-shadow:0 0 3px rgba(0,0,0,.4)}
+/* San Valentín — rosa con corazón pulsante */
+@keyframes heartBeat{0%,100%{transform:translateX(-50%) scale(1)}15%{transform:translateX(-50%) scale(1.25)}30%{transform:translateX(-50%) scale(1)}45%{transform:translateX(-50%) scale(1.2)}60%{transform:translateX(-50%) scale(1)}}
+.sk-sanvalentin .tile:not(.back){
+  background:linear-gradient(165deg,#fff0f5,#fda4c7 55%,#ec4899 100%);
+  border:2px solid #f472b6;border-bottom:3px solid #be185d;
+  color:currentColor !important;text-shadow:0 1px 0 rgba(255,255,255,.6)}
+.sk-sanvalentin .tile.dotc-rojo{color:#9f1239 !important}
+.sk-sanvalentin .tile.dotc-azul{color:#1e40af !important}
+.sk-sanvalentin .tile.dotc-verde{color:#166534 !important}
+.sk-sanvalentin .tile.dotc-amarillo{color:#92400e !important}
+.sk-sanvalentin .tile.dotc-comodin{color:#581c87 !important}
+.sk-sanvalentin .tile:not(.back)::after{content:"💘";position:absolute;bottom:-1px;left:50%;transform:translateX(-50%);font-size:8px;background:transparent !important;width:auto;height:auto;animation:heartBeat 1.8s ease-in-out infinite}
+
+/* ============ SCROLLBAR DORADA GLOBAL ============ */
+*::-webkit-scrollbar{width:8px;height:8px}
+*::-webkit-scrollbar-track{background:rgba(0,0,0,.25);border-radius:8px}
+*::-webkit-scrollbar-thumb{background:linear-gradient(180deg,#d4af58,#8a6a2e);border-radius:8px;border:1px solid rgba(184,150,63,.4)}
+*::-webkit-scrollbar-thumb:hover{background:linear-gradient(180deg,#fcd34d,#f59e0b)}
+*{scrollbar-width:thin;scrollbar-color:#8a6a2e rgba(0,0,0,.25)}
+
+/* ============ ANIMACIÓN "…" ANCHO FIJO (que no se corran los textos) ============ */
+.thinking::after{content:"";display:inline-block;width:1.4em;text-align:left;animation:dotsAnim 1.4s steps(4,end) infinite}
+@keyframes dotsAnim{0%,100%{content:""}25%{content:"."}50%{content:".."}75%{content:"..."}}
+
+/* Fix: fichas de mesa (solapadas) que no se cortan si el juego tiene muchas fichas */
+.meld{overflow:visible}
+
+/* ============================================================
+   BLOQUE: LAYOUT INFERIOR — bottomzone / bottomrow / columnas
+   Altura fija: ningún panel (historial/preparación/atril/pozo)
+   puede estirar la fila entera, cada uno scrollea por dentro.
+   ============================================================ */
+.bottomzone{display:flex;flex-direction:column;min-height:0;flex:0 0 clamp(420px,48vh,500px);padding:0 4px 4px}
+/* flex:1 (no height:100%) — así descuenta el alto real de .actions arriba y nunca se
+   superpone con el atril; .actions también centrado y con su propio respiro abajo */
+.bottomrow{display:flex;gap:8px;justify-content:center;align-items:stretch;flex:1;min-height:0;overflow:hidden}
+/* Siempre visibles (deshabilitados fuera de turno) para que el layout no salte al
+   cambiar de turno; centrados a mitad de camino entre la mesa y el atril. */
+.actions{margin:10px 0 14px}
+
+/* Paneles del HUD de partida: azul oscuro translúcido + borde dorado, a
+   propósito distinto del marrón de la mesa (Fase 11 §4/§B) — la madera queda
+   como estructura física de la mesa nada más, estos paneles son "cristal +
+   oro" como el resto de la app (mismo material que ya usa .card en el menú/
+   perfil). No se toca el borde de .col-prep (cian punteado, es la señal de
+   "acá se sueltan fichas", cumple otra función). */
+.col-history,.col-prep,.col-rack,.col-pouch,.col-teammate{
+  background:linear-gradient(165deg, rgba(8,18,42,.55), rgba(4,10,26,.62));
+  border-color:rgba(212,175,88,.32);
+}
+/* Historial */
+.col-history{flex:0 0 190px;min-width:0;height:100%;border:1px solid var(--panel-border);border-radius:var(--panel-radius);padding:6px;display:flex;flex-direction:column;overflow:hidden;transition:flex-basis .15s,opacity .15s}
+/* Plegar el Historial en PC (ventana angosta, "todo compite por espacio" —
+   Fase responsive §1): la columna colapsa del todo, así el resto de la fila
+   (Preparación/Atril, la zona que SIEMPRE tiene prioridad) recupera ese ancho
+   en vez de quedar apretada con el historial fijo de por medio. Se escapa del
+   media query mobile (donde .col-history ya es un drawer aparte con su propio
+   mecanismo de abrir/cerrar vía transform, no display) para no pisarlo. */
+@media(min-width:641px){
+  .col-history.panel-closed{flex:0 0 0;width:0;padding:0;border:none;overflow:hidden;opacity:0}
+}
+/* Botón que abre/cierra el Historial: en PC pliega la columna (ver arriba), en
+   mobile abre el drawer tipo bottom-sheet (ver @media(max-width:640px)) — un
+   mismo botón, toggleHistoryDrawer() decide cuál según el ancho real. */
+.hist-toggle-btn{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,.1);color:#e8eef7;font-size:14px;border:none;cursor:pointer;flex-shrink:0}
+.hist-toggle-btn.on{background:rgba(251,191,36,.22);box-shadow:0 0 0 1px rgba(251,191,36,.4)}
+.hist-drawer-close{display:none;position:absolute;top:10px;right:10px;width:28px;height:28px;border-radius:50%;align-items:center;justify-content:center;background:rgba(255,255,255,.1);color:#e8eef7;border:none;cursor:pointer;font-size:13px;z-index:1}
+.hist-drawer-backdrop{display:none}
+.col-history .history-list{flex:1;overflow-y:auto;font-size:9.5px;line-height:1.4}
+.col-history .history-item{padding:3px 4px;margin-bottom:2px;background:rgba(0,0,0,.2);border-radius:5px;border-left:2px solid rgba(184,150,63,.35);color:rgba(232,238,247,.8);word-break:break-word;display:flex;gap:4px;align-items:flex-start}
+.col-history .history-icon{flex-shrink:0;font-size:10px;line-height:1.4}
+.col-history .history-body{flex:1;min-width:0}
+.col-history .history-time{display:block;color:rgba(232,238,247,.35);font-size:8px;margin-bottom:1px}
+.history-empty{font-size:9px;color:rgba(232,238,247,.3);text-align:center;padding-top:12px;display:block}
+
+/* Atril chico del compañero de equipo (2v2 online) — vista en vivo, de solo lectura,
+   más chat de equipo con frases rápidas cerradas debajo (solo lo ve tu compañero). */
+.col-teammate{flex:0 0 170px;min-width:0;height:100%;border:1px solid var(--panel-border);border-radius:var(--panel-radius);padding:6px;display:flex;flex-direction:column;overflow-y:auto}
+.col-teammate .teammate-head{display:flex;align-items:center;gap:5px;justify-content:center;margin-bottom:5px;flex-shrink:0;position:relative}
+.col-teammate .teammate-rack-wrap{flex-shrink:0}
+.teammate-chat-bubble{position:absolute;top:100%;left:50%;transform:translateX(-50%);margin-top:4px;background:rgba(56,189,248,.18);border:1px solid rgba(125,211,252,.4);color:#e0f2fe;border-radius:8px;padding:3px 8px;font-size:10px;white-space:nowrap;z-index:2}
+.teammate-chat-grid{display:flex;flex-wrap:wrap;gap:3px;justify-content:center;margin-top:6px}
+.teammate-chat-grid button{flex:0 0 auto;min-width:22px;padding:3px 5px;border-radius:6px;border:none;cursor:pointer;font-size:10px;font-weight:800;background:rgba(56,189,248,.18);color:#e0f2fe}
+.teammate-chat-grid button:disabled{opacity:.35;cursor:not-allowed}
+.teammate-chat-label{font-size:8.5px;color:rgba(232,238,247,.4);text-align:center;margin-top:4px}
+
+/* Modo Galáctico: las fichas de habilidad son una fila más DENTRO del mismo
+   atril de madera (sin caja ni título propio — se leen como parte del atril,
+   no como un panel aparte). Tocar una abre un cartelito flotante (ver
+   .ability-tip-backdrop) que nunca empuja ni tapa nada de alrededor. */
+.rack-abilities-row{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:5px;padding-bottom:5px;border-bottom:1px dashed rgba(168,85,247,.35)}
+.rack-abilities-row .tile{width:38px;height:52px;font-size:19px}
+.rack-abilities-empty{font-size:10px;color:rgba(232,238,247,.45);padding:2px}
+
+/* Indicadores de estado de habilidad: iconos chicos junto a las vidas en la
+   cabecera del atril (antes vivían dentro de la caja que se sacó de acá). */
+.ab-badge{
+  width:20px;height:20px;border-radius:50%;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;font-size:11px;
+  background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);
+}
+.ab-badge-shield{background:rgba(56,189,248,.22);border-color:rgba(56,189,248,.5);color:#7dd3fc}
+.ab-badge-blocked{background:rgba(220,38,38,.28);border-color:rgba(248,113,113,.5);color:#fca5a5}
+.ab-badge-used{background:rgba(184,150,63,.22);border-color:rgba(251,191,36,.4);color:#ffe9a8;font-weight:800}
+
+/* Cartelito "qué hace esta habilidad": ventana flotante sobre TODO el juego,
+   no un bloque en el flujo — así abrirla nunca cambia el tamaño de nada. */
+.ability-tip-backdrop{
+  position:fixed;inset:0;z-index:58;
+  background:rgba(4,10,25,.35);
+  display:flex;align-items:flex-end;justify-content:center;
+  padding:0 12px calc(100px + env(safe-area-inset-bottom));
+}
+.ability-tip{
+  width:min(320px,100%);padding:10px 12px;border-radius:12px;
+  background:linear-gradient(165deg, rgba(var(--fx-rgb),.25) 0%, rgba(10,4,20,.96) 70%);
+  border:1px solid rgba(var(--fx-rgb),.6);
+  box-shadow:0 16px 36px rgba(0,0,0,.5),0 0 20px rgba(var(--fx-rgb),.3);
+}
+.ability-tip-head{display:flex;align-items:center;gap:7px;margin-bottom:4px}
+.ability-tip-emoji{font-size:18px;filter:drop-shadow(0 0 5px rgba(var(--fx-rgb),.75))}
+.ability-tip-head b{font-size:12.5px;color:#fff;letter-spacing:.3px}
+.ability-tip p{font-size:10.5px;color:rgba(232,238,247,.78);line-height:1.4;margin-bottom:8px}
+.ability-tip-actions{display:flex;gap:6px}
+.ability-tip-cancel{flex:0 0 auto;padding:6px 10px;border-radius:8px;background:rgba(255,255,255,.08);color:rgba(232,238,247,.7);font-size:10.5px}
+.ability-tip-use{flex:1;padding:6px 10px;border-radius:8px;background:linear-gradient(180deg, rgb(var(--fx-rgb)), rgba(var(--fx-rgb),.6));color:#fff;font-weight:800;font-size:11px;box-shadow:0 2px 6px rgba(0,0,0,.4)}
+.ability-tip-use:disabled{background:rgba(255,255,255,.08);color:rgba(232,238,247,.35);box-shadow:none;cursor:default}
+
+/* Chat rápido — pegado abajo del historial, en la misma columna */
+.chat-quickrow{flex-shrink:0;margin-top:5px;padding-top:5px;border-top:1px solid rgba(184,150,63,.2)}
+.chat-quickrow-label{font-size:8.5px;font-weight:800;color:rgba(232,238,247,.45);letter-spacing:.5px;margin-bottom:3px}
+.chat-quickrow-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:3px;max-height:82px;overflow-y:auto}
+.chat-quickrow-grid button{padding:4px 1px;border-radius:6px;background:rgba(255,255,255,.07);color:#e8eef7;font-size:12px;line-height:1.1}
+.chat-quickrow-grid button:disabled{opacity:.3;cursor:not-allowed}
+.chat-quickrow-grid button:not(:disabled):hover{background:rgba(251,191,36,.2)}
+
+/* Preparación */
+.col-prep{flex:0 0 280px;min-width:0;height:100%;border:1.5px dashed rgba(56,189,248,.35);border-radius:var(--panel-radius);padding:7px;display:flex;flex-direction:column;overflow:hidden;transition:border-color .15s,box-shadow .15s}
+.col-prep.drop-ok{border-color:#34d399;box-shadow:0 0 0 2px rgba(52,211,153,.4),0 0 14px rgba(52,211,153,.35)}
+/* sticky (no solo flex-shrink:0): en mobile ".col-prep" entero pasa a scrollear
+   como una sola unidad (ver @media ingame más abajo) — si el contenido de
+   Preparación crece más de lo que entra en pantalla, "Agrupar"/"Vaciar" podían
+   quedar scrolleados fuera de vista arriba. Bug real reportado ("el agrupar y
+   vaciar se esconden"). Con sticky quedan siempre alcanzables, sea cual sea el
+   scroll — fondo propio para no ver el contenido pasando detrás. */
+.prep-toolbar{display:flex;gap:5px;margin-bottom:6px;flex-shrink:0;position:sticky;top:0;z-index:2;background:var(--panel-bg,#0a1428);padding-top:2px}
+.prep-toolbar .btn-sm{flex:1;padding:5px 4px;font-size:10px;border-radius:7px;font-weight:800}
+.prep-loose{display:flex;flex-wrap:wrap;gap:4px;min-height:56px;padding:4px;background:rgba(0,0,0,.15);border-radius:7px;margin-bottom:6px;flex-shrink:0;overflow-y:auto;max-height:112px}
+/* touch-action:none en las fichas de Preparación (no en el contenedor, que sigue
+   necesitando poder scrollear si hay muchas): sin esto, en mobile el navegador
+   puede interpretar el arrastre de una ficha como un gesto de scroll nativo del
+   contenedor (.prep-loose/.prep-groups/.col-prep ya son scrolleables) y se lo
+   queda para sí — el puntero deja de mandar pointermove a prepDragMove() a
+   mitad de camino, la ficha "se queda pegada" sin volver al atril (bug
+   reportado, Fase 12 — mismo touch-action que .slot ya usa para el mismo
+   problema en el atril). */
+.prep-loose .tile,.prep-group-row .tile{touch-action:none}
+.prep-loose .tile{width:38px;height:52px;font-size:16px}
+.prep-groups{flex:1;overflow-y:auto;min-height:0;display:flex;flex-direction:column;gap:5px}
+.prep-group-row{display:flex;align-items:center;gap:4px;background:rgba(0,0,0,.18);border-radius:8px;padding:4px 5px}
+.prep-group-row .meld{flex:1;margin:0;transform:none!important;overflow:visible;min-width:0}
+.prep-group-row .meld .tiles{flex-wrap:nowrap;overflow-x:auto}
+.prep-group-row .meld .tiles .tile{width:var(--tile-size-preparation)!important;height:var(--tile-size-preparation-h)!important;font-size:16px!important;margin-left:-3px}
+.prep-group-row .meld .tiles .tile:first-child{margin-left:0}
+.wg-actions{display:flex;flex-direction:column;gap:3px;flex-shrink:0}
+.wg-actions button{font-size:9px;padding:3px 5px;border-radius:5px;color:#fff;border:none;cursor:pointer;white-space:nowrap}
+.prep-hint{font-size:9.5px;color:rgba(232,238,247,.4);text-align:center;display:block;padding:4px 2px}
+.prep-hint-center{margin:auto;padding:12px 4px}
+
+/* Atril: acotado entre 480 y 780px, ya no es el único elástico de la fila */
+.col-rack{flex:0 1 780px;max-width:780px;min-width:0;height:100%;display:flex;flex-direction:column;overflow:hidden}
+.col-rack .rackhead{background:var(--panel-bg);border-radius:var(--panel-radius) var(--panel-radius) 0 0;padding:4px 8px;display:flex;justify-content:space-between;align-items:center;gap:6px;flex-shrink:0}
+/* overflow-y:auto (no "hidden"): Modo Galáctico agrega .rack-abilities-row ANTES
+   de la grilla normal del atril (una fila más, sin alto reservado aparte acá) —
+   con overflow:hidden esa fila de más empujaba la última fila de fichas reales
+   fuera del área visible y la "cortaba" en silencio (bug reportado, Fase 12
+   §15). Con scroll en vez de recorte, esa fila sigue alcanzable siempre, en PC
+   y en mobile (la segunda ocurrencia de esta regla, dentro del media query de
+   mobile, tiene el mismo arreglo). */
+.col-rack .rackpersp{flex:1;overflow-y:auto;min-height:0}
+.col-rack .rackpersp .rack{transform:none!important;border-radius:0!important;border:none!important;box-shadow:none!important;background:transparent!important;height:100%}
+.col-rack .rackhint{font-size:8.5px;color:rgba(232,238,247,.35);text-align:center;padding:2px 4px;flex-shrink:0}
+.hud-lives-sm{font-size:13px;line-height:1;letter-spacing:-1px}
+
+/* Pozo (ahora columna de la fila inferior: Historial | Preparación | Atril | Pozo) */
+.col-pouch{flex:0 0 110px;min-width:0;height:100%;border:1px solid var(--panel-border);border-radius:var(--panel-radius);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;overflow:hidden}
+@media(max-width:540px){.col-pouch{flex:0 0 84px}.col-pouch .bag{transform:scale(.75)}}
+
+/* ============================================================
+   BLOQUE: PANEL DE OPONENTES ENRIQUECIDO
+   ============================================================ */
+.opp-card{display:flex;align-items:center;gap:8px;padding:5px 8px;background:var(--panel-bg);border:1px solid var(--panel-border);border-left:3px solid transparent;border-radius:var(--panel-radius);min-width:0;width:min(220px,44vw);max-width:220px;position:relative;transition:border-color .25s,box-shadow .25s}
+.opp-card.active{border-color:rgba(251,191,36,.6);box-shadow:0 0 14px rgba(251,191,36,.25)}
+.opp-card.eliminated{opacity:.45;filter:grayscale(.7)}
+/* Rendimiento: la tarjeta de quien tiene el turno usa .a-glow (igual que el
+   resto de la app), pero a diferencia de los demás usos ese elemento queda en
+   pantalla de forma CONTINUA durante toda la partida, en la pantalla de TODOS
+   los jugadores — la animación por defecto de .a-glow mueve el box-shadow
+   directo cuadro a cuadro (repintado constante). Acá se apaga esa animación y
+   se reemplaza por un pseudo-elemento con una sombra FIJA cuya opacity es lo
+   único que se anima — mismo pulso visual, pero solo trabajo del compositor. */
+.opp-card.a-glow{animation:none}
+.opp-card.a-glow::after{
+  content:"";position:absolute;inset:-2px;border-radius:inherit;pointer-events:none;
+  box-shadow:0 0 14px 4px rgba(251,191,36,.45);
+  animation:oppGlowPulse 1.6s ease-in-out infinite;
+}
+@keyframes oppGlowPulse{0%,100%{opacity:.3}50%{opacity:1}}
+@media(prefers-reduced-motion:reduce){.opp-card.a-glow::after{animation:none;opacity:.7}}
+/* Acento de color estable por asiento — coincide con el color del juego de ese jugador en la mesa */
+.opp-card.acc-rojo{border-left-color:var(--seat-rojo)}
+.opp-card.acc-azul{border-left-color:var(--seat-azul)}
+.opp-card.acc-verde{border-left-color:var(--seat-verde)}
+.opp-card.acc-morado{border-left-color:var(--seat-morado)}
+.opp-card.acc-celeste{border-left-color:var(--seat-celeste)}
+.opp-card.acc-rosa{border-left-color:var(--seat-rosa)}
+.opp-card.acc-gris{border-left-color:var(--seat-gris)}
+/* El admin de la sala de espera destaca con el mismo lenguaje dorado que el
+   turno activo en partida, pero como borde IZQUIERDO ancho (no todo el borde)
+   para no confundirse con "es tu turno" — es un estado distinto (§11). Va
+   DESPUÉS de los .acc-* a propósito, para ganarles el color de borde. */
+.opp-card.is-lobby-admin{border-left-width:4px;border-left-color:#fbbf24;background:rgba(251,191,36,.06)}
+.opp-skin{opacity:.75;cursor:default}
+.opp-avatar{font-size:26px;line-height:1;position:relative;flex-shrink:0}
+.opp-elim{position:absolute;top:-2px;right:-4px;font-size:12px;color:#ef4444;font-weight:800;background:rgba(0,0,0,.7);border-radius:50%;padding:0 2px;line-height:1.3}
+.opp-info{flex:1;min-width:0}
+.opp-name{font-size:11px;font-weight:800;color:#ffe9a8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.opp-tag{font-size:9px;background:rgba(52,211,153,.2);color:#34d399;border-radius:4px;padding:0 3px;margin-left:3px;vertical-align:middle}
+.opp-meta{display:flex;flex-wrap:wrap;gap:4px;margin-top:2px;font-size:9.5px;color:rgba(232,238,247,.65)}
+.opp-meta span{white-space:nowrap}
+
+/* ============================================================
+   BLOQUE: HUD — vidas, timer inline
+   ============================================================ */
+.hud-lives{font-size:13px;letter-spacing:-1px;line-height:1}
+.timer-inline{display:flex;align-items:center}
+.col-rack .modes{display:flex;align-items:center;gap:5px;flex-shrink:0}
+.col-rack .modes button{padding:4px 7px;border-radius:7px;font-size:11px;border:none;cursor:pointer;font-weight:700}
+
+/* ============================================================
+   BLOQUE: mesa (el pozo se movió a .col-pouch en la fila inferior)
+   ============================================================ */
+.board{display:flex;gap:8px;align-items:stretch;flex:1;min-height:0;padding:6px 8px}
+.board .mesa3d{flex:1;min-width:0}
+
+/* ============================================================
+   BLOQUE: RESERVA dentro del atril
+   ============================================================ */
+.reserve-strip{display:flex;align-items:center;gap:6px;background:rgba(0,0,0,.2);border-top:1px solid rgba(184,150,63,.2);padding:4px 6px;flex-shrink:0;overflow-x:auto}
+.reserve-label{font-size:9px;color:rgba(232,238,247,.5);white-space:nowrap;letter-spacing:1px;text-transform:uppercase}
+
+/* ============================================================
+   BLOQUE: ACHIEVEMENT TOASTS (notificaciones en vivo)
+   ============================================================ */
+.ach-toast-zone{position:fixed;top:60px;right:10px;z-index:300;display:flex;flex-direction:column;gap:8px;pointer-events:none;max-width:240px}
+.ach-toast{display:flex;align-items:center;gap:10px;background:linear-gradient(135deg,rgba(16,12,4,.95),rgba(40,30,8,.92));border:1.5px solid rgba(251,191,36,.6);border-radius:12px;padding:10px 12px;box-shadow:0 8px 24px rgba(0,0,0,.6),0 0 16px rgba(251,191,36,.2);transform:translateX(0);opacity:1;transition:transform .4s ease,opacity .4s ease;animation:achSlideIn .35s cubic-bezier(.16,1,.3,1) forwards}
+@keyframes achSlideIn{from{transform:translateX(110%);opacity:0}to{transform:translateX(0);opacity:1}}
+.ach-toast-out{transform:translateX(110%)!important;opacity:0!important}
+.ach-toast-icon{font-size:28px;flex-shrink:0;line-height:1;position:relative}
+.ach-toast-icon::before{
+  content:"";position:absolute;inset:-8px;border-radius:50%;pointer-events:none;
+  background:radial-gradient(circle,rgba(251,191,36,.55),transparent 70%);
+  opacity:0;animation:achIconGlow .9s ease-out .15s both;
+}
+@keyframes achIconGlow{0%{opacity:0;transform:scale(.5)}40%{opacity:1;transform:scale(1.3)}100%{opacity:0;transform:scale(1.6)}}
+@media(prefers-reduced-motion:reduce){.ach-toast-icon::before{animation:none}}
+.ach-toast-body{flex:1;min-width:0}
+.ach-toast-title{font-size:8.5px;letter-spacing:2px;text-transform:uppercase;color:rgba(251,191,36,.7);margin-bottom:2px}
+.ach-toast-name{font-size:13px;font-weight:800;color:#ffe9a8;line-height:1.2}
+.ach-toast-reward{font-size:10px;color:rgba(232,238,247,.65);margin-top:3px}
+
+/* ============================================================
+   BLOQUE: GAMEOVER — level up banner animado
+   ============================================================ */
+.levelup-banner{animation:levelPop .6s cubic-bezier(.16,1,.3,1) forwards}
+@keyframes levelPop{0%{transform:scale(.7);opacity:0}60%{transform:scale(1.08)}100%{transform:scale(1);opacity:1}}
+
+/* ============================================================
+   BLOQUE: PUNTOS del título — ptitle compartido
+   ============================================================ */
+.ptitle{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:rgba(184,150,63,.7);margin-bottom:5px;text-align:center;font-weight:800;flex-shrink:0}
+
+/* ============================================================
+   RESPONSIVE ajustes fila inferior
+   ============================================================ */
+@media(max-width:900px){
+  .col-history{flex:0 0 130px}
+  .col-teammate{flex:0 0 120px}
+  .col-prep{flex:0 0 200px}
+  .col-rack{flex:0 1 420px}
+  /* Jugadores más chicos cuando el ancho ya está exigido (Fase responsive §1:
+     "cards más pequeñas cuando falta espacio") — mismo contenido, menos padding
+     y avatar más chico, así la fila de arriba no empuja la mesa hacia abajo. */
+  .opp-card{width:min(168px,40vw);padding:4px 6px;gap:6px}
+  .opp-avatar{font-size:21px}
+}
+@media(max-width:640px),(max-height:480px){
+  /* La segunda condición (max-height:480px) cubre mobile en landscape (ej.
+     844×390): ahí el ancho es >640px así que por ancho solo caería en el
+     layout de escritorio, pero a esa altura ese layout no entra — se solapan
+     botones con la mesa. Con la altura como disparador alternativo, un
+     celular acostado entra en esta MISMA composición compacta de abajo en vez
+     de la de escritorio (Fase 12 §18, escenario de testing "landscape móvil"). */
+  /* Pantallas SIN card centrado (fuera de la partida) siguen dejando que la
+     página scrollee de forma normal, sin pelear con alturas fijas anidadas
+     — comportamiento de antes, sigue sirviendo para lo que no es la mesa. */
+  html,body{height:auto;overflow-y:auto;overflow-x:hidden}
+  body{height:auto;min-height:100dvh}
+  #app{height:auto;min-height:100dvh;overflow:visible}
+  .toast,.pauseovl,.turnbanner,.bigplaybanner,.abilitybanner{position:fixed}
+
+  /* ============================================================
+     PARTIDA EN MOBILE — Fase 12: "pensar la interfaz como un videojuego móvil
+     real", no apilar la versión desktop con scroll de página entera. Todo lo
+     de acá va scopeado a body.ingame (ver render(), ya la togglea) para no
+     afectar menú/perfil/tienda/etc, que siguen con el scroll de página de
+     arriba. Volvemos a un viewport FIJO (sin scroll de página) — la razón por
+     la que antes se había sacado (paneles colapsando a 0 de alto en algún
+     nivel del flex anidado) se ataca acá dándole a CADA zona un flex-basis y
+     un min-height:0 explícitos, no evitando el problema con scroll de página.
+     ============================================================ */
+  body.ingame,body.ingame #app{height:100dvh;min-height:0;overflow:hidden}
+  body.ingame #app{display:flex;flex-direction:column}
+  /* Bug real reportado con foto: en un celular con cámara perforada, ".hud" tiene
+     align-items:center (regla base) — cuando ".right" (historial/badges/vidas/
+     puntos/turno/timer) no entra en una fila y se envuelve en 2-3, termina siendo
+     más alto que ".title", así que centrarlos verticalmente deja el título
+     ("☰ Burako") MÁS ABAJO que la primera fila de ".right" — la que queda pegada
+     arriba, justo en la zona de la cámara. Con flex-start, el título SIEMPRE es
+     lo primero pegado arriba (así importa menos cuánto envuelva .right, nunca
+     tapa ni compite por esa franja). Colchón extra sobre env(safe-area-inset-top)
+     porque el recorte real de cámara reportado no siempre coincide exacto con
+     el círculo visible (pasa en algunos Samsung). */
+  body.ingame .hud{flex:0 0 auto;align-items:flex-start;padding-top:calc(14px + env(safe-area-inset-top))}
+
+  /* Mesa (§6/§7, corregido a pedido del usuario tras la primera pasada): antes
+     .table-felt tenía un tope chico (29dvh) mientras que .bottomrow estiraba el
+     renglón del atril a TODO el espacio sobrante (minmax(0,1fr)) — como
+     adjustMobileRackHeight() lo recorta después a 2-3 filas de contenido real,
+     quedaba un hueco enorme entre el atril y la barra de acciones, Y la mesa
+     chica de arriba ("la mesa está muy pequeña"). Ahora es al revés: la mesa es
+     el elemento FLEXIBLE que absorbe el espacio libre (flex:1) y la fila
+     inferior (Preparación+Pozo / Atril) queda del tamaño de su contenido real,
+     sin estirarse — así no hay hueco muerto en ninguno de los dos.
+     Además, "la mesa se agranda para abajo con 2 juegos": .mesa-inner pasa de
+     flex-wrap (ancho variable por meld, se acomodaban 1, 2 o 3 por fila según
+     el contenido) a grid de EXACTAMENTE 2 columnas fijas — el tamaño de la mesa
+     ya no cambia según cuántos juegos entren por fila, y de sobrar más de lo
+     que entra en las filas visibles, la mesa scrollea internamente en vez de
+     crecer (mismo overflow:auto que ya tenía .mesa). */
+  /* Corrección a pedido del usuario (ronda 3): "flex:1" hacía que la mesa se
+     llevara TODO el espacio libre disponible — variaba según cuánto ocupara el
+     resto (oponentes, etc.), lo cual el usuario ve como que "queda raro" al no
+     ser predecible. Ahora es una altura FIJA en dvh (no flex-grow, no
+     max-height solo): siempre el mismo tamaño relativo a la pantalla,
+     reducido respecto al intento anterior. */
+  /* 31dvh → 38dvh (Ronda 5): al mandar TODOS los oponentes a seat-top (ver
+     seatForOppIndex en burako.js), seat-left/seat-right quedan vacíos y ya no
+     hace falta reservarles alto — ese espacio libre se lo suma a la mesa
+     directamente, que es la zona con prioridad (pedido explícito: "la mesa
+     más grande, protagonista de la partida móvil").
+     38dvh → 34dvh (Ronda 8): en un celular con cámara/notch real, esos 38dvh
+     terminaban superponiendo la mesa con "Agrupar" de Preparación — el recorte
+     de la cámara (antes mal manejado a nivel Android, ver styles.xml
+     windowLayoutInDisplayCutoutMode) se comía parte del presupuesto de altura
+     que este cálculo daba por seguro. Con la cámara ya arreglada del lado
+     Android, se deja igual un colchón de seguridad para no repetir el bug en
+     otros equipos con recortes distintos. */
+  body.ingame .table-felt{flex:0 0 auto;height:34dvh;min-height:200px;padding:3px 6px 2px;gap:3px;overflow-y:auto}
+  body.ingame .mesa{margin:2px 4px;padding:6px 8px;min-height:90px}
+  body.ingame .mesa-label{margin-bottom:3px;font-size:8px}
+  body.ingame .board{padding:2px 4px}
+  /* Bug encontrado y reportado por el usuario: los juegos de la mesa cambiaban
+     de ancho según el turno ("si paso se achican, si agarro ficha vuelven
+     grandes"). Causa real: `.mesa-inner` es hija de `.mesa` (flex-column) Y
+     grid ella misma — sin `width:100%` explícito, un contenedor grid dentro de
+     un flex-item puede terminar sizeándose por su PROPIO contenido (min-content
+     de los melds) en vez de estirarse al ancho disponible; como el botón
+     "abrir" (solo aparece si `canOpen`, que depende de si es tu turno Y ya
+     saliste) cambia el contenido, el ancho "de referencia" del grid cambiaba
+     con él — confirmado midiendo `.mesa-inner` con y sin ese botón: 334px vs
+     250px de ancho real, con el viewport igual de ancho en los dos casos. */
+  body.ingame .mesa-inner{display:grid;grid-template-columns:repeat(2,1fr);gap:6px 8px;align-content:start;width:100%}
+  body.ingame .mesa-inner .meld{width:100%;min-width:0}
+  /* Sin inclinación 3D en mobile (reportado: "después de 20-30 juegos se pone
+     lento y calienta el celular" en un S25 Ultra — no debería, así que no es
+     falta de potencia). rotateX + perspective fuerza al navegador a promover
+     CADA juego de la mesa a su propia capa compuesta en GPU; con 20-30 juegos
+     bajados eso es una cantidad real de capas 3D recalculándose en simultáneo
+     en cada scroll/interacción — sospechoso #1 de recalentamiento que escala
+     justo con la cantidad de juegos. El atril ya no tenía esta inclinación en
+     mobile (por usabilidad táctil, ver .rackpersp .rack más abajo); acá se
+     saca por la misma razón práctica, no solo estética. */
+  body.ingame .mesa .meld{transform:none!important}
+  body.ingame .mesa .meld:hover{transform:none!important}
+  body.ingame .mesa .mesa-inner{perspective:none}
+  /* Fichas bajadas en la mesa: más chicas que las del atril (§6, ~20-25% menos) */
+  body.ingame{--tile-size-table:27px;--tile-size-table-h:37px;--tile-size-preparation:29px;--tile-size-preparation-h:40px}
+  /* SOLO la mesa (.mesa-inner), no CUALQUIER .meld — bug encontrado: esta regla sin
+     acotar también pisaba a `.prep-group-row .meld .tiles{flex-wrap:nowrap;
+     overflow-x:auto}` (mayor especificidad por el "body.ingame" del selector, gana
+     igual sin importar el orden en el archivo) y hacía que un juego armado en
+     Preparación, en vez de scrollear horizontal, ENVOLVIERA sus fichas a una 2da
+     fila — y como el fanning de esa fila usa margin-left NEGATIVO pensado para una
+     sola fila, la primera ficha de la 2da fila quedaba tapada debajo de la
+     anterior ("se esconde"). Con el selector acotado a la mesa, Preparación
+     recupera su comportamiento de scroll horizontal de siempre. */
+  body.ingame .mesa-inner .meld .tiles{flex-wrap:wrap}
+  body.ingame .meld .tiles .tile{font-size:13px;margin-left:-7px}
+  body.ingame .prep-group-row .meld .tiles .tile{font-size:12px!important}
+
+  /* Oponentes (§3): chip chico y horizontal arriba de la mesa, no tarjeta grande.
+     Mi propio estado ya está en el atril de abajo — no se duplica acá. */
+  body.ingame .seat{gap:5px}
+  body.ingame .opp-card{width:auto;max-width:none;min-width:0;padding:3px 9px 3px 7px;gap:5px;border-radius:999px}
+  body.ingame .opp-avatar{font-size:15px}
+  body.ingame .opp-name{font-size:9.5px;max-width:64px}
+  body.ingame .opp-meta{margin-top:0;gap:5px;font-size:8px}
+  body.ingame .opp-skin{display:none}
+  body.ingame .opp-tag{display:none} /* "✓30"/"🛡"/etc: info secundaria, no entra en el chip chico */
+
+  /* Zona inferior (§4/§5/§9/§10): Preparación+Pozo lado a lado arriba, Atril
+     ocupando todo el ancho abajo. El Historial ya no vive acá fijo — es un
+     drawer superpuesto (ver más abajo), así libera toda esta fila.
+     A pedido del usuario: el atril debe quedar PEGADO justo arriba de la barra
+     de acciones (sin superponerse), no flotando con un hueco debajo. Como la
+     mesa de arriba ahora es de altura FIJA, .bottomzone puede volver a ser
+     flex:1 (llena lo que sobra de #app) sin repetir el problema de la ronda 2
+     — y adentro, `align-content:end` en el grid empuja Preparación+Pozo+Atril
+     al fondo de ese espacio sobrante en vez de quedar pegados arriba, contra
+     la mesa, con el hueco quedando abajo. El sobrante (si lo hay) se ve como
+     aire entre la mesa y Preparación, no como un hueco raro pegado a los
+     botones. */
+  /* A pedido del usuario: "que el atril toque el fondo, siento que está arriba
+     todavía" — el padding-bottom reservaba 60px para la barra de acciones fija
+     (que mide ~47px real) más un colchón de sobra; ese colchón era exactamente
+     el hueco que se sentía entre el atril y los botones. Se ajusta a la altura
+     real de la barra (medida con Playwright) + un margen mínimo de respiro. */
+  body.ingame .bottomzone{
+    flex:1 1 auto;min-height:0;overflow-y:auto;padding:0 4px;
+    padding-bottom:calc(50px + env(safe-area-inset-bottom));
+    display:flex;flex-direction:column;justify-content:flex-end;
+  }
+  /* flex:0 0 auto explícito (no solo flex-shrink:0): la regla base de escritorio
+     (.bottomrow{flex:1;...}, fila de 4 columnas) le da flex-grow:1 y
+     flex-basis:0% — acá adentro de .bottomzone (flex-column) eso lo hacía
+     CRECER a ocupar TODO el espacio libre disponible, así que justify-content:
+     flex-end en el padre nunca tenía espacio libre que repartir (el propio
+     bottomrow ya se lo comía todo) — esa era la razón real de que el atril
+     "se sintiera arriba" pese al ajuste anterior. */
+  body.ingame .bottomrow{
+    display:grid;grid-template-columns:1fr auto;grid-template-rows:auto auto;
+    grid-template-areas:"prep pouch" "rack rack";
+    gap:5px;overflow:visible;flex:0 0 auto;
+  }
+  body.ingame .col-teammate{grid-column:1/-1;grid-row:1;order:-1;height:auto;max-height:100px}
+  body.ingame .col-teammate .teammate-rack-wrap{max-height:64px;overflow-y:auto}
+  body.ingame .col-prep{
+    grid-area:prep;height:auto;max-height:20dvh;min-height:0;
+    overflow-y:auto;-webkit-overflow-scrolling:touch;
+  }
+  body.ingame .col-pouch{grid-area:pouch;flex:none;width:60px;height:auto;padding:5px 2px;gap:2px}
+  body.ingame .col-pouch .bag{transform:scale(.62)}
+  /* Corrección a pedido del usuario (ronda 3): "solo se ven 2 filas y hay
+     scroll" — antes JS (adjustMobileRackHeight, ELIMINADA) recortaba el atril
+     a las filas que hacían falta según la cantidad real de fichas, pensado
+     para ahorrar espacio, pero el contenedor de por sí ya no se estira de más
+     (ver .bottomzone), así que ese recorte dinámico solo restaba: escondía la
+     3ra fila con scroll en vez de mostrarla fija. Ahora el atril es una altura
+     FIJA en dvh que entra cómoda para las 3 filas (RACK_ROWS) en la gran
+     mayoría de celulares, sin JS de por medio — más estático y predecible. */
+  body.ingame .col-rack{grid-area:rack;height:28dvh;min-height:196px;overflow:hidden;display:flex;flex-direction:column}
+  body.ingame .col-rack .rackpersp{flex:1;overflow:visible;min-height:0;display:flex;align-items:center;justify-content:center}
+  body.ingame .col-rack .rackpersp .rack{transform:none!important;width:100%} /* sin inclinación 3D: más fácil de tocar */
+  body.ingame .rackgrid{overflow:visible}
+  body.ingame .prep-loose{max-height:70px;overflow-y:auto}
+  body.ingame .prep-groups{max-height:none;overflow:visible}
+
+  /* Historial (§9): deja de ser panel fijo — drawer tipo bottom-sheet, se abre
+     con el botón 📜 del header y se cierra tocando afuera o la X. */
+  body.ingame .hist-toggle-btn{display:inline-flex}
+  body.ingame .col-history{
+    /* z-index 70→82: quedaba POR DEBAJO de la barra de acciones (z-index:80, ver
+       abajo) — la parte de abajo del historial (con el botón de cerrar y las
+       últimas jugadas) terminaba tapada por "Bajar/Preparación/Ficha y pasar"
+       en vez de quedar arriba de todo, como corresponde a un panel superpuesto
+       tipo modal. Bug real reportado: "el historial se esconde detrás de los
+       botones". */
+    position:fixed;left:0;right:0;bottom:0;top:auto;z-index:82;
+    flex:none!important;width:auto;max-width:100%;max-height:68dvh;height:auto;
+    border-radius:16px 16px 0 0;border:1px solid rgba(184,150,63,.35);border-bottom:none;
+    background:rgba(6,12,28,.98);backdrop-filter:blur(8px);
+    transform:translateY(105%);transition:transform .28s cubic-bezier(.2,.8,.3,1);
+    padding:16px 14px calc(14px + env(safe-area-inset-bottom));
+    box-shadow:0 -10px 30px rgba(0,0,0,.5);
+  }
+  body.ingame .col-history.drawer-open{transform:translateY(0)}
+  body.ingame .hist-drawer-close{display:flex}
+  body.ingame .hist-drawer-backdrop{
+    display:block;position:fixed;inset:0;z-index:81;background:rgba(0,0,0,.55);
+    opacity:0;pointer-events:none;transition:opacity .25s;
+  }
+  body.ingame .hist-drawer-backdrop.open{opacity:1;pointer-events:auto}
+
+  /* Barra de acciones (§11): fija abajo, respeta safe-area-inset-bottom. */
+  body.ingame .actions{
+    position:fixed;left:0;right:0;bottom:0;z-index:80;margin:0;
+    padding:7px 7px calc(7px + env(safe-area-inset-bottom));
+    background:rgba(6,12,28,.97);backdrop-filter:blur(6px);
+    border-top:1px solid rgba(255,255,255,.12);
+    box-shadow:0 -6px 18px rgba(0,0,0,.45);
+  }
+  body.ingame .actions button{font-size:10.5px;padding:9px 4px}
+}
+@media(prefers-reduced-motion:reduce){.col-history{transition:none!important}.hist-drawer-backdrop{transition:none!important}}
+
+/* ============================================================
+   LANDSCAPE MÓVIL / viewports muy bajos (Fase 12 §18, ej. 844×390): con tan
+   poca altura disponible, el presupuesto normal de .table-felt/.bottomrow no
+   alcanza para 2+ filas de rivales + mesa + preparación + atril sin apretar.
+   En vez de solaparse (overflow oculto forzando todo a la fuerza en el mismo
+   alto), acá se deja crecer de verdad y es .bottomzone quien scrollea para
+   alcanzarlo — funcional en el caso extremo, no pixel-perfect.
+   IMPORTANTE: este bloque va DESPUÉS del media query de mobile de arriba a
+   propósito — .bottomrow ahí tiene la misma especificidad (body.ingame
+   .bottomrow) así que quien gana es quien está último en el archivo, no el
+   que "suena más específico". Un intentona anterior de meter esto ANIDADO
+   adentro del media query de arriba perdía justo por eso. */
+@media(max-height:480px){
+  /* En 390px de alto NO entran 3 filas fijas del atril sin apretar (~190px que
+     hacen falta) — para este caso extremo se vuelve a permitir scroll interno
+     en vez de una altura fija que no entraría. La composición "fija, sin
+     scroll" de arriba es para portrait; landscape queda como la excepción. */
+  body.ingame .table-felt{height:22dvh;min-height:100px}
+  body.ingame .col-rack{height:auto;max-height:none;min-height:120px;overflow:hidden}
+  body.ingame .col-rack .rackpersp{overflow-y:auto;align-items:stretch}
+  body.ingame .rackgrid{overflow-y:auto;-webkit-overflow-scrolling:touch}
+  body.ingame .bottomrow{height:auto;grid-template-rows:auto minmax(120px,auto);overflow:visible}
+  body.ingame .col-prep{max-height:90px}
+}
+
+/* ============================================================
+   BLOQUE: CELULARES CHICOS (≤430px) — pantallas de menú/tienda/perfil/
+   configuración y HUD de partida, para que nada se corte ni quede
+   apretado en un teléfono angosto (iPhone SE/mini, Android gama media).
+   ============================================================ */
+@media(max-width:430px){
+  .screen-center{padding:14px 12px;gap:14px}
+  .card{padding:18px 16px;border-radius:15px}
+  .card h2{font-size:19px}
+  .logo-text{letter-spacing:5px}
+  .elegant-hud{padding:10px 12px;font-size:12px}
+  .menu-elegant{padding:0}
+
+  /* Grupos de botones (dificultad, rivales, modo de juego, etc.) — se usan mucho
+     en las pantallas nuevas de setup (IA-Casual, 2v2, crear sala) con hasta 4
+     botones por fila; en vez de apretarlos, se dejan más chicos pero legibles. */
+  .seg{gap:5px}
+  .seg button{padding:8px 4px;font-size:12px}
+
+  /* Atril: menos separación entre fichas para ganarles unos milímetros más a cada una */
+  .rackgrid{gap:2.5px}
+  .rack{padding:5px}
+
+  /* Fila de acciones (Bajar y pasar / Preparación / Ficha y pasar) */
+  .actions{gap:5px}
+  .actions button{font-size:10.5px;padding:9px 3px}
+
+  /* Tienda: 4 pestañas (Skins/Tapetes/Efectos/Sonidos) en una pantalla angosta */
+  .shop-tabs{gap:3px}
+  .shop-tabs button{font-size:10.5px;padding:8px 2px}
+
+  /* Tarjetas de rival (y de la compañera IA en 2v2): un toque más compactas */
+  .opp-avatar{font-size:22px}
+  .opp-card{padding:4px 6px;gap:6px}
+  .opp-name{font-size:10px}
+  .opp-meta{font-size:9px}
+
+  /* HUD de partida: en una pantalla angosta no hay lugar para todo — se prioriza
+     vidas/puntos/timer (lo que hace falta para jugar) y se esconde lo decorativo. */
+  .hud .title{font-size:15px}
+  .hud .right{gap:7px}
+  .hud-matchclock{display:none !important}
+
+  /* Modales (pausa, consenso del 2v2, etc.) */
+  .pausecard{padding:18px}
+}

@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#06132b">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Burako">
+<title>Burako</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="fonts/fonts.css">
+<link rel="stylesheet" href="burako.css">
+</head>
+<body>
+<div id="bgdecor" aria-hidden="true"></div>
+<div id="galacticoBg" aria-hidden="true"><div class="gbg-stars"></div><div class="gbg-nebula"></div></div>
+<div id="app"></div>
+<script src="vendor/vendor-bundle.js"></script>
+<script src="burako-core.js"></script>
+<script src="burako.js"></script>
+<script>
+// La app empaquetada (Capacitor/Android) ya trae todos los archivos adentro — un service
+// worker ahí no suma nada y solo puede interferir con el esquema local de WebView.
+const isNativeApp = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+if (!isNativeApp && "serviceWorker" in navigator) {
+  window.addEventListener("load", () => { navigator.serviceWorker.register("sw.js").catch(() => {}); });
+}
+</script>
+</body>
+</html>
