@@ -3111,10 +3111,13 @@ function confirmTurn(){
   if(infos.some(i=>!i.valid)){ Sound.error(); setMsg("Hay un juego inválido (revisá colores y números)."); return render(); }
   if(!h.hasLaidInitial){
     if(G.openedMeldIds.length){ Sound.error(); setMsg("Sin salir con 30 no podés tocar la mesa."); return render(); }
-    // La salida puede ser UN juego de 30+ o VARIOS juegos que sumen 30+ entre todos
-    // (regla real de Burako) — antes exigía forzosamente un único juego.
-    const totalOpenValue=infos.reduce((s,i)=>s+(i.value||0),0);
-    if(totalOpenValue<30){ Sound.error(); setMsg("Sumás "+totalOpenValue+" pts: necesitás 30 o más entre todos los juegos para salir."); return render(); }
+    // Regla definitiva: UN ÚNICO juego que por sí solo valga 30+ — no vale sumar
+    // varios juegos chicos para llegar a 30 (se puede bajar más de uno junto, con
+    // tal de que alguno de ellos ya llegue a 30 por su cuenta).
+    if(!infos.some(i=>(i.value||0)>=30)){
+      const best=Math.max(0,...infos.map(i=>i.value||0));
+      Sound.error(); setMsg("Ningún juego llega a 30 (el mejor suma "+best+"): tu primera bajada tiene que ser UN juego que por sí solo valga 30 o más."); return render();
+    }
   }
   const wasFirst=!h.hasLaidInitial;
   let gained=0;
@@ -4258,7 +4261,7 @@ function renderHelp(app){
       <p><b>Grupo:</b> el mismo número en colores distintos (máx. 4, sin repetir color).</p>
       <div class="ex sk-clasica">${exGrp.map(t=>tileHTML(t)).join("")}</div>
       <h3>🚪 Salir con 30</h3>
-      <p>Tu primera bajada tiene que sumar <b>30 puntos o más entre todos los juegos que bajes ese turno</b> (podés hacerlo con uno solo, ej: 10-10-10, o con dos o tres juegos más chicos que entre todos lleguen a 30). Hasta que salgas, no podés tocar la mesa. Después ya bajás lo que quieras, hasta un 1-2-3.</p>
+      <p>Tu primera bajada tiene que ser <b>un único juego que por sí solo valga 30 puntos o más</b> (ej: 10-10-10). No vale sumar dos juegos chicos para llegar a 30. Hasta que salgas, no podés tocar la mesa. Después ya bajás lo que quieras, hasta un 1-2-3.</p>
       <div class="ex sk-clasica">${[{color:"rojo",number:10},{color:"azul",number:10},{color:"amarillo",number:10}].map(t=>tileHTML(t)).join("")}</div>
       <p style="font-size:11px;color:rgba(232,238,247,.5);margin-top:-8px">10+10+10 = 30 → alcanza para salir con un solo juego.</p>
       <h3>🛠 Preparación</h3>
@@ -5702,6 +5705,19 @@ function netApplyState(s){
   // Sincronizar MIS vidas desde el server (autoridad real en online)
   const mySrv = s.players.find(p=>p.id===NET.myId);
   if(mySrv && mySrv.lives!==undefined) G.lives = mySrv.lives;
+  // Si el turno ya no es mío y todavía tengo Preparación sin confirmar, el turno se
+  // fue sin que yo mandara nada (timeout → pérdida de vida) — el server nunca se
+  // enteró de que esas fichas estaban "afuera" del atril (acá no es team2v2, donde
+  // sí es server-authoritative vía room.teamWork). Si no se limpia ACÁ, antes de
+  // sincronizar el atril más abajo, esas fichas quedan duplicadas: una copia sigue
+  // en G.workLoose/workGroups y otra se vuelve a colocar en el atril porque el
+  // server todavía las lista en la mano. Si en cambio SÍ confirmé mi jugada, estos
+  // campos ya están vacíos (el interceptor de confirmTurn los vacía de forma
+  // optimista al mandar la jugada), así que este bloque no hace nada en ese caso.
+  const isMyTurnNow=s.players[s.currentIdx]&&s.players[s.currentIdx].id===NET.myId;
+  if(!isMyTurnNow && s.gameMode!=="team2v2" && ((G.workGroups&&G.workGroups.length)||(G.workLoose&&G.workLoose.length)||(G.openedMeldIds&&G.openedMeldIds.length))){
+    G.workGroups=[]; G.workLoose=[]; G.openedMeldIds=[]; G.openedBackup={}; G.selWork=new Set();
+  }
   G.bag=Array(s.bagCount).fill(null);
   // Juegos nuevos desde el último estado (para animación "slam" + efecto de partículas
   // del dueño). Solo si ya estábamos jugando: al entrar recién a la mesa (inicio o
@@ -5728,6 +5744,20 @@ function netApplyState(s){
       slamFX();
       queueMeldFx(newMelds[newMelds.length-1].id, newMelds[newMelds.length-1].fx||"clasico");
       setTimeout(()=>{ G.freshMelds=new Set(); render(); },700);
+      // Combo / gran jugada: mismo criterio que el camino offline (confirmTurn/
+      // layTiles, ver más abajo en el archivo), centralizado ACÁ para cubrir de una
+      // sola vez lay/layMultiple/reorganize/attach online — antes esto solo pasaba
+      // offline porque cada interceptor online (confirmTurn/layGroupByDrag/
+      // attachToMeld) reemplaza la versión offline por completo sin recalcular nada
+      // de esto. El servidor no necesita mandar nada nuevo: ownerId y las fichas de
+      // cada meld ya viajan en "state".
+      const myNewMelds=newMelds.filter(m=>m.ownerId===NET.myId);
+      if(myNewMelds.length){
+        const gained=myNewMelds.reduce((sum,m)=>sum+(meldInfo(m.tiles).value||0),0);
+        if(myNewMelds.length>=2||gained>=50){
+          setTimeout(()=>bigPlayFX(myNewMelds.length>=2?"¡COMBO x"+myNewMelds.length+"! +"+gained+" pts":"¡GRAN JUGADA! +"+gained+" pts"),150);
+        }
+      }
     }
   }
   G.currentIdx=s.currentIdx;
@@ -6356,7 +6386,11 @@ function renderNetConnect(app){
       <div style="display:flex;gap:3px;margin-bottom:4px">${GAME_MODES.map(([v,l])=>`<button onclick="G.roomConf.gameMode='${v}';render()" style="flex:1;border-radius:6px;padding:6px 1px;font-size:10px;font-weight:800;border:none;cursor:pointer;background:${rc.gameMode===v?'linear-gradient(180deg,#fcd34d,#f59e0b);color:#1a1200':'rgba(255,255,255,.08);color:#e8eef7'}">${l}</button>`).join("")}</div>
       <p style="font-size:10px;color:rgba(232,238,247,.5);margin:0 0 10px;text-align:center;line-height:1.4">${curMode[2]}</p>
       `}
-      <div style="font-size:9px;color:rgba(232,238,247,.45);letter-spacing:1.5px;text-transform:uppercase;margin:4px 0 3px">Tiempo por turno</div>
+      <button class="btn-sm" style="width:100%;margin:6px 0 4px;border-radius:8px;background:rgba(255,255,255,.06);color:rgba(232,238,247,.8);display:flex;justify-content:space-between;align-items:center;padding:8px 10px" onclick="G._roomConfAdvancedOpen=!G._roomConfAdvancedOpen;render()">
+        <span>⚙ Opciones avanzadas</span><span>${G._roomConfAdvancedOpen?"▲":"▼"}</span>
+      </button>
+      ${G._roomConfAdvancedOpen?`
+      <div style="font-size:9px;color:rgba(232,238,247,.45);letter-spacing:1.5px;text-transform:uppercase;margin:8px 0 3px">Tiempo por turno</div>
       <div style="display:flex;gap:3px;margin-bottom:4px">${[10,30,45,60,90].map(s=>`<button onclick="G.roomConf.turnSeconds=${s};render()" style="flex:1;border-radius:6px;padding:5px 1px;font-size:10px;font-weight:800;border:none;cursor:pointer;background:${rc.turnSeconds===s?'linear-gradient(180deg,#fcd34d,#f59e0b);color:#1a1200':'rgba(255,255,255,.08);color:#e8eef7'}">${s}s</button>`).join("")}</div>
       <p style="font-size:10px;color:rgba(232,238,247,.5);margin:0 0 10px;text-align:center;line-height:1.4">Cuánto tenés para jugar en tu turno antes de comerte 3 fichas del pozo por vencerte.</p>
       <div style="font-size:9px;color:rgba(232,238,247,.45);letter-spacing:1.5px;text-transform:uppercase;margin:4px 0 3px">Fichas iniciales</div>
@@ -6373,7 +6407,8 @@ function renderNetConnect(app){
       <div style="display:flex;gap:3px;margin-bottom:4px">${WIN_MODES.map(([v,l])=>`<button onclick="G.roomConf.winMode='${v}';render()" style="flex:1;border-radius:6px;padding:5px 1px;font-size:10px;font-weight:800;border:none;cursor:pointer;background:${rc.winMode===v?'linear-gradient(180deg,#fcd34d,#f59e0b);color:#1a1200':'rgba(255,255,255,.08);color:#e8eef7'}">${l}</button>`).join("")}</div>
       <p style="font-size:10px;color:rgba(232,238,247,.5);margin:0 0 12px;text-align:center;line-height:1.4">${curWin[2]}</p>
       `}
-      <p style="font-size:10px;color:rgba(232,238,247,.45);margin-bottom:10px;text-align:center">Sos el <b style="color:#ffe9a8">👑 administrador</b> de la sala</p>
+      `:""}
+      <p style="font-size:10px;color:rgba(232,238,247,.45);margin:10px 0;text-align:center">Sos el <b style="color:#ffe9a8">👑 administrador</b> de la sala</p>
       <button class="btn btn-gold" ${G._lobbyPending==="create"?"disabled":""} onclick="doCreateRoom()">${G._lobbyPending==="create"?"⏳ Creando sala…":"✔ Crear sala"}</button>
     </div></div>`; return;
   }

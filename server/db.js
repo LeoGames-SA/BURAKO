@@ -1052,8 +1052,18 @@ async function resolveMatch(results, opts) {
       xp: p.xp, level: levelFromXp(p.xp).level,
       coins: p.coins, rankPts: p.rankPts,
     };
-    const isWinner = (i === 0);
-    const place = i + 1;
+    // place viene del llamador (finishMatch/forfeitPlayer), que ya lo calcula
+    // correctamente sobre el orden REAL de la partida — antes acá se ignoraba y se
+    // recalculaba a partir de `i`, el índice dentro de ESTE array `results`. Eso
+    // rompía en dos casos reales: forfeitPlayer resuelve a quien se rinde a mitad
+    // de partida en un array de UN solo elemento (i siempre 0 → se lo trataba como
+    // ganador en vez de aplicarle la penalización de último lugar), y finishMatch
+    // filtra a quien ya se resolvió por ese camino antes de llamar acá, corriendo
+    // los índices de todos los que quedan (alguien podía terminar con un `place`
+    // mejor del que le correspondía). El fallback a `i+1` es solo por seguridad
+    // para un futuro llamador que no mande `place`.
+    const place = r.place || (i + 1);
+    const isWinner = (place === 1);
 
     // === XP ganada (siempre, hasta perdiendo) ===
     let xpGained = 30;
@@ -1090,7 +1100,7 @@ async function resolveMatch(results, opts) {
     // === Ranked: rankPts ===
     let rankDelta = 0;
     if (opts.ranked && deltas) {
-      rankDelta = deltas[Math.min(i, deltas.length - 1)];
+      rankDelta = deltas[Math.min(place - 1, deltas.length - 1)];
       p.rankPts = Math.max(0, p.rankPts + rankDelta);
     }
 

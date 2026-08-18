@@ -784,7 +784,11 @@ async function finishMatch(room, winnerId, opts) {
   try {
     updates = await DB.resolveMatch(results, {
       ranked: !!room.ranked,
-      playersCount: room.players.length,
+      // Misma base que forfeitPlayer (totalHuman, arriba) — antes acá se contaba
+      // room.players.length (incluye bots) y allá solo humanos, así que la misma
+      // partida podía consultar una tabla RANK_DELTAS[n] distinta según por cuál
+      // camino se resolviera cada jugador.
+      playersCount: room.players.filter(p => p.username).length,
       surrendered: !!opts.surrendererId,
       gameMode: room.gameMode,
     });
@@ -903,11 +907,14 @@ function handleLayMultiple(room, player, groups) {
     tileGroups.push({ tiles, info });
   }
   if (!teamOpened(room, player)) {
-    // La salida puede ser UN juego de 30+ o VARIOS juegos que sumen 30+ entre todos
-    // (regla real de Burako) — antes esto exigía forzosamente un único juego, lo que
-    // rechazaba salidas legítimas armadas con más de un juego en Preparación.
-    const totalOpenValue = tileGroups.reduce((s, g) => s + (g.info.value || 0), 0);
-    if (totalOpenValue < 30) return `Sumás ${totalOpenValue} pts: necesitás 30 o más entre todos los juegos para salir.`;
+    // Regla definitiva: la salida tiene que ser UN ÚNICO juego que por sí solo valga
+    // 30+ — no se permite sumar el valor de varios juegos chicos para llegar a 30,
+    // aunque se puedan bajar varios juegos juntos en la misma jugada (con tal de que
+    // AL MENOS UNO de ellos ya llegue a 30 por su cuenta).
+    if (!tileGroups.some((g) => (g.info.value || 0) >= 30)) {
+      const best = Math.max(0, ...tileGroups.map((g) => g.info.value || 0));
+      return `Ningún juego llega a 30 (el mejor suma ${best}): tu primera bajada tiene que ser UN juego que por sí solo valga 30 o más.`;
+    }
   }
 
   room.hands[player.id] = hand.filter((t) => !seen.has(t.id));
@@ -1215,8 +1222,10 @@ function handleTeamConfirm(room, player) {
   const infos = work.groups.map((g) => ({ g, info: C.meldInfo(g.tiles) }));
   if (infos.some((x) => !x.info.valid)) return "Hay un juego inválido en la selección.";
   if (!teamOpened(room, player)) {
-    const totalOpenValue = infos.reduce((s, x) => s + (x.info.value || 0), 0);
-    if (totalOpenValue < 30) return `Suman ${totalOpenValue} pts: necesitás 30 o más entre todos los juegos para salir.`;
+    if (!infos.some((x) => (x.info.value || 0) >= 30)) {
+      const best = Math.max(0, ...infos.map((x) => x.info.value || 0));
+      return `Ningún juego llega a 30 (el mejor suma ${best}): la salida tiene que ser UN juego que por sí solo valga 30 o más.`;
+    }
   }
   infos.forEach(({ g, info }) => {
     room.table.push({ id: C.nid("m"), tiles: C.sortMeldTiles(g.tiles), ownerName: player.name, ownerId: player.id, fx: player.fx || "clasico", trail: player.trail || "clasica", order: ++room.meldCounter });

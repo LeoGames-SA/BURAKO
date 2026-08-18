@@ -1,5 +1,6 @@
-// Etapa "Reglas" — verifica server-side: primera bajada 30+ (incluida la
-// variante de "dos juegos que entre ambos suman 30+"), el tope de al menos 2
+// Etapa "Reglas" — verifica server-side: primera bajada 30+ (regla estricta:
+// UN juego que por sí solo valga 30+; sumar el valor de varios juegos chicos
+// para llegar a 30 está explícitamente rechazado), el tope de al menos 2
 // fichas reales por grupo en meldInfo (server/burako-core.js y
 // client/burako-core.js comparten la misma fórmula), y candados (se
 // descuentan al modificar un juego con comodín, y NO se pierden si el
@@ -96,6 +97,25 @@ function findGroup30Plus(hand) {
   }
   return null;
 }
+// Dos grupos, cada uno sub-30 por su cuenta, cuya SUMA llega a 30+ — el caso
+// exacto que la regla estricta tiene que rechazar (no vale sumar).
+function findTwoSmallGroupsSumming30(hand) {
+  const byNum = {};
+  for (const t of hand) { if (t.joker) continue; (byNum[t.number] = byNum[t.number] || []).push(t); }
+  const groups = [];
+  for (const num of Object.keys(byNum)) {
+    const seen = new Set(); const pick = [];
+    for (const t of byNum[num]) { if (!seen.has(t.color)) { seen.add(t.color); pick.push(t); } }
+    if (pick.length >= 3) groups.push({ value: Number(num) * 3, tiles: pick.slice(0, 3) });
+  }
+  const small = groups.filter((g) => g.value < 30);
+  for (let i = 0; i < small.length; i++) {
+    for (let j = i + 1; j < small.length; j++) {
+      if (small[i].value + small[j].value >= 30) return [small[i].tiles, small[j].tiles];
+    }
+  }
+  return null;
+}
 // Un comodín + 2 fichas reales de mismo número/color distinto = grupo de 3 válido.
 function findJokerGroup(hand) {
   const joker = hand.find((t) => t.joker);
@@ -161,9 +181,24 @@ async function main() {
   wsA._buffer.length = 0;
 
   const drawer = () => (isATurn(stateA, aId) ? wsA : wsB); // el que TIENE el turno es quien puede robar
+  // Manda un draw desde `ws` y actualiza stateA con el resultado. Un rechazo (ej.
+  // pozo vacío) SOLO le llega a quien lo pidió, nunca se transmite a nadie más —
+  // por eso hay que chequear la respuesta en ESE MISMO socket primero (nunca
+  // asumir que va a wsA); recién si fue "state" (hubo broadcast real) tiene
+  // sentido esperar la copia de wsA cuando el que robó fue wsB. Devuelve false
+  // cuando hay que cortar la búsqueda en curso (nada más para robar).
+  async function drawStep(ws) {
+    send(ws, { type: "draw" });
+    const r = await waitFor(ws, (m) => m.type === "state" || m.type === "error", 8000);
+    if (r.type !== "state") return false;
+    stateA = (ws === wsA) ? r : await waitFor(wsA, "state", 8000);
+    return true;
+  }
   async function ensureATurn() {
     let guard = 0;
-    while (!isATurn(stateA, aId) && guard++ < 40) { send(wsB, { type: "draw" }); stateA = await waitFor(wsA, "state", 8000); }
+    while (!isATurn(stateA, aId) && guard++ < 40) {
+      if (!(await drawStep(wsB))) return false;
+    }
     return isATurn(stateA, aId);
   }
 
@@ -171,8 +206,7 @@ async function main() {
   let lowGroup = findPlainGroup(stateA.myHand, { maxValue: 29 });
   let guard = 0;
   while (!lowGroup && guard++ < 100) {
-    send(drawer(), { type: "draw" });
-    stateA = await waitFor(wsA, "state", 8000);
+    if (!(await drawStep(drawer()))) break;
     lowGroup = findPlainGroup(stateA.myHand, { maxValue: 29 });
   }
   if (lowGroup && await ensureATurn()) {
@@ -188,8 +222,7 @@ async function main() {
   let highGroup = findGroup30Plus(stateA.myHand);
   guard = 0;
   while (!highGroup && guard++ < 150) {
-    send(drawer(), { type: "draw" });
-    stateA = await waitFor(wsA, "state", 8000);
+    if (!(await drawStep(drawer()))) break;
     highGroup = findGroup30Plus(stateA.myHand);
   }
   if (highGroup && await ensureATurn()) {
@@ -204,12 +237,68 @@ async function main() {
   const aOpened = stateA.players.find((p) => p.id === aId)?.hasLaidInitial;
   check("A quedó marcado como salido (hasLaidInitial)", aOpened === true || aOpened === undefined /* algunos builds de state no exponen este campo por jugador */, "");
 
+  // ---------- Primera bajada (regla estricta): dos juegos chicos que SUMAN 30+ pero
+  // ninguno individual llega -> debe RECHAZARSE. Se usa B, que todavía no salió. ----------
+  // B nunca consumió sus propias copias de los broadcasts anteriores (cada acción de
+  // A también le llegó a B, sin que nada las leyera) — hay que descartar ese backlog
+  // ANTES de este bloque, si no el primer waitFor(wsB,"state") de acá agarra un
+  // mensaje viejo (de antes de que A saliera) en vez de reflejar la mano actual.
+  wsB._buffer.length = 0;
+  let stateB = null, twoSmall = null;
+  guard = 0;
+  while (!twoSmall && guard++ < 150) {
+    // Un draw rechazado (ej. pozo vacío) SOLO le llega a quien lo mandó, nunca se
+    // transmite a nadie más — hay que chequear la respuesta del que roba PRIMERO;
+    // recién si fue "state" (hubo broadcast real) tiene sentido esperar la copia
+    // del otro jugador, si no ese segundo waitFor se cuelga para siempre.
+    const d = drawer(), other = d === wsA ? wsB : wsA;
+    send(d, { type: "draw" });
+    const r = await waitFor(d, (m) => m.type === "state" || m.type === "error", 8000);
+    if (r.type !== "state") break;
+    if (d === wsA) { stateA = r; stateB = await waitFor(wsB, "state", 8000); }
+    else { stateB = r; stateA = await waitFor(wsA, "state", 8000); }
+    twoSmall = findTwoSmallGroupsSumming30(stateB.myHand);
+  }
+  if (twoSmall) {
+    // "¿Es el turno de B?" con reintentos ACOTADOS (no 40) — si un draw de A se
+    // rechaza porque en realidad YA es el turno de B (nuestro tracking local iba
+    // un paso atrás), cortar YA en vez de seguir insistiendo con más draws.
+    let isBTurn = stateB.players[stateB.currentIdx] && stateB.players[stateB.currentIdx].id !== aId;
+    let g2 = 0;
+    while (!isBTurn && g2++ < 8) {
+      send(wsA, { type: "draw" });
+      const r = await waitFor(wsA, (m) => m.type === "state" || m.type === "error", 8000);
+      if (r.type === "state") { stateA = r; stateB = await waitFor(wsB, "state", 8000); }
+      // Si A no pudo robar (ej. porque en realidad YA es turno de B), no seguir
+      // insistiendo — re-chequear turno con lo último que sepamos de B.
+      isBTurn = stateB.players[stateB.currentIdx] && stateB.players[stateB.currentIdx].id !== aId;
+    }
+    // Pase lo que pase arriba, descartar cualquier "state" viejo que haya quedado
+    // sin reclamar en el buffer de B ANTES de mandar — si no, el próximo waitFor
+    // de acá puede agarrar un mensaje de hace varias jugadas en vez de la
+    // respuesta real a ESTE layMultiple.
+    wsB._buffer.length = 0;
+    const sentGroups = twoSmall.map((g) => g.map((t) => t.id));
+    send(wsB, { type: "layMultiple", groups: sentGroups });
+    const rej2 = await waitFor(wsB, (m) => m.type === "state" || m.type === "error", 8000);
+    const sum = twoSmall.reduce((s, g) => s + C.meldInfo(g).value, 0);
+    // El error tiene que ser específicamente el de "ningún juego llega a 30" — si
+    // en cambio dio "No es tu turno" (turno perdido en la carrera de arriba), no
+    // sirve como prueba de la regla y hay que descartar el caso, no darlo por bueno.
+    if (rej2.type === "error" && /no es tu turno/i.test(rej2.msg || "")) {
+      check(`primera bajada rechazada: dos juegos (suman ${sum}) pero ninguno llega a 30 individualmente`, false, "inconcluso: se perdió el turno de B en la carrera, no se llegó a probar la regla");
+    } else {
+      check(`primera bajada rechazada: dos juegos (suman ${sum}) pero ninguno llega a 30 individualmente`, rej2.type === "error" && /30/.test(rej2.msg || ""), JSON.stringify(rej2).slice(0, 150));
+    }
+  } else {
+    check("dos juegos chicos que suman 30+ (ninguno individual) -> rechazado", false, "no se encontraron dos grupos chicos complementarios a tiempo — inconcluso, no es una falla de la regla");
+  }
+
   // ---------- Candados: formar un segundo juego con comodín (no consume candado al crearlo) ----------
   let jokerGroup = findJokerGroup(stateA.myHand);
   guard = 0;
   while (!jokerGroup && guard++ < 150) {
-    send(drawer(), { type: "draw" });
-    stateA = await waitFor(wsA, "state", 8000);
+    if (!(await drawStep(drawer()))) break;
     jokerGroup = findJokerGroup(stateA.myHand);
   }
   let jokerMeldId = null, breaksBefore = stateA.jokerBreaks;
@@ -247,8 +336,7 @@ async function main() {
     let attachTile = findAttachTile(stateA.myHand, stateA.table.find((m) => m.id === jokerMeldId)?.tiles || []);
     guard = 0;
     while (!attachTile && guard++ < 100) {
-      send(drawer(), { type: "draw" });
-      stateA = await waitFor(wsA, "state", 8000);
+      if (!(await drawStep(drawer()))) break;
       const meld = stateA.table.find((m) => m.id === jokerMeldId);
       if (!meld) break; // alguien más lo modificó — no debería pasar en 1v1, pero por las dudas
       attachTile = findAttachTile(stateA.myHand, meld.tiles);

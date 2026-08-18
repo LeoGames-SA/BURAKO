@@ -9,6 +9,10 @@ node_modules/
 # Datos reales de usuarios (persistencia vieja, pre-Supabase) — nunca al repo
 server/players.json
 
+# Backups/exports de datos reales de usuarios (auditoría de limpieza legacy,
+# server/scripts/audit-legacy-users.mjs) — nunca al repo
+server/backups/
+
 # Backups de seguridad locales antes de cada etapa (db.js, server.js,
 # players.json) — son artefactos de trabajo, no código versionado.
 server/*.bak-*
