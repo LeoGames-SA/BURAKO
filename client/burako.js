@@ -2,7 +2,7 @@
    BURAKO — app completa: menú, tutorial, sonidos, IA con delay
    ================================================================ */
 
-const GAME_VERSION = "1.1.0";
+const GAME_VERSION = "1.1.1";
 const MAX_PLAYERS_ONLINE = 8; // el server acepta hasta 8 en sala (mazo doble si se supera 4)
 const QUICK_CHAT_COOLDOWN_MS = 15000;
 const QUICK_CHAT_OPTIONS = [
@@ -18,6 +18,9 @@ const TEAM_CHAT_OPTIONS = [
   {send:"👍 Dale", show:"👍"}, {send:"🚫 No tengo", show:"🚫"}, {send:"⏳ Esperá", show:"⏳"},
 ];
 const CHANGELOG = [
+  {version:"1.1.1", date:"18/08/2026", items:[
+    "🌡 Optimizaciones de rendimiento: menos consumo/calentamiento en partidas largas con la mesa cargada de juegos — menos trabajo repetido al procesar cada jugada, animaciones de fondo en pausa mientras jugás (no se ven, pero seguían consumiendo).",
+  ]},
   {version:"1.1.0", date:"17/08/2026", items:[
     "⚡ La partida ya no se siente como si se recargara en cada jugada: arreglada la causa de fondo (se deseleccionaban fichas y se perdía lo armado en Preparación con solo esperar al rival).",
     "🛠 Preparación ahora es un espacio de trabajo real: arrastrá una ficha suelta sobre un juego armado para sumarla, sacala arrastrándola afuera, o movela directo de un juego a otro — sin desarmar nada.",

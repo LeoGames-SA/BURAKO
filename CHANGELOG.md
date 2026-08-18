@@ -2,6 +2,26 @@
 
 Todos los cambios notables del proyecto se documentan en este archivo.
 
+## [1.1.1] - 2026-08-18 — Fase 0.5: rendimiento y consumo
+
+Perfilado (auditoría estática + medición en vivo con Playwright/CDP) confirmó la
+causa de fondo del calentamiento reportado en Galaxy S25 Ultra en partidas
+avanzadas: cada jugada de CUALQUIER jugador de la sala dispara un render
+completo de la mesa, con costo proporcional a la cantidad de juegos en mesa.
+
+- `meldHTML()` memoizado por juego — evita recalcular info/orden/HTML de
+  juegos sin cambios entre un render y el siguiente.
+- Una capa de sombra redundante menos en la gema de cada ficha.
+- Animaciones de fondo (`#bgdecor`, `#galacticoBg`) se pausan durante la
+  partida en vez de seguir corriendo sin aportar nada.
+- `prefers-reduced-motion` extendido a las 8 skins animadas que no lo
+  respetaban todavía.
+- Limpieza de timers pendientes al salir de una sala online.
+
+Medido: costo de render con mesa cargada (40 juegos) bajó ~37% (TaskDuration
+CDP). Sin cambios de Design DNA — nada se ocultó ni se le bajó calidad,
+solo se dejó de rehacer/animar trabajo redundante.
+
 ## [1.1.0] - 2026-08-17 — Fase UX de partida: re-render, Preparación workspace, responsive, Ver Mesa
 
 ### Ronda 10 — Pantalla de progreso offline
