@@ -50,6 +50,29 @@ const server = http.createServer((req, res) => {
 
 const wss = new WebSocketServer({ server });
 
+/* ---------- Keepalive del WebSocket ----------
+   Sin esto, las redes móviles y el proxy de Render cierran las conexiones que
+   quedan un rato inactivas (esperando al rival, "pensando"), y del lado del
+   cliente se sentía como "el servidor se desconectó solo". El servidor manda
+   un ping a cada cliente cada 25s; el navegador/WebView responde con pong
+   automáticamente (frame de protocolo, no hace falta código en el cliente).
+   Si un cliente no respondió el pong del ciclo anterior, se lo considera
+   muerto y se cierra (lo que dispara el ws.on("close") de siempre, con su
+   margen de gracia para reconexión de partida en curso). */
+const HEARTBEAT_MS = 25000;
+wss.on("connection", (ws) => {
+  ws.isAlive = true;
+  ws.on("pong", () => { ws.isAlive = true; });
+});
+const heartbeatTimer = setInterval(() => {
+  wss.clients.forEach((ws) => {
+    if (ws.isAlive === false) { try { ws.terminate(); } catch (e) {} return; }
+    ws.isAlive = false;
+    try { ws.ping(); } catch (e) {}
+  });
+}, HEARTBEAT_MS);
+wss.on("close", () => clearInterval(heartbeatTimer));
+
 /* ---------- estado de salas en memoria ---------- */
 /** rooms[code] = {
  *   code, players:[{id,ws,name,connected}], deck, bag, table, meldCounter,
@@ -1450,6 +1473,11 @@ wss.on("connection", (ws) => {
   ws.on("message", async (raw) => {
     let msg;
     try { msg = JSON.parse(raw); } catch (e) { return; }
+
+    // Keepalive a nivel app: el cliente (sobre todo en móvil) manda esto cada
+    // ~20s para mantener viva la conexión del lado del cliente (mapeo NAT) y
+    // detectar rápido si el servidor dejó de responder. Se contesta y listo.
+    if (msg.type === "ping") { ws.isAlive = true; send(ws, { type: "pong" }); return; }
 
     if (msg.type === "register") {
       const r = await DB.register(msg.username, msg.password);

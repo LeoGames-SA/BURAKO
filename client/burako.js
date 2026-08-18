@@ -1554,7 +1554,7 @@ function claimPass(lv){
   const L=PASS_LEVELS.find(x=>x.lv===lv); if(!L) return;
   if(P.passClaimed[lv]||passLevel()<lv) return;
   G._pendingClaimFx=lv;
-  if(G.online){ netSend({type:"claimPass", level:lv}); Sound.meld(); return; }
+  if(G.online){ markClaiming("s"+lv); netSend({type:"claimPass", level:lv}); Sound.meld(); render(); return; }
   P.passClaimed[lv]=true;
   const r=L.reward;
   if(r.fichas) P.fichas+=r.fichas;
@@ -1648,7 +1648,7 @@ function profileTabPaseHTML(){
           <span style="font-size:16px;font-weight:800;width:28px;text-align:center;color:${unlocked?"#ffe9a8":"inherit"}">${L.lv}</span>
           <div style="flex:1"><div style="font-size:12.5px;font-weight:800">${isMilestone?"🎖 Hito: ":""}${L.label}</div><div style="font-size:10px;color:rgba(232,238,247,.5)">Nivel ${L.lv}</div></div>
           ${claimed?'<span style="font-size:12px;color:#34d399;font-weight:800">✔ Reclamado</span>'
-            :unlocked?`<button class="shop-btn" data-state="owned" onclick="claimPass(${L.lv})">Reclamar</button>`
+            :unlocked?(G._claiming&&G._claiming["s"+L.lv]?`<button class="shop-btn" data-state="owned" disabled>⏳ Reclamando…</button>`:`<button class="shop-btn" data-state="owned" onclick="claimPass(${L.lv})">Reclamar</button>`)
             :'<span style="font-size:14px">🔒</span>'}
         </div>`;
       }).join("")}`;
@@ -1702,7 +1702,23 @@ function claimGalacticoPass(lv){
   if((P.galacticoClaimed||{})[lv]||galacticoPassLevel()<lv) return;
   if(!G.online){ setMsg("El Pase Galáctico necesita estar conectado."); render(); return; }
   G._pendingClaimFx=lv;
-  netSend({type:"claimGalacticoPass", level:lv}); Sound.meld();
+  markClaiming("g"+lv);
+  netSend({type:"claimGalacticoPass", level:lv}); Sound.meld(); render();
+}
+// Marca un nivel de pase como "reclamando" (esperando la respuesta del
+// servidor) para que el botón muestre feedback inmediato en vez de parecer que
+// no pasó nada mientras Render responde. Se limpia solo cuando llega el
+// "profile" actualizado, o a los 8s por si la respuesta se perdió.
+function markClaiming(key){
+  G._claiming=G._claiming||{};
+  G._claimingTimers=G._claimingTimers||{};
+  G._claiming[key]=true;
+  clearTimeout(G._claimingTimers[key]);
+  G._claimingTimers[key]=setTimeout(()=>{ if(G._claiming){ delete G._claiming[key]; render(); } },8000);
+}
+function clearClaiming(){
+  if(G._claiming&&Object.keys(G._claiming).length){ G._claiming={}; }
+  if(G._claimingTimers){ Object.values(G._claimingTimers).forEach(t=>clearTimeout(t)); G._claimingTimers={}; }
 }
 /* Mismo "Reclamar todo" que el pase normal (ver claimAllPass) — acá cada nivel
    SIEMPRE pasa por el servidor (claimGalacticoPass no tiene camino offline), así
@@ -1759,7 +1775,7 @@ function profileTabGalacticoHTML(){
           <span style="font-size:16px;font-weight:800;width:28px;text-align:center;color:${unlocked?"#e9d5ff":"inherit"}">${L.lv}</span>
           <div style="flex:1"><div style="font-size:12.5px;font-weight:800">${esc(L.label)}</div></div>
           ${isClaimed?'<span style="font-size:12px;color:#34d399;font-weight:800">✔ Reclamado</span>'
-            :unlocked?`<button class="shop-btn" style="background:linear-gradient(180deg,#a855f7,#6b21a8);color:#fff" onclick="claimGalacticoPass(${L.lv})">Reclamar</button>`
+            :unlocked?(G._claiming&&G._claiming["g"+L.lv]?`<button class="shop-btn" style="background:linear-gradient(180deg,#a855f7,#6b21a8);color:#fff" disabled>⏳ Reclamando…</button>`:`<button class="shop-btn" style="background:linear-gradient(180deg,#a855f7,#6b21a8);color:#fff" onclick="claimGalacticoPass(${L.lv})">Reclamar</button>`)
             :'<span style="font-size:14px">🔒</span>'}
         </div>`;
       }).join("")}
@@ -5174,12 +5190,23 @@ function connectWithRetry(host,{attempts=4, delays=[0,4000,8000,15000], attemptT
     resolve(false);
   });
 }
+function startClientHeartbeat(){
+  clearInterval(NET._pingTimer);
+  // Ping a nivel app cada 20s: mantiene viva la conexión del lado del cliente
+  // (mapeo NAT en redes móviles, que si no cierran la conexión en los ratos
+  // inactivos) y complementa el ping del servidor. El navegador/WebView ya
+  // responde solo a los ping DEL servidor, pero desde JS no se pueden mandar
+  // frames de ping propios, así que este va como mensaje normal.
+  NET._pingTimer=setInterval(()=>{
+    if(NET.ws&&NET.ws.readyState===1){ try{ NET.ws.send(JSON.stringify({type:"ping"})); }catch(e){} }
+  },20000);
+}
 function netConnect(host){
   return new Promise((resolve,reject)=>{
     if(NET.ws && NET.ws.readyState<=1){ try{NET.ws.close();}catch(e){} }
     const ws=new WebSocket(wsUrlFor(host));
     NET.ws=ws;
-    ws.onopen=()=>resolve();
+    ws.onopen=()=>{ startClientHeartbeat(); resolve(); };
     ws.onerror=(e)=>{
       if(ws!==NET.ws) return; // viejo
       reject(new Error("No se pudo conectar a "+host));
@@ -5187,6 +5214,7 @@ function netConnect(host){
     ws.onmessage=(ev)=>{
       if(ws!==NET.ws) return; // viejo
       let msg; try{msg=JSON.parse(ev.data);}catch(e){return;}
+      if(msg.type==="pong") return; // respuesta al keepalive, nada que hacer
       if(DEBUG_GAME){
         const recvAt=performance.now();
         const rtt=(_lastAnySendAt&&(msg.type==="state"||msg.type==="error"))?(recvAt-_lastAnySendAt).toFixed(1)+"ms desde el último "+_lastAnySendType:"";
@@ -5201,7 +5229,7 @@ function netConnect(host){
       if(msg.type==="roomList"){ G.publicRooms=msg.rooms||[]; if(G.screen==="netConnect"&&G.netStep==="publicRooms") render(); return; }
       // Rank update
       if(msg.type==="rankUpdate"){ G.rankUpdate=msg; if(msg.profile) syncProfileFromServer(msg.profile); }
-      else if(msg.type==="profile"){ syncProfileFromServer(msg.profile); render(); }
+      else if(msg.type==="profile"){ clearClaiming(); syncProfileFromServer(msg.profile); render(); }
       else if(msg.type==="matchResult"){ G.matchResult=msg; if(msg.update&&msg.update.profile) syncProfileFromServer(msg.update.profile); }
       else if(msg.type==="achievementsUnlocked"){
         // La celebración de esquina es solo para quien lo desbloqueó (trae el detalle de recompensa);

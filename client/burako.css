@@ -110,7 +110,12 @@
   --z-critical:90;
 }
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{height:100%;overflow:hidden}
+/* overflow-x:hidden + overscroll-behavior:none cortan el "se puede mover a la
+   derecha" que se veía en la app (WebView de Android permite arrastrar/rebotar
+   el contenido aunque no haya scroll real; en el navegador de escritorio no se
+   nota). max-width:100vw evita que cualquier hijo que se pase de ancho arrastre
+   toda la página. */
+html,body{height:100%;overflow:hidden;overflow-x:hidden;max-width:100vw;overscroll-behavior:none}
 body{
   font-family:var(--font-body);
   background:
