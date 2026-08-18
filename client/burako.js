@@ -6643,15 +6643,37 @@ document.addEventListener("visibilitychange",()=>{
   } else {
     if(Music._wasPlayingOnHide){ Music._wasPlayingOnHide=false; Music.start(); }
     // Volver de segundo plano (app minimizada, bloqueo de pantalla, cambio de
-    // pestaña largo) puede haber matado el WebSocket sin que llegara a
-    // disparar ws.onclose (el JS queda pausado/muy throttled en background).
-    // Si seguimos "en partida" según nuestro propio estado pero el socket ya
-    // no está realmente abierto, se dispara la misma reconexión que onclose.
-    if(G.screen==="playing" && (!NET.ws || NET.ws.readyState!==1)){
+    // pestaña largo) puede haber matado el WebSocket sin que llegara a disparar
+    // ws.onclose (el JS queda pausado/muy throttled en background). Al volver,
+    // si el socket ya no está abierto pero deberíamos estar online, se
+    // reconecta solo — antes esto solo pasaba en "playing", así que salir y
+    // entrar a la app en el menú/tienda/perfil dejaba todo "desconectado"
+    // hasta tocar algo. Ahora se recupera solo en cualquier pantalla.
+    const socketDead = !NET.ws || NET.ws.readyState!==1;
+    if(socketDead && G.screen==="playing"){
       attemptMatchReconnect();
+    } else if(socketDead && (G.online||G.serverConnected)){
+      resumeReconnect();
     }
   }
 });
+// Reconexión "suave" al volver a la app fuera de una partida: reconecta el
+// WebSocket y re-loguea con las credenciales guardadas para recuperar el
+// perfil, sin sacar al usuario de donde estaba. Silencioso salvo que falle.
+async function resumeReconnect(){
+  if(G._resumeReconnecting) return;
+  G._resumeReconnecting=true;
+  const savedUser=localStorage.getItem("burako_lan_name");
+  const savedPass=localStorage.getItem("burako_lan_pass");
+  const ok=await connectWithRetry(defaultHost(),{attempts:3, delays:[0,2000,5000], attemptTimeout:8000});
+  if(ok && savedUser && savedPass){
+    G._authCb=(msg)=>{ delete G._authCb; if(msg.type==="authOk"){ G.online=true; G.serverConnected=true; syncProfileFromServer(msg.profile); render(); } };
+    try{ NET.ws.send(JSON.stringify({type:"login", username:savedUser, password:savedPass})); }catch(e){}
+  } else if(ok){
+    G.serverConnected=true;
+  }
+  G._resumeReconnecting=false;
+}
 
 /* Fondo decorativo global: fichas subiendo lentamente, siempre visibles detrás
    de cualquier pantalla (vive fuera de #app, así no se recrea en cada render). */
