@@ -32,6 +32,16 @@ client/android/local.properties
 # APKs de prueba (se reconstruyen, no versionar binarios)
 *.apk
 
+# JDK portable descargado para poder compilar la APK en esta máquina (no
+# había ningún JDK instalado) — ~380MB entre las dos versiones, se descarga
+# de nuevo si hace falta, no tiene sentido versionarlo.
+.tools/
+
+# Scripts/salidas de profiling puntual (Fase 0.5) — descartables, no código
+# versionado del proyecto.
+scratch-perf-profile.mjs
+scratch-perf/
+
 # Editores / SO
 .vscode/
 .idea/
