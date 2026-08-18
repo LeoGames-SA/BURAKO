@@ -60,6 +60,23 @@ function freshAuthClient() {
   });
 }
 
+/* Token de sesión persistente = el refresh token que Supabase Auth ya emite
+   al loguear. El cliente (Web/Android) lo guarda y lo manda de vuelta para
+   restaurar identidad sin reenviar la contraseña (ver resumeSession). No es
+   un mecanismo nuevo: se reusa lo que Supabase ya ofrece (expiración,
+   rotación single-use, revocación vía admin.signOut) en vez de armar una
+   tabla de sesiones o JWT propios. */
+async function mintSession(usernameLower, password) {
+  try {
+    const { data, error } = await freshAuthClient().auth.signInWithPassword({ email: syntheticEmail(usernameLower), password });
+    if (error || !data || !data.session) return null;
+    return { refreshToken: data.session.refresh_token, expiresAt: data.session.expires_at };
+  } catch (e) {
+    console.error("[auth] mintSession: error para", usernameLower, "-", e.message);
+    return null;
+  }
+}
+
 /* ---------- Catálogo maestro de cosméticos ---------- */
 const CATALOG = {
   skins: [
@@ -695,7 +712,10 @@ async function register(username, password) {
 
     const row = await fetchProfileRaw(usernameLower);
     const p = rowToProfileShape(row || { ...initialRow, coins: 500 + WELCOME_BONUS_COINS });
-    return { ok: true, profile: publicProfile(p), welcomeBonus: WELCOME_BONUS_COINS };
+    // admin.createUser() no devuelve sesión — se loguea una vez más (mismo
+    // cliente descartable) solo para emitir el primer token de sesión.
+    const session = await mintSession(usernameLower, password);
+    return { ok: true, profile: publicProfile(p), welcomeBonus: WELCOME_BONUS_COINS, session };
   } catch (e) {
     console.error("[auth] register: error inesperado para", username, "-", e.message);
     return { ok: false, error: "Servidor no disponible en este momento. Probá de nuevo." };
@@ -715,10 +735,12 @@ async function login(username, password) {
   }
 
   let authOk = false;
+  let session = null;
   if (row) {
     try {
-      const { error: signInErr } = await freshAuthClient().auth.signInWithPassword({ email: syntheticEmail(usernameLower), password });
+      const { data, error: signInErr } = await freshAuthClient().auth.signInWithPassword({ email: syntheticEmail(usernameLower), password });
       authOk = !signInErr;
+      if (authOk && data && data.session) session = { refreshToken: data.session.refresh_token, expiresAt: data.session.expires_at };
       if (signInErr && !/invalid login credentials/i.test(signInErr.message || "")) {
         console.warn("[auth] login: signInWithPassword devolvió un error no estándar para", username, "-", signInErr.message);
       }
@@ -748,10 +770,56 @@ async function login(username, password) {
       console.error("[auth-migration] error inesperado migrando a", username, "-", e.message);
       return { ok: false, error: "Servidor no disponible en este momento. Probá de nuevo." };
     }
+    session = await mintSession(usernameLower, password);
   }
 
   const p = rowToProfileShape(row);
-  return { ok: true, profile: publicProfile(p), welcomeBonus: null, alert: null };
+  return { ok: true, profile: publicProfile(p), welcomeBonus: null, alert: null, session };
+}
+
+/* Restaura identidad a partir del refresh token guardado por el cliente, sin
+   volver a pedir contraseña. El username se deriva del usuario verificado
+   por Supabase (user_metadata), nunca de lo que mande el cliente. Los
+   refresh tokens de Supabase son single-use/rotativos: el "session" que se
+   devuelve acá SIEMPRE reemplaza al anterior del lado del cliente. */
+async function resumeSession(refreshToken) {
+  if (!refreshToken) return { ok: false, error: "expired" };
+  try {
+    const { data, error } = await freshAuthClient().auth.refreshSession({ refresh_token: refreshToken });
+    if (error || !data || !data.session || !data.user) return { ok: false, error: "expired" };
+    const rawUsername = data.user.user_metadata && data.user.user_metadata.username;
+    if (!rawUsername) return { ok: false, error: "expired" };
+    const row = await fetchProfileRaw(rawUsername.trim().toLowerCase());
+    if (!row) return { ok: false, error: "expired" };
+    const p = rowToProfileShape(row);
+    return {
+      ok: true,
+      username: row.username,
+      profile: publicProfile(p),
+      session: { refreshToken: data.session.refresh_token, expiresAt: data.session.expires_at },
+    };
+  } catch (e) {
+    console.error("[auth] resumeSession: error -", e.message);
+    return { ok: false, error: "Servidor no disponible en este momento. Probá de nuevo en unos segundos." };
+  }
+}
+
+/* Revoca la sesión (logout explícito) — invalida el token en todos los
+   dispositivos de ese usuario (scope 'global'). Si el token ya venció o es
+   inválido no hay nada que revocar: se trata como éxito silencioso, el
+   objetivo (que ya no sirva) ya está cumplido igual. */
+async function invalidateSession(refreshToken) {
+  if (!refreshToken) return { ok: true };
+  try {
+    const { data, error } = await freshAuthClient().auth.refreshSession({ refresh_token: refreshToken });
+    if (error || !data || !data.session) return { ok: true };
+    const { error: signOutErr } = await supabase.auth.admin.signOut(data.session.access_token, "global");
+    if (signOutErr) console.error("[auth] invalidateSession: signOut falló -", signOutErr.message);
+    return { ok: true };
+  } catch (e) {
+    console.error("[auth] invalidateSession: error -", e.message);
+    return { ok: true };
+  }
 }
 
 async function getProfileByName(username) {
@@ -1116,6 +1184,7 @@ async function leaderboard(n = 20) {
 module.exports = {
   CATALOG, TIERS, ACHIEVEMENTS, PASS_LEVELS, GALACTICO_PASS_LEVELS,
   register, login,
+  resumeSession, invalidateSession,
   getProfileByName,
   buyItem, setActive, setAvatar,
   claimPass, claimGalacticoPass,

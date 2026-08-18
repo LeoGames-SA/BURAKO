@@ -23,25 +23,54 @@ function check(name, cond, detail) {
   else { console.log("❌ " + name + (detail ? " — " + detail : "")); fail++; }
 }
 
+// Cada ws lleva su propio buffer de mensajes no reclamados + una cola de
+// waitFor() pendientes — así, si dos respuestas (p. ej. "joined" seguido de
+// inmediato por el "state" del broadcast de rejoin) llegan juntas en el mismo
+// tick ANTES de que el código de la prueba llegue a pedir la segunda, la
+// segunda igual la encuentra esperando en el buffer en vez de perderse. Contra
+// Render (latencia real) esto casi nunca se nota porque el código siempre
+// llega a tiempo a registrar el siguiente listener; corriendo contra
+// localhost (latencia ~0) las dos respuestas pueden llegar en el mismo evento
+// y con un listener "de un solo uso" la segunda se pierde sin dejar rastro.
 function connect() {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(WS_URL);
+    ws._buffer = []; ws._waiters = [];
     const t = setTimeout(() => reject(new Error("timeout conectando a " + WS_URL)), 15000);
     ws.once("open", () => { clearTimeout(t); resolve(ws); });
     ws.once("error", reject);
+    ws.on("message", (raw) => {
+      const m = JSON.parse(raw);
+      const wi = ws._waiters.findIndex((w) => w.test(m));
+      if (wi !== -1) {
+        const w = ws._waiters.splice(wi, 1)[0];
+        clearTimeout(w.timer);
+        w.resolve(m);
+      } else {
+        ws._buffer.push(m);
+      }
+    });
   });
 }
 function send(ws, obj) { ws.send(JSON.stringify(obj)); }
-// Espera el próximo mensaje cuyo type matchee el predicado (string o función).
+// Espera el próximo mensaje cuyo type matchee el predicado (string o función)
+// — primero revisa el buffer de lo ya llegado, y solo si no hay nada todavía
+// se suma a la cola de espera.
 function waitFor(ws, matcher, ms = 15000) {
   const test = typeof matcher === "function" ? matcher : (m) => m.type === matcher;
+  const bi = ws._buffer.findIndex(test);
+  if (bi !== -1) return Promise.resolve(ws._buffer.splice(bi, 1)[0]);
   return new Promise((resolve, reject) => {
-    const t = setTimeout(() => { ws.off("message", onMsg); reject(new Error("timeout esperando " + matcher)); }, ms);
-    function onMsg(raw) {
-      const m = JSON.parse(raw);
-      if (test(m)) { clearTimeout(t); ws.off("message", onMsg); resolve(m); }
-    }
-    ws.on("message", onMsg);
+    const waiter = {
+      test,
+      resolve,
+      timer: setTimeout(() => {
+        const i = ws._waiters.indexOf(waiter);
+        if (i !== -1) ws._waiters.splice(i, 1);
+        reject(new Error("timeout esperando " + matcher));
+      }, ms),
+    };
+    ws._waiters.push(waiter);
   });
 }
 async function cleanupUser(usernameLower) {
@@ -66,6 +95,18 @@ async function main() {
   check("registro jugador B contra producción", rB.type === "authOk", JSON.stringify(rB));
 
   const coinsABefore = rA.profile?.coins, coinsBBefore = rB.profile?.coins;
+  check("registro de A incluye token de sesión", !!rA.session?.refreshToken, JSON.stringify(rA.session));
+
+  // --- Sesión persistente: resumeSession SIN partida activa (el caso normal
+  // de "cerré la app desde el menú y la vuelvo a abrir") usando el token que
+  // vino en el registro, en una conexión nueva — no debe hacer falta mandar
+  // la contraseña de nuevo. ---
+  const wsAResume = await connect();
+  send(wsAResume, { type: "resumeSession", refreshToken: rA.session.refreshToken });
+  const resumed = await waitFor(wsAResume, (m) => m.type === "authOk" || m.type === "sessionExpired");
+  check("resumeSession sin partida activa restaura la sesión de A sin contraseña", resumed.type === "authOk" && resumed.profile?.username?.toLowerCase() === A_USER.toLowerCase(), JSON.stringify(resumed).slice(0, 200));
+  let aToken = resumed.session?.refreshToken || rA.session.refreshToken;
+  wsAResume.close();
 
   // --- A crea sala, B se une ---
   send(wsA, { type: "join", room: "NUEVA", name: "TestA", gameMode: "casual" });
@@ -81,7 +122,11 @@ async function main() {
   // --- Ambos listos, A arranca ---
   send(wsA, { type: "setReady", ready: true });
   send(wsB, { type: "setReady", ready: true });
-  await waitFor(wsB, (m) => m.type === "state"); // deja asentar el broadcast de ready
+  // Deja asentar el broadcast de ready — una pausa fija, no un waitFor genérico:
+  // con el buffer por-socket (ver connect()) un waitFor sin filtro de fase
+  // devolvería de una el "state" ya encolado del broadcast de "join" (previo a
+  // ready), no el que realmente interesa esperar acá.
+  await new Promise((r) => setTimeout(r, 300));
   send(wsA, { type: "start" });
   const sorteoState = await waitFor(wsA, (m) => m.type === "state" && m.phase === "sorteo", 10000);
   check("la partida arranca y entra en fase de sorteo", sorteoState.phase === "sorteo", JSON.stringify(sorteoState.phase));
@@ -95,15 +140,22 @@ async function main() {
   // --- Reparto: ambos agarran toda su mano ---
   send(wsA, { type: "dealDraw", all: true });
   send(wsB, { type: "dealDraw", all: true });
-  const playingState = await waitFor(wsA, (m) => m.type === "state" && m.phase === "playing", 10000);
+  // OJO: room.phase es undefined antes de que arranque el sorteo, y stateFor
+  // (server.js) usa "phase: room.phase || 'playing'" como default — así que la
+  // sala recién creada YA manda un "state" con phase:"playing" (started:false,
+  // sin mano) antes de que el juego arranque de verdad. Filtrar también por
+  // "started" para no confundir ese estado de lobby con el de la mesa real.
+  const playingState = await waitFor(wsA, (m) => m.type === "state" && m.phase === "playing" && m.started, 10000);
   check("reparto completo -> llega a la mesa (playing)", playingState.phase === "playing" && playingState.myHand.length === 14, "phase=" + playingState.phase + " handLen=" + playingState.myHand?.length);
 
-  // --- Reconexión básica: B cierra su conexión y vuelve a entrar con "rejoin" ---
+  // --- Reconexión básica: B cierra su conexión y vuelve a entrar con "rejoin",
+  // restaurando la sesión con el token guardado (NO con la contraseña). ---
   wsB.close();
   await new Promise((r) => setTimeout(r, 2000));
   const wsB2 = await connect();
-  send(wsB2, { type: "login", username: B_USER, password: PASS });
-  await waitFor(wsB2, "authOk");
+  send(wsB2, { type: "resumeSession", refreshToken: rB.session.refreshToken });
+  const bResumed = await waitFor(wsB2, (m) => m.type === "authOk" || m.type === "sessionExpired");
+  check("B reconecta a mitad de partida vía resumeSession (sin contraseña)", bResumed.type === "authOk", JSON.stringify(bResumed).slice(0, 200));
   send(wsB2, { type: "rejoin", room: roomCode, playerId: bPlayerId });
   const rejoined = await waitFor(wsB2, (m) => m.type === "joined" || m.type === "error");
   check("B se reconecta a la partida en curso (rejoin)", rejoined.type === "joined" && rejoined.playerId === bPlayerId, JSON.stringify(rejoined));
@@ -129,6 +181,24 @@ async function main() {
   // delta real para que quede en el log, sin asumir un monto fijo (varía según
   // qué logros dispare "primera partida", que también suman una sola vez).
   console.log(`   (info) delta de monedas de B: ${profB ? profB.coins - coinsBBefore : "?"}`);
+
+  // --- Logout explícito: debe invalidar el token — un resumeSession posterior
+  // con el MISMO token tiene que fallar con sessionExpired, no con authOk. ---
+  const wsALogout = await connect();
+  send(wsALogout, { type: "resumeSession", refreshToken: aToken });
+  const preLogout = await waitFor(wsALogout, (m) => m.type === "authOk" || m.type === "sessionExpired");
+  check("token de A todavía válido justo antes del logout", preLogout.type === "authOk", JSON.stringify(preLogout).slice(0, 200));
+  aToken = preLogout.session?.refreshToken || aToken;
+  send(wsALogout, { type: "logout", refreshToken: aToken });
+  const loggedOut = await waitFor(wsALogout, "loggedOut");
+  check("logout responde loggedOut", loggedOut.type === "loggedOut", JSON.stringify(loggedOut));
+  wsALogout.close();
+
+  const wsAAfterLogout = await connect();
+  send(wsAAfterLogout, { type: "resumeSession", refreshToken: aToken });
+  const afterLogout = await waitFor(wsAAfterLogout, (m) => m.type === "authOk" || m.type === "sessionExpired");
+  check("tras logout, resumeSession con el mismo token da sessionExpired (no authOk)", afterLogout.type === "sessionExpired", JSON.stringify(afterLogout).slice(0, 200));
+  wsAAfterLogout.close();
 
   console.log(`\n=== RESUMEN: ${pass} OK / ${fail} fallidas ===`);
   if (fail) process.exitCode = 1;

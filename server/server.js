@@ -1481,14 +1481,30 @@ wss.on("connection", (ws) => {
 
     if (msg.type === "register") {
       const r = await DB.register(msg.username, msg.password);
-      if (r.ok) { authUser = msg.username.trim(); send(ws, { type: "authOk", profile: r.profile, welcomeBonus: r.welcomeBonus || null }); }
+      if (r.ok) { authUser = msg.username.trim(); send(ws, { type: "authOk", profile: r.profile, session: r.session || null, welcomeBonus: r.welcomeBonus || null }); }
       else send(ws, { type: "error", msg: r.error });
       return;
     }
     if (msg.type === "login") {
       const r = await DB.login(msg.username, msg.password);
-      if (r.ok) { authUser = msg.username.trim(); send(ws, { type: "authOk", profile: r.profile, welcomeBonus: r.welcomeBonus || null, alert: r.alert || null }); }
+      if (r.ok) { authUser = msg.username.trim(); send(ws, { type: "authOk", profile: r.profile, session: r.session || null, welcomeBonus: r.welcomeBonus || null, alert: r.alert || null }); }
       else send(ws, { type: "error", msg: r.error });
+      return;
+    }
+    if (msg.type === "resumeSession") {
+      // Restaura identidad a partir del refresh token guardado por el
+      // cliente (ver client/burako.js) en vez de reenviar la contraseña.
+      // authUser sale del usuario verificado por Supabase, nunca de lo que
+      // mande el cliente acá (no hay username en este mensaje).
+      const r = await DB.resumeSession(msg.refreshToken);
+      if (r.ok) { authUser = r.username; send(ws, { type: "authOk", profile: r.profile, session: r.session, resumed: true }); }
+      else send(ws, { type: "sessionExpired" });
+      return;
+    }
+    if (msg.type === "logout") {
+      await DB.invalidateSession(msg.refreshToken);
+      authUser = null;
+      send(ws, { type: "loggedOut" });
       return;
     }
     if (msg.type === "leaderboard") {

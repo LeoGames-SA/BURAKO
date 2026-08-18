@@ -5059,6 +5059,76 @@ function renderPlaying(app){
    ================================================================ */
 let NET={ws:null, myId:null, roomCode:null};
 
+/* ---------------- Sesión persistente por token ----------------
+   Reemplaza "guardar la contraseña y reenviarla" (lo que hacía este archivo
+   hasta ahora vía burako_lan_pass) por un token de sesión — el refresh token
+   que ya emite Supabase Auth al loguear (ver server/db.js resumeSession) —
+   que el cliente guarda y usa para restaurar identidad sin volver a pedir
+   contraseña. La contraseña queda SOLO para el login/registro inicial.
+   G.auth/G.net son un modelo de estado aditivo (no reemplazan G.online ni
+   G.serverConnected, que siguen significando lo mismo que siempre en el
+   resto del código — incluido "esta partida es local", como en
+   goSorteo()/startTeam2v2()) pensado solo para dirigir esta lógica nueva. */
+const SESSION_TOKEN_KEY="burako_session_token";
+function getSessionToken(){ try{ return localStorage.getItem(SESSION_TOKEN_KEY); }catch(e){ return null; } }
+function saveSessionToken(tok){ try{ if(tok) localStorage.setItem(SESSION_TOKEN_KEY, tok); }catch(e){} }
+function clearSessionToken(){ try{ localStorage.removeItem(SESSION_TOKEN_KEY); }catch(e){} }
+// Instalaciones de antes de este cambio pueden tener la contraseña guardada
+// en texto plano — se borra en cuanto haya un login/resume exitoso con token.
+function migrateAwayFromStoredPassword(){ try{ localStorage.removeItem("burako_lan_pass"); }catch(e){} }
+G.auth=G.auth||{status:"unauthenticated"};
+G.net=G.net||{status:"offline"};
+
+/* Único punto de entrada para "restaurar sesión con el token guardado".
+   Reemplaza los candados sueltos que existían antes por conexión llamadora
+   (uno en tryAutoReconnect, otro en resumeReconnect) por un solo mutex
+   compartido: el refresh token es de un solo uso, así que si dos intentos
+   de resume se dispararan casi a la vez (p. ej. volver de background justo
+   cuando también se estaba reintentando una reconexión de partida) el
+   segundo pisaría el token que el primero ya rotó, y se vería como una
+   sesión vencida que en realidad no lo es. Con el mutex, el segundo
+   llamador simplemente espera el resultado del primero.
+   connectOpts se reenvía tal cual a connectWithRetry (p. ej. para usar el
+   backoff corto de attemptMatchReconnect en vez del paciente de arranque
+   en frío). Devuelve {ok:true, profile} o {ok:false, reason}. */
+function resumeSessionSilently({onStatus, connectOpts}={}){
+  if(G._sessionOpInFlight) return G._sessionOpInFlight;
+  const token=getSessionToken();
+  if(!token) return Promise.resolve({ok:false, reason:"no-token"});
+  const op=(async()=>{
+    G.net.status="reconnecting";
+    if(!NET.ws||NET.ws.readyState!==1){
+      const ok=await connectWithRetry(defaultHost(), Object.assign({onStatus}, connectOpts));
+      if(!ok){ G.net.status="offline"; return {ok:false, reason:"no-connection"}; }
+    }
+    G.net.status="connected"; G.serverConnected=true;
+    return await new Promise((resolve)=>{
+      let done=false;
+      const finish=(res)=>{ if(done) return; done=true; delete G._authCb; resolve(res); };
+      setTimeout(()=>finish({ok:false, reason:"timeout"}),8000);
+      G._authCb=(msg)=>{
+        if(msg.type==="authOk"){
+          if(msg.session&&msg.session.refreshToken) saveSessionToken(msg.session.refreshToken);
+          migrateAwayFromStoredPassword();
+          G.auth.status="authenticated"; G.online=true; G.serverConnected=true;
+          syncProfileFromServer(msg.profile);
+          finish({ok:true, profile:msg.profile});
+        } else if(msg.type==="sessionExpired"){
+          clearSessionToken();
+          G.auth.status="sessionExpired";
+          finish({ok:false, reason:"expired"});
+        } else {
+          finish({ok:false, reason:"error"});
+        }
+      };
+      try{ NET.ws.send(JSON.stringify({type:"resumeSession", refreshToken:token})); }
+      catch(e){ finish({ok:false, reason:"send-failed"}); }
+    });
+  })();
+  G._sessionOpInFlight=op.finally(()=>{ delete G._sessionOpInFlight; });
+  return G._sessionOpInFlight;
+}
+
 /* ---------------- Reconexión automática ----------------
    Antes, cerrar el WS por CUALQUIER motivo (refresh de página, un wifi que
    tilda un instante) se trataba en el server como si hubieras cerrado la
@@ -5084,29 +5154,25 @@ function readActiveRoom(){
     return data;
   }catch(e){ return null; }
 }
-/* Login silencioso + rejoin, usando las credenciales que ya se guardaban en
-   este navegador (burako_lan_name/burako_lan_pass) desde antes — si CUALQUIER
-   paso falla (contraseña vencida, la sala ya no existe, etc.) se resuelve en
-   false y quien llama cae al login manual de siempre, sin romper nada. */
-function tryAutoReconnect(user,pass,activeRoom){
+/* Restaura sesión (con el token guardado, vía resumeSessionSilently) + rejoin
+   a la sala activa. Si CUALQUIER paso falla (token vencido, la sala ya no
+   existe, etc.) se resuelve en false y quien llama cae al login manual de
+   siempre, sin romper nada. */
+function tryAutoReconnect(activeRoom, opts){
+  opts=opts||{};
   return new Promise((resolve)=>{
-    // Nunca se queda colgado esperando: si en 6s no hubo respuesta (server
-    // caído, mensaje perdido, etc.) cae al login manual de siempre. Un intento
-    // previo de reconectar automáticamente en OTRO lugar (salir de una sala de
-    // espera) se probó y se sintió como un cuelgue/bucle (ver doLeaveLobby) —
-    // este timeout es justamente para que ACÁ nunca se sienta así, pase lo que
-    // pase con la red.
-    let done=false;
-    const finish=(ok)=>{ if(done) return; done=true; delete G._authCb; delete G._rejoinCb; resolve(ok); };
-    setTimeout(()=>finish(false),6000);
-    G._authCb=(msg)=>{
-      delete G._authCb; // no reusar este callback para un login manual posterior
-      if(msg.type!=="authOk"){ clearActiveRoom(); finish(false); return; }
-      G.online=true;
-      syncProfileFromServer(msg.profile);
-      if(msg.welcomeBonus) G.pendingWelcomeBonus=msg.welcomeBonus;
-      if(msg.alert) G.pendingSanctionAlert=msg.alert;
+    resumeSessionSilently({onStatus:opts.onStatus, connectOpts:opts.connectOpts}).then((res)=>{
+      if(!res.ok){ clearActiveRoom(); resolve(false); return; }
       try{ NET.ws.send(JSON.stringify({type:"catalog"})); }catch(e){}
+      // Nunca se queda colgado esperando: si en 6s no hubo respuesta (server
+      // caído, mensaje perdido, etc.) cae al login manual de siempre. Un intento
+      // previo de reconectar automáticamente en OTRO lugar (salir de una sala de
+      // espera) se probó y se sintió como un cuelgue/bucle (ver doLeaveLobby) —
+      // este timeout es justamente para que ACÁ nunca se sienta así, pase lo que
+      // pase con la red.
+      let done=false;
+      const finish=(ok)=>{ if(done) return; done=true; delete G._rejoinCb; resolve(ok); };
+      setTimeout(()=>finish(false),6000);
       G._rejoinCb=(rmsg)=>{
         if(rmsg.type==="joined"){
           NET.myId=rmsg.playerId; NET.roomCode=rmsg.code;
@@ -5117,8 +5183,7 @@ function tryAutoReconnect(user,pass,activeRoom){
         }
       };
       NET.ws.send(JSON.stringify({type:"rejoin", room:activeRoom.code, playerId:activeRoom.playerId}));
-    };
-    NET.ws.send(JSON.stringify({type:"login", username:user, password:pass}));
+    });
   });
 }
 
@@ -5220,8 +5285,9 @@ function netConnect(host){
         const rtt=(_lastAnySendAt&&(msg.type==="state"||msg.type==="error"))?(recvAt-_lastAnySendAt).toFixed(1)+"ms desde el último "+_lastAnySendType:"";
         dlog("← recv", msg.type, rtt);
       }
-      // Auth callbacks (register/login)
-      if((msg.type==="authOk"||msg.type==="error")&&G._authCb){ G._authCb(msg); return; }
+      // Auth callbacks (register/login/resumeSession)
+      if((msg.type==="authOk"||msg.type==="error"||msg.type==="sessionExpired")&&G._authCb){ G._authCb(msg); return; }
+      if(msg.type==="loggedOut"&&G._logoutCb){ G._logoutCb(); return; }
       // Callback de reconexión automática (rejoin) — mismo patrón que _authCb.
       if((msg.type==="joined"||msg.type==="error")&&G._rejoinCb){ G._rejoinCb(msg); return; }
       // Leaderboard callback
@@ -5365,22 +5431,13 @@ function netConnect(host){
 async function attemptMatchReconnect(){
   if(G._reconnectingMatch) return;
   const activeRoom=readActiveRoom();
-  const savedUser=localStorage.getItem("burako_lan_name");
-  const savedPass=localStorage.getItem("burako_lan_pass");
-  if(!activeRoom||!savedUser||!savedPass) return;
+  if(!activeRoom||!getSessionToken()) return;
   G._reconnectingMatch=true;
   setMsg("Se perdió la conexión — reconectando…"); render();
-  const ok=await connectWithRetry(defaultHost(),{
-    attempts:2, delays:[0,2000], attemptTimeout:5000,
+  const rejoined=await tryAutoReconnect(activeRoom,{
+    connectOpts:{attempts:2, delays:[0,2000], attemptTimeout:5000},
     onStatus:(t)=>{ setMsg(t); render(); },
   });
-  if(!ok){
-    G._reconnectingMatch=false;
-    setMsg("⚠ No se pudo reconectar a tiempo. Puede que hayas quedado afuera de la partida.");
-    render();
-    return;
-  }
-  const rejoined=await tryAutoReconnect(savedUser,savedPass,activeRoom);
   G._reconnectingMatch=false;
   if(rejoined){
     G.online=true;
@@ -5922,23 +5979,46 @@ async function goIntroEnter(){
     G.screen="menu";
     render(); return;
   }
+  const token=getSessionToken();
+  const activeRoom=readActiveRoom();
+  if(token&&activeRoom){
+    // Quedó una partida activa reciente (refresh, wifi cortado un instante) y
+    // hay sesión guardada — priorizar volver a ella antes que el menú. Si
+    // cualquier paso falla, cae al login manual sin ningún efecto secundario.
+    G.authIntent="menu";
+    withLogoFlip(()=>{ G.screen="auth"; G.authStep="reconnecting"; render(); });
+    const okReconnect=await tryAutoReconnect(activeRoom);
+    if(okReconnect) return;
+    G.authStep="login"; G.authMode="login";
+    render();
+    return;
+  }
+  if(token){
+    // Sesión guardada, sin partida pendiente (el caso normal: se cerró la app
+    // desde el menú) — entrar directo al menú con el perfil cacheado
+    // localmente (P.*, ya se persiste vía saveP()/syncProfileFromServer) y
+    // restaurar la sesión de fondo, en vez de mostrar SIEMPRE el formulario
+    // de usuario/contraseña aunque las credenciales guardadas sigan valiendo.
+    G.screen="menu"; render();
+    const res=await resumeSessionSilently();
+    if(!res.ok&&res.reason==="expired"){
+      // El servidor dijo explícitamente que la sesión ya no vale — recién acá
+      // corresponde pedir login de nuevo (nunca en silencio, para no
+      // sorprender a alguien que ya estaba mirando el menú/perfil).
+      G.authIntent="menu";
+      withLogoFlip(()=>{ G.screen="auth"; G.authMode="login"; G.authStep="login"; render(); });
+    } else {
+      render();
+    }
+    return;
+  }
+  // Sin sesión guardada (primera conexión de este dispositivo/navegador, o
+  // logout explícito): como antes, conectar y mostrar el login.
   G.authIntent="menu";
   withLogoFlip(()=>{ G.screen="auth"; G.authStep="connecting"; G._connectStatus=null; render(); });
   const ok=await connectWithRetry(defaultHost(),{onStatus:(t)=>{ G._connectStatus=t; render(); }});
   if(ok){
     G.serverConnected=true;
-    // Si quedó una partida activa reciente (refresh, wifi cortado un instante)
-    // y tenemos usuario+contraseña guardados de una sesión anterior, probamos
-    // volver a entrar solos antes de mostrar el login manual — si cualquier
-    // paso falla, cae al login de siempre sin ningún efecto secundario.
-    const savedUser=localStorage.getItem("burako_lan_name");
-    const savedPass=localStorage.getItem("burako_lan_pass");
-    const activeRoom=readActiveRoom();
-    if(savedUser&&savedPass&&activeRoom){
-      G.authStep="reconnecting"; render();
-      const okReconnect=await tryAutoReconnect(savedUser,savedPass,activeRoom);
-      if(okReconnect) return;
-    }
     G.authStep="login"; G.authMode="login";
     render();
   } else {
@@ -6016,7 +6096,7 @@ function submitAuth(action){
   const finish=(msg)=>{
     delete G._authCb;
     if(msg.type==="authOk"){
-      G.online=true;
+      G.online=true; G.auth.status="authenticated";
       syncProfileFromServer(msg.profile);
       if(msg.welcomeBonus) G.pendingWelcomeBonus=msg.welcomeBonus;
       if(msg.alert) G.pendingSanctionAlert=msg.alert;
@@ -6025,7 +6105,8 @@ function submitAuth(action){
       // nuevo, este dispositivo queda marcado como conocido — no vuelve a pedir
       // registro la próxima vez (mismo flag que marca finishOnboarding()).
       if(G._onboardingLoginShortcut){ Store.set("burako_onboarded_v2",true); G._onboardingLoginShortcut=false; }
-      localStorage.setItem("burako_lan_pass",pass);
+      if(msg.session&&msg.session.refreshToken) saveSessionToken(msg.session.refreshToken);
+      migrateAwayFromStoredPassword();
       Sound.init();
       try{ NET.ws.send(JSON.stringify({type:"catalog"})); }catch(e){}
       if(G.authIntent==="joinRoom"){ G.screen="netConnect"; G.netStep="joinRoom"; }
@@ -6051,25 +6132,58 @@ function submitAuth(action){
   G._authCb=finish;
   NET.ws.send(JSON.stringify({type:action, username:user, password:pass}));
 }
-function logout(){
-  if(G.online){
-    try{ if(NET.ws) NET.ws.close(); }catch(e){}
-    NET.ws=null;
-    localStorage.removeItem("burako_lan_pass");
-    clearActiveRoom();
+async function logout(){
+  // Logout explícito: el único momento en que la identidad realmente
+  // desaparece (a diferencia de volver al menú, terminar una partida, o
+  // que se caiga la conexión — esos NUNCA deben tocar la sesión guardada).
+  if(G.online&&NET.ws&&NET.ws.readyState===1){
+    const token=getSessionToken();
+    await new Promise((resolve)=>{
+      let done=false; const finish=()=>{ if(done) return; done=true; delete G._logoutCb; resolve(); };
+      setTimeout(finish,2000); // best-effort: si no contesta, cerramos igual
+      G._logoutCb=finish;
+      try{ NET.ws.send(JSON.stringify({type:"logout", refreshToken:token})); }
+      catch(e){ finish(); }
+    });
   }
+  try{ if(NET.ws) NET.ws.close(); }catch(e){}
+  NET.ws=null;
+  localStorage.removeItem("burako_lan_pass");
+  clearSessionToken();
+  clearActiveRoom();
   G.online=false; G.serverConnected=false; G.serverProfile=null;
+  G.auth.status="unauthenticated"; G.net.status="offline";
   G._authNotice=null; G._authPrefillUser=undefined;
   G.screen="intro"; render();
 }
 
-function goOnlineConnect(){
+async function goOnlineConnect(){
   if(G.serverConnected && NET.ws && NET.ws.readyState===1){
     // Ya estamos conectados al server, solo mostrar selector de sala
     G.screen="netConnect"; G.netStep="joinRoom"; render();
-  } else {
-    G.screen="netConnect"; G.netStep="connect"; render();
+    return;
   }
+  const token=getSessionToken();
+  if(token){
+    // El socket se cayó en segundo plano (común en redes móviles) — antes esto
+    // mostraba directo la pantalla de "IP del servidor" (pensada para LAN) sin
+    // ni probar reconectar solo primero.
+    G.screen="netConnect"; G.netStep="connecting"; render();
+    const res=await resumeSessionSilently();
+    if(res.ok){
+      G.screen="netConnect"; G.netStep="joinRoom"; render();
+      return;
+    }
+  }
+  if(isNativeApp()){
+    // En la app no existe un concepto de "IP de LAN propia" — si no hay
+    // sesión guardada (o el resume falló de verdad), va directo al login en
+    // vez de un campo de IP que nunca tendría sentido ahí.
+    G.authIntent="joinRoom";
+    withLogoFlip(()=>{ G.screen="auth"; G.authStep="login"; G.authMode="login"; render(); });
+    return;
+  }
+  G.screen="netConnect"; G.netStep="connect"; render();
 }
 function renderNetConnect(app){
   const lastHost=localStorage.getItem("burako_lan_host")||defaultHost();
@@ -6545,10 +6659,10 @@ function submitOnboardRegister(){
     clearTimeout(bailTimer);
     delete G._authCb;
     if(msg.type==="authOk"){
-      G.online=true;
+      G.online=true; G.auth.status="authenticated";
       syncProfileFromServer(msg.profile);
       if(msg.welcomeBonus) G.pendingWelcomeBonus=msg.welcomeBonus;
-      localStorage.setItem("burako_lan_pass",pass);
+      if(msg.session&&msg.session.refreshToken) saveSessionToken(msg.session.refreshToken);
       try{ NET.ws.send(JSON.stringify({type:"catalog"})); }catch(e){}
       G.onboardStep="tutorial"; render();
     } else if(/ya está registrado|ya existe/i.test(msg.msg||"")){
@@ -6658,19 +6772,22 @@ document.addEventListener("visibilitychange",()=>{
   }
 });
 // Reconexión "suave" al volver a la app fuera de una partida: reconecta el
-// WebSocket y re-loguea con las credenciales guardadas para recuperar el
+// WebSocket y restaura la sesión con el token guardado para recuperar el
 // perfil, sin sacar al usuario de donde estaba. Silencioso salvo que falle.
 async function resumeReconnect(){
   if(G._resumeReconnecting) return;
   G._resumeReconnecting=true;
-  const savedUser=localStorage.getItem("burako_lan_name");
-  const savedPass=localStorage.getItem("burako_lan_pass");
-  const ok=await connectWithRetry(defaultHost(),{attempts:3, delays:[0,2000,5000], attemptTimeout:8000});
-  if(ok && savedUser && savedPass){
-    G._authCb=(msg)=>{ delete G._authCb; if(msg.type==="authOk"){ G.online=true; G.serverConnected=true; syncProfileFromServer(msg.profile); render(); } };
-    try{ NET.ws.send(JSON.stringify({type:"login", username:savedUser, password:savedPass})); }catch(e){}
-  } else if(ok){
-    G.serverConnected=true;
+  const res=await resumeSessionSilently({connectOpts:{attempts:3, delays:[0,2000,5000], attemptTimeout:8000}});
+  if(res.ok){
+    render();
+  } else if(res.reason==="expired"){
+    // El servidor confirmó que la sesión ya no vale — este es justo el caso
+    // en que sí corresponde volver a pedir login (nunca por las dudas, solo
+    // cuando el servidor lo dice explícitamente).
+    G.authIntent="menu";
+    withLogoFlip(()=>{ G.screen="auth"; G.authMode="login"; G.authStep="login"; render(); });
+  } else {
+    G.serverConnected=(NET.ws&&NET.ws.readyState===1);
   }
   G._resumeReconnecting=false;
 }
