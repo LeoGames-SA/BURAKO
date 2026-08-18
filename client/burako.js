@@ -4728,12 +4728,26 @@ function mateCardHTML(){
   </div>`;
 }
 
-function meldHTML(m, canOpen){
-  const info=meldInfo(m.tiles);
+// Memoización por meld: renderPlaying() reconstruye TODA la mesa en cada
+// render() (incluido cada "state" broadcast por la jugada de CUALQUIER
+// jugador de la sala — no solo la propia), y la gran mayoría de los melds no
+// cambiaron desde el render anterior. Cachear por meld.id evita rehacer
+// meldInfo()/sortMeldTiles()/tileHTML() para juegos sin cambios; la clave
+// incluye todo lo que meldHTML lee además de m (canOpen, candados, animación
+// "fresh", y el orden de jugadores porque ownerClass depende de la posición
+// del dueño en la mesa).
+const _meldHtmlCache=new Map();
+function meldHTML(m, canOpen, playersFingerprint){
   const hasJoker=m.tiles.some(t=>t.joker);
+  const isFresh=G.freshMelds.has(m.id);
+  const freshKind=isFresh?(G.freshMeldKind&&G.freshMeldKind[m.id]):"";
+  const key=[m.id,canOpen,(hasJoker&&canOpen)?G.jokerBreaksLeft:"",isFresh,freshKind,m.fx||"",m.order,m.ownerId,m.ownerName||"",playersFingerprint||"",m.tiles.map(t=>t.id+(t.joker?"J":"")).join(",")].join("|");
+  const cached=_meldHtmlCache.get(m.id);
+  if(cached&&cached.key===key) return cached.html;
+  const info=meldInfo(m.tiles);
   const shown=sortMeldTiles(m.tiles);
-  const freshCls=G.freshMelds.has(m.id)?((G.freshMeldKind&&G.freshMeldKind[m.id]==="attach")?"a-snap":"a-slam")+" fx-"+(m.fx||"clasico"):"";
-  return `<div class="meld ${ownerClass(m.ownerId)} ${info.valid?"":"bad"} ${freshCls}" data-mid="${m.id}">
+  const freshCls=isFresh?(freshKind==="attach"?"a-snap":"a-slam")+" fx-"+(m.fx||"clasico"):"";
+  const html=`<div class="meld ${ownerClass(m.ownerId)} ${info.valid?"":"bad"} ${freshCls}" data-mid="${m.id}">
     ${m.order!=null?`<div class="badge">#${m.order}</div>`:""}
     <div class="tiles">${shown.map(t=>tileHTML(t)).join("")}</div>
     <div class="info">
@@ -4741,6 +4755,8 @@ function meldHTML(m, canOpen){
       ${canOpen?(hasJoker?(G.jokerBreaksLeft>0?`<button class="openbtn" title="🔒 Candados: ${3-G.jokerBreaksLeft}/3 usados" onclick="openMeld('${m.id}')">🔓${G.jokerBreaksLeft}</button>`:`<button class="openbtn" title="🔒 Sin candados disponibles: no podés modificar este juego con comodín." onclick="setMsg('🔒 Sin candados disponibles: no podés modificar este juego con comodín.');render()">🔒</button>`):`<button class="openbtn" onclick="openMeld('${m.id}')">abrir</button>`):""}
     </div>
   </div>`;
+  _meldHtmlCache.set(m.id,{key,html});
+  return html;
 }
 
 function timerHTML(myTurn){
@@ -4809,6 +4825,13 @@ function renderPlaying(app){
   const sortedTable=G.table.slice().sort((a,b)=>(a.order||0)-(b.order||0));
   const hasWork=G.workLoose.length||G.workGroups.length;
   const actionsBusy=G.online&&!!G._pendingAction;
+  const playersFingerprint=G.players.map(p=>p.id).join(",");
+  // Poda la caché de meldHTML: melds que ya no están en la mesa (bajados de una
+  // mano anulada, fin de ronda, etc.) no deben acumularse en memoria por sesión.
+  if(_meldHtmlCache.size){
+    const liveIds=new Set(G.table.map(m=>m.id));
+    for(const id of _meldHtmlCache.keys()) if(!liveIds.has(id)) _meldHtmlCache.delete(id);
+  }
 
   const _playingHtml=`
   ${G.turnBanner?`<div class="turnbanner">✨ TU TURNO</div>`:""}
@@ -4871,7 +4894,7 @@ function renderPlaying(app){
       </div>
       <div class="mesa tableview-mesa" data-preserve-scroll="tableview-mesa">
         <div class="mesa-inner">
-          ${sortedTable.length?sortedTable.map(m=>meldHTML(m,myTurn&&h&&h.hasLaidInitial)).join(""):`<span class="mesa-empty">Todavía no hay juegos en la mesa.</span>`}
+          ${sortedTable.length?sortedTable.map(m=>meldHTML(m,myTurn&&h&&h.hasLaidInitial,playersFingerprint)).join(""):`<span class="mesa-empty">Todavía no hay juegos en la mesa.</span>`}
         </div>
       </div>
     </div>
@@ -4906,7 +4929,7 @@ function renderPlaying(app){
         <div class="mesa" data-preserve-scroll="mesa">
           <div class="mesa-label">${G.gameMode==="galactico"?"🌌 Mesa":"Mesa"}</div>
           <div class="mesa-inner">
-            ${sortedTable.length?sortedTable.map(m=>meldHTML(m,myTurn&&h&&h.hasLaidInitial)).join(""):`<span class="mesa-empty">Arrastrá un juego acá para bajarlo.<br><small>El primero necesita 30+ puntos.</small></span>`}
+            ${sortedTable.length?sortedTable.map(m=>meldHTML(m,myTurn&&h&&h.hasLaidInitial,playersFingerprint)).join(""):`<span class="mesa-empty">Arrastrá un juego acá para bajarlo.<br><small>El primero necesita 30+ puntos.</small></span>`}
           </div>
         </div>
         ${sortedTable.length?`<button class="tableview-btn" onclick="openTableView()" title="Ver mesa ampliada">⛶</button>`:""}
@@ -6681,6 +6704,7 @@ function leaveRoomToMenu(){
   // cerrar la conexión entera — seguís conectado y logueado, listo para volver a entrar
   // a Multijugador al toque, en vez de tener que reconectar/loguearte de nuevo a mano.
   if(NET.ws && NET.ws.readyState===1) netSend({type:"leaveRoom"});
+  clearInterval(G.timerHandle); clearInterval(G.matchTimerHandle); clearInterval(G._teamChatCooldownTick);
   G.players=[]; NET.roomCode=null; clearActiveRoom();
   G.screen="menu"; render();
 }

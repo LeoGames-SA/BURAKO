@@ -134,6 +134,11 @@ button{font-family:inherit;border:none;cursor:pointer}
 #bgdecor{position:fixed;inset:0;z-index:0;overflow:hidden;pointer-events:none}
 #bgdecor .tile{position:absolute;opacity:.09;animation:floatTile linear infinite}
 body.ingame #bgdecor .tile{opacity:.07}
+/* Durante la partida (ingame: playing/dealing/sorteo/gameover) esta animación
+   corre sin aportar nada — la atención está en la mesa. Se pausa (no se
+   oculta: sigue ahí, quieta) para no cargar el compositor durante toda la
+   duración de la partida; se ve idéntica en un vistazo, solo deja de moverse. */
+body.ingame #bgdecor .tile{animation-play-state:paused}
 
 /* ============================================================
    MODO GALÁCTICO — ambientación cósmica de TODA la app (no solo la mesa),
@@ -186,6 +191,11 @@ body.galactico-mode #galacticoBg{opacity:1}
 }
 @keyframes gbgDrift{0%{transform:translate(0,0) scale(1)}100%{transform:translate(2%,-2%) scale(1.06)}}
 @media(prefers-reduced-motion:reduce){.gbg-star,.gbg-shoot,#galacticoBg .gbg-nebula{animation:none}}
+/* Mismo criterio que #bgdecor arriba: el brillo/estrellas siguen presentes
+   (Design DNA, ver comentario de más arriba) pero dejan de animar mientras
+   estás jugando — nadie mira el fondo con la mesa cargada, y es la nebulosa
+   con filter:blur() la animación más cara de toda la app. */
+body.ingame .gbg-star,body.ingame .gbg-shoot,body.ingame #galacticoBg .gbg-nebula{animation-play-state:paused}
 
 /* Reteñir todo lo que usa las variables de panel/fondo compartidas — así el look
    cósmico llega "gratis" a cada tarjeta, panel e input sin tener que reescribir
@@ -271,10 +281,13 @@ body.galactico-mode .ptitle{color:rgba(216,180,254,.85)}
 .tile:not(.back)::after{
   content:"";position:absolute;bottom:5px;left:50%;transform:translateX(-50%);
   width:10px;height:10px;border-radius:50%;
+  /* Antes 4 capas — la sombra de contacto (0 1px 2px) era redundante con la
+     que ya tira la propia ficha (bisel + glow ya dan el relieve de gema
+     engastada); se saca esa capa nomás — con miles de fichas repintándose en
+     partidas cargadas, cada capa de box-shadow de menos cuenta. */
   box-shadow:
     inset 0 1.5px 1.5px rgba(255,255,255,.8),
     inset 0 -1.5px 2px rgba(0,0,0,.3),
-    0 1px 2px rgba(0,0,0,.35),
     0 0 6px var(--gem-glow,transparent);
 }
 .tile.sel{
@@ -2093,6 +2106,19 @@ body.ingame{background:
 .sk-sanvalentin .tile.dotc-amarillo{color:#92400e !important}
 .sk-sanvalentin .tile.dotc-comodin{color:#581c87 !important}
 .sk-sanvalentin .tile:not(.back)::after{content:"💘";position:absolute;bottom:-1px;left:50%;transform:translateX(-50%);font-size:8px;background:transparent !important;width:auto;height:auto;animation:heartBeat 1.8s ease-in-out infinite}
+
+/* Mismo criterio que la línea 340 (fuego/neon/hielo) — las otras 8 skins con
+   animación infinita por ficha no estaban cubiertas por prefers-reduced-motion. */
+@media(prefers-reduced-motion:reduce){
+  .sk-oceano .tile:not(.back),
+  .sk-plata .tile:not(.back),
+  .sk-arcoiris .tile:not(.back),
+  .sk-holograma .tile:not(.back),
+  .sk-cristal .tile:not(.back),
+  .sk-steampunk .tile:not(.back)::after,
+  .sk-halloween .tile:not(.back)::after,
+  .sk-sanvalentin .tile:not(.back)::after{animation:none}
+}
 
 /* ============ SCROLLBAR DORADA GLOBAL ============ */
 *::-webkit-scrollbar{width:8px;height:8px}
