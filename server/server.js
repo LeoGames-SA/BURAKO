@@ -546,7 +546,7 @@ function resetTurnTimer(room) {
         room.teamLives[team] = Math.max(0, (room.teamLives[team] ?? MAX_LIVES) - 1);
         const teammates = room.players.filter(p => p.team === team);
         if (room.teamLives[team] <= 0) {
-          teammates.forEach(p => { p.eliminated = true; });
+          teammates.forEach(p => { p.eliminated = true; p.surrenderedAt = Date.now(); });
           const teamLabel = team === "blue" ? "🔵 Equipo Azul" : "🔴 Equipo Rojo";
           room.players.forEach(p => { if (p.ws) send(p.ws, { type: "toast", msg: teamLabel + " se quedó sin vidas y perdió la partida.", kind: "elim" }); });
           const winnerP = room.players.find(p => p.team !== team);
@@ -557,6 +557,7 @@ function resetTurnTimer(room) {
         room.lives[cur2.id] = Math.max(0, (room.lives[cur2.id] ?? MAX_LIVES) - 1);
         if (room.lives[cur2.id] <= 0) {
           cur2.eliminated = true;
+          cur2.surrenderedAt = Date.now();
           const remaining = room.players.filter(p => !p.eliminated);
           room.players.forEach(p => { if (p.ws) send(p.ws, { type: "toast", msg: cur2.name + " se quedó sin vidas y quedó eliminado.", kind: "elim" }); });
           if (remaining.length <= 1) {
@@ -590,6 +591,7 @@ async function forfeitPlayer(room, player, opts) {
   if (player.surrendered || player.eliminated) return; // ya estaba afuera
   player.surrendered = true;
   player.eliminated = true;
+  player.surrenderedAt = Date.now(); // desempate cuando se rinden 2+ (ver finishMatch)
 
   const tilesInHand = room.hands[player.id] || [];
   room.bag.push(...tilesInHand);
@@ -695,7 +697,18 @@ function advanceTurn(room, msg, kind) {
 }
 
 async function endGameByPoints(room) {
-  const ranking = room.players
+  // BUG real encontrado: acá se rankeaba por puntos a TODOS room.players sin
+  // excluir a quien ya se rindió — forfeitPlayer le vacía la mano al pozo
+  // (room.hands[id]=[]), así que su "puntaje" quedaba en 0, el mínimo posible,
+  // y terminaba eligiéndolo ganador por tiempo/pozo agotado con 2+ jugadores
+  // todavía activos en la mesa. Rendirse NUNCA puede ganar esta partida — el
+  // candidato a ganador por puntos sale SOLO de quienes siguieron activos.
+  const active = room.players.filter((p) => !p.surrendered && !p.eliminated);
+  // Salvaguarda: si por algún motivo no quedara nadie activo (forfeitPlayer ya
+  // debería haber terminado la partida antes de llegar a este estado), no
+  // romper — resolver igual entre todos para no dejar la sala colgada.
+  const pool = active.length ? active : room.players;
+  const ranking = pool
     .map((p) => ({ id: p.id, name: p.name, points: C.handPoints(room.hands[p.id] || []) }))
     .sort((a, b) => a.points - b.points);
   room.players.forEach((p) => {
@@ -720,12 +733,20 @@ async function finishMatch(room, winnerId, opts) {
   const others = room.players
     .filter(p => p.id !== winnerId)
     .sort((a, b) => {
-      // Quien se rindió (o se desconectó) queda último aunque le hayan vaciado
-      // la mano al pozo — si no, una mano vacía por rendirse ordenaba MEJOR
-      // que una mano real con fichas, "premiando" con buen puesto (y buen
-      // pago en modo Monedas) a alguien que abandonó la partida.
-      const aOut = !!a.surrendered, bOut = !!b.surrendered;
+      // Quien se rindió, se desconectó O quedó eliminado por vidas queda
+      // último, sin importar cuántos puntos le quedaran en la mano (rendirse
+      // vacía la mano al pozo — "premiaba" con buen puesto a quien abandonó;
+      // quedarse eliminado por vidas NO vacía la mano, así que sin este mismo
+      // criterio alguien eliminado con pocas fichas podía rankear MEJOR que
+      // un jugador que siguió activo hasta el final con más fichas en mano.
+      // Nunca por encima de quien siguió jugando de verdad, sea cual sea el
+      // motivo por el que quedó afuera.
+      const aOut = !!(a.surrendered || a.eliminated), bOut = !!(b.surrendered || b.eliminated);
       if (aOut !== bOut) return aOut ? 1 : -1;
+      // Ambos afuera (2+ rendiciones/eliminaciones): desempate por orden real
+      // de salida, no por la posición que tenían en room.players — quien
+      // quedó afuera DESPUÉS rankea mejor que quien lo hizo antes.
+      if (aOut && bOut) return (b.surrenderedAt || 0) - (a.surrenderedAt || 0);
       return C.handPoints(room.hands[a.id]||[]) - C.handPoints(room.hands[b.id]||[]);
     });
   // 2v2: el compañero del ganador nunca puede quedar ordenado peor que un rival del
@@ -751,7 +772,7 @@ async function finishMatch(room, winnerId, opts) {
       // quedado ordenado — en partidas de 2-3 jugadores "el último" nunca llega al
       // índice 3 (el que pierde en la fórmula normal), así que sin este caso especial
       // alguien podía rendirse y recuperar igual toda su apuesta.
-      const mult = p.surrendered ? 0 : (i === 0 ? 3 : i === 1 ? 1.5 : i === 2 ? 1 : 0);
+      const mult = (p.surrendered || p.eliminated) ? 0 : (i === 0 ? 3 : i === 1 ? 1.5 : i === 2 ? 1 : 0);
       const payout = Math.round(p.bet * mult);
       if (payout > 0) {
         try { await DB.creditCoins(p.username, payout); }
@@ -770,7 +791,13 @@ async function finishMatch(room, winnerId, opts) {
     .map((p, i) => ({
       username: p.username || null,
       place: i + 1, // índice real en `ordered` — se calcula ANTES de filtrar, para no correr los puestos
-      surrendered: (opts.surrendererId && p.id === opts.surrendererId) ? true : false,
+      // Antes esto solo miraba opts.surrendererId/opts.eliminatedId — el jugador
+      // específico cuya salida disparó ESTA llamada a finishMatch. Si la partida
+      // terminaba por otro camino (ej. alguien más ganó legítimamente mientras
+      // este ya estaba afuera de antes), su propio abandono no quedaba reflejado
+      // acá. Se deriva directo del estado real del jugador, no de cuál corrida
+      // de finishMatch resultó ser la que cerró la partida.
+      surrendered: !!(p.surrendered || p.eliminated),
       jokerBreaksUsed: 3 - (room.jokerBreaks[p.id] || 0),
       opponentsTilesLeft: (i === 0)
         ? ordered.slice(1).reduce((s, o) => s + (room.hands[o.id]||[]).length, 0)
@@ -789,7 +816,11 @@ async function finishMatch(room, winnerId, opts) {
       // partida podía consultar una tabla RANK_DELTAS[n] distinta según por cuál
       // camino se resolviera cada jugador.
       playersCount: room.players.filter(p => p.username).length,
-      surrendered: !!opts.surrendererId,
+      // Antes esto era !!opts.surrendererId (el mismo problema que el comentario
+      // de arriba en `results`: solo reflejaba el disparador puntual de ESTA
+      // corrida). Se deriva de `results` ya resuelto, que ahora sí refleja el
+      // estado real de cada jugador sin importar qué camino cerró la partida.
+      surrendered: results.some(r => r.surrendered),
       gameMode: room.gameMode,
     });
   } catch (e) {

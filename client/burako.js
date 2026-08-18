@@ -2,7 +2,7 @@
    BURAKO — app completa: menú, tutorial, sonidos, IA con delay
    ================================================================ */
 
-const GAME_VERSION = "1.1.1";
+const GAME_VERSION = "1.1.2";
 const MAX_PLAYERS_ONLINE = 8; // el server acepta hasta 8 en sala (mazo doble si se supera 4)
 const QUICK_CHAT_COOLDOWN_MS = 15000;
 const QUICK_CHAT_OPTIONS = [
@@ -18,6 +18,9 @@ const TEAM_CHAT_OPTIONS = [
   {send:"👍 Dale", show:"👍"}, {send:"🚫 No tengo", show:"🚫"}, {send:"⏳ Esperá", show:"⏳"},
 ];
 const CHANGELOG = [
+  {version:"1.1.2", date:"18/08/2026", items:[
+    "🏳 Arreglado: si alguien se rendía y la partida terminaba después por tiempo o pozo agotado, podía llegar a figurar como ganador (por quedar con el atril vacío). Ahora rendirse siempre es derrota, sin importar cómo termine la partida después.",
+  ]},
   {version:"1.1.1", date:"18/08/2026", items:[
     "🌡 Optimizaciones de rendimiento: menos consumo/calentamiento en partidas largas con la mesa cargada de juegos — menos trabajo repetido al procesar cada jugada, animaciones de fondo en pausa mientras jugás (no se ven, pero seguían consumiendo).",
   ]},

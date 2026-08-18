@@ -2,6 +2,38 @@
 
 Todos los cambios notables del proyecto se documentan en este archivo.
 
+## [1.1.2] - 2026-08-18 — Fase 0.5.1: bug de resolución final de partida
+
+Bug real reportado tras probar en producción: en una partida de 3, alguien se
+rendía (quedando marcado surrendered/eliminated, con el atril vacío por
+forfeitPlayer) y la partida seguía para el resto — pero si esa partida
+terminaba DESPUÉS por tiempo o pozo agotado (`endGameByPoints`), el rendido
+podía terminar elegido "ganador por puntos" porque una mano vacía por
+rendirse parecía el mejor puntaje. `hand.length===0` se estaba mezclando con
+"ganó legítimamente", exactamente lo que no debía pasar.
+
+Causa raíz: `endGameByPoints()` rankeaba por puntos a TODOS los jugadores de
+la sala sin excluir a quien ya se había rendido. Fix: el candidato a ganador
+por puntos sale SOLO de los jugadores activos (ni rendidos ni eliminados por
+vidas). Además:
+- `finishMatch()`: el orden final ahora también empuja al final a los
+  eliminados por vidas (antes solo a los rendidos explícitos) — quedarse sin
+  vidas tampoco vacía la mano, así que sin este ajuste alguien eliminado con
+  pocas fichas podía rankear mejor que un jugador que siguió activo.
+- Desempate entre 2+ rendidos/eliminados: por orden real de salida (quien
+  quedó afuera después rankea mejor), no por la posición arbitraria que
+  tenían en la lista de jugadores de la sala — mismo tipo de bug que ya se
+  había encontrado y corregido en Ranked/MMR en la etapa anterior.
+- El campo `surrendered` que llega a `resolveMatch`/reparto de apuestas
+  (Modo Monedas) ahora se deriva del estado real de cada jugador, no de cuál
+  camino específico terminó cerrando la partida esta vez.
+
+6 casos de test nuevos contra un servidor real (rendición con pozo agotado,
+victoria legítima vaciando la mano, rendición con desempate por puntos entre
+los activos, doble rendición, Ranked con penalización de último lugar, y la
+regla explícita de que rendirse en Ranked es SIEMPRE derrota aunque en ese
+momento tuvieras menos puntos en mano que los demás).
+
 ## [1.1.1] - 2026-08-18 — Fase 0.5: rendimiento y consumo
 
 Perfilado (auditoría estática + medición en vivo con Playwright/CDP) confirmó la
