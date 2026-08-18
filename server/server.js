@@ -80,6 +80,34 @@ wss.on("close", () => clearInterval(heartbeatTimer));
  * } */
 const rooms = new Map();
 
+/* ---------- Limpieza periódica de salas fantasma/abandonadas ----------
+   Antes, una sala solo se borraba si TODOS sus jugadores estaban
+   "!connected" — pero los bots se crean con connected:true para siempre
+   (nunca disparan ws.on("close")), así que cualquier sala con al menos un
+   bot vivía en memoria para siempre, incluso mucho después de que se fueran
+   todos los humanos o de que la partida terminara. Este sweep corre cada
+   minuto e ignora bots: si una sala lleva más de ROOM_CLEANUP_MS sin NINGÚN
+   humano conectado, se borra. Si vuelve a conectarse un humano antes de
+   ese plazo, el contador se reinicia solo (se limpia roomNoHumansSince). */
+// Overridables por env var SOLO para que los tests no tengan que esperar 3
+// minutos reales — en producción (sin la env var puesta) quedan en 1min/3min.
+const ROOM_SWEEP_INTERVAL_MS = Number(process.env.ROOM_SWEEP_INTERVAL_MS) || 60 * 1000;
+const ROOM_CLEANUP_MS = Number(process.env.ROOM_CLEANUP_MS) || 3 * 60 * 1000;
+const roomSweepTimer = setInterval(() => {
+  const now = Date.now();
+  for (const [code, room] of rooms) {
+    const hasHuman = room.players.some((p) => !p.isAI && p.connected);
+    if (hasHuman) { room.noHumansSince = null; continue; }
+    if (!room.noHumansSince) { room.noHumansSince = now; continue; }
+    if (now - room.noHumansSince >= ROOM_CLEANUP_MS) {
+      clearInterval(room.turnTimer);
+      clearTimeout(room.matchTimer);
+      rooms.delete(code);
+    }
+  }
+}, ROOM_SWEEP_INTERVAL_MS);
+wss.on("close", () => clearInterval(roomSweepTimer));
+
 function makeRoomCode() {
   let c;
   do { c = Math.random().toString(36).slice(2, 6).toUpperCase(); } while (rooms.has(c));
@@ -767,6 +795,17 @@ async function finishMatch(room, winnerId, opts) {
   // enviar matchResult a cada humano con SU update completo — a quien ya se
   // resolvió y notificó individualmente al rendirse (_statsResolved) no se le
   // vuelve a mandar acá, ya recibió el suyo desde forfeitPlayer.
+  // Fichas restantes de TODOS al terminar — para mostrar en resultados el
+  // desglose real (valor de cada ficha, no solo la cantidad). El ganador
+  // normalmente queda con el atril vacío; en fin por puntos (pozo agotado
+  // o tiempo) puede ganar con fichas de todos modos.
+  const finalHands = ordered.map((p) => ({
+    playerId: p.id,
+    name: p.name,
+    tiles: room.hands[p.id] || [],
+    points: C.handPoints(room.hands[p.id] || []),
+  }));
+
   ordered.forEach((p, i) => {
     if (!p.ws || p._statsResolved) return;
     const upd = updates.find(u => u.username === p.username);
@@ -781,6 +820,7 @@ async function finishMatch(room, winnerId, opts) {
       // Si tenían perfil (username), acá va el detalle de XP/monedas/logros
       update: upd || null,
       betResult: betResults ? (betResults[p.id] || null) : null,
+      finalHands,
     });
   });
 
@@ -987,11 +1027,9 @@ function handleAttach(room, player, meldId, tileIds) {
   if (room.gameMode === "team2v2") returnTeamWorkToHands(room, player.team);
   const meld = room.table.find((m) => m.id === meldId);
   if (!meld) return "Ese juego ya no está en la mesa.";
-  if (meld.tiles.some((t) => t.joker)) {
-    if (!room.jokerBreaks || (room.jokerBreaks[player.id] || 0) <= 0)
-      return "Ese juego tiene comodín (sin rupturas disponibles).";
-    room.jokerBreaks[player.id]--;
-        reportLiveAchievements(room, player, { jokerBreakUsedNow: true });
+  const meldHasJoker = meld.tiles.some((t) => t.joker);
+  if (meldHasJoker && (!room.jokerBreaks || (room.jokerBreaks[player.id] || 0) <= 0)) {
+    return "Ese juego tiene comodín (sin rupturas disponibles).";
   }
   const hand = room.hands[player.id];
   const tiles = hand.filter((t) => tileIds.includes(t.id));
@@ -999,6 +1037,13 @@ function handleAttach(room, player, meldId, tileIds) {
   const combined = meld.tiles.concat(tiles);
   const info = C.meldInfo(combined);
   if (!info.valid) return "Esas fichas no encajan ahí.";
+  // El candado se descuenta acá, recién con la jugada ya confirmada válida — antes
+  // se descontaba ANTES de este chequeo y se perdía igual si la combinación
+  // resultaba inválida.
+  if (meldHasJoker) {
+    room.jokerBreaks[player.id]--;
+    reportLiveAchievements(room, player, { jokerBreakUsedNow: true });
+  }
 
   const idSet = new Set(tileIds);
   room.hands[player.id] = hand.filter((t) => !idSet.has(t.id));
@@ -1431,12 +1476,25 @@ function useAtraccion(room, player, msg) {
     if (!destMeld) return { ok: false, err: "Esa combinación de destino ya no existe." };
     if (destMeld.ownerId !== player.id) return { ok: false, err: "Elegí una combinación TUYA como destino." };
     if (destMeld.id === srcMeld.id) return { ok: false, err: "El origen y el destino no pueden ser la misma combinación." };
+    // Insertar una ficha en una combinación propia que YA tiene comodín consume un
+    // candado, igual que handleAttach — antes esta rama de Atracción era una vía
+    // gratis para esquivar esa regla.
+    const destHasJoker = destMeld.tiles.some((t) => t.joker);
+    if (destHasJoker && (!room.jokerBreaks || (room.jokerBreaks[player.id] || 0) <= 0)) {
+      return { ok: false, err: "Esa combinación tiene comodín (sin rupturas disponibles)." };
+    }
     const extended = [...destMeld.tiles, srcTile];
     const info = C.meldInfo(extended);
     if (!info.valid) return { ok: false, err: "Esa ficha no se puede colocar de forma legal en esa combinación." };
     const res = removeTileFromMeld(room, msg.sourceMeldId, msg.sourceTileId);
     if (!res) return { ok: false, err: "Esa combinación o ficha ya no existe." };
     destMeld.tiles = C.sortMeldTiles(extended);
+    // El candado se descuenta recién acá, con la jugada ya confirmada válida — no
+    // se pierde si algo de arriba hubiera rechazado la combinación.
+    if (destHasJoker) {
+      room.jokerBreaks[player.id]--;
+      reportLiveAchievements(room, player, { jokerBreakUsedNow: true });
+    }
     return { ok: true, msg: `🧲 ${player.name} usó Atracción sobre una ficha de ${res.ownerName}.${res.broke ? " La combinación de origen se rompió y el resto volvió a su mano." : ""}` };
   }
 
@@ -1452,6 +1510,7 @@ function useAtraccion(room, player, msg) {
     const combined = [...handTiles, srcTile];
     const info = C.meldInfo(combined);
     if (!info.valid) return { ok: false, err: "Esas fichas más la atraída no forman una combinación válida." };
+    if (!teamOpened(room, player) && info.value < 30) return { ok: false, err: `Ese juego suma ${info.value}: para salir necesitás 30 o más.` };
     const res = removeTileFromMeld(room, msg.sourceMeldId, msg.sourceTileId);
     if (!res) return { ok: false, err: "Esa combinación o ficha ya no existe." };
     const idSet = new Set(msg.handTileIds);
@@ -1711,7 +1770,16 @@ wss.on("connection", (ws) => {
     if (msg.type === "setTapete") {
       if (!room || room.started) return;
       if (room.players[0].id !== player.id) return send(ws, { type: "error", msg: "Solo el admin puede cambiar la mesa." });
-      room.tapete = msg.tapete || "clasico";
+      const tapete = msg.tapete || "clasico";
+      // El cliente ya filtra el selector por lo que el admin compró, pero la
+      // autoridad real es el servidor: sin esto, cualquiera podía mandar
+      // cualquier id de tapete a mano y usarlo sin haberlo desbloqueado.
+      if (tapete !== "clasico") {
+        const profile = player.username ? await DB.getProfileByName(player.username) : null;
+        const owned = (profile && profile.inventory && profile.inventory.tapetes) || [];
+        if (!owned.includes(tapete)) return send(ws, { type: "error", msg: "No tenés ese tapete." });
+      }
+      room.tapete = tapete;
       broadcast(room);
       return;
     }
@@ -2070,13 +2138,10 @@ wss.on("connection", (ws) => {
       }, GRACE_MS);
     }
     broadcast(room);
-    // si la sala queda vacía de gente conectada, la limpiamos tras un rato
-    setTimeout(() => {
-      if (room.players.every((p) => !p.connected)) {
-        clearInterval(room.turnTimer);
-        rooms.delete(room.code);
-      }
-    }, 5 * 60 * 1000);
+    // La limpieza real de la sala (si queda sin humanos conectados) la hace el
+    // sweep periódico de abajo — cubre este caso y también el de una sala con
+    // bots (que nunca se desconectan solos) o abandonada en el lobby sin que
+    // nadie mande "leaveRoom" explícito.
   });
 });
 

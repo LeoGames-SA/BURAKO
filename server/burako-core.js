@@ -61,6 +61,11 @@
     const jokers = tiles.filter((t) => t.joker);
     const normals = tiles.filter((t) => !t.joker);
     if (normals.length === 0) return { valid: false };
+    // Cualquier juego necesita al menos 2 fichas reales — con 1 sola ficha real,
+    // "colorsSet.size===1" es trivialmente cierto y el resto de comodines podía
+    // colarse como grupo O como escalera armando cualquier secuencia con un único
+    // punto de referencia real (nunca fue una regla real de Burako).
+    if (normals.length < 2) return { valid: false };
 
     const numsSet = new Set(normals.map((t) => t.number));
     const colorsSet = new Set(normals.map((t) => t.color));

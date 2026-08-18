@@ -25,8 +25,12 @@
 <script>
 // La app empaquetada (Capacitor/Android) ya trae todos los archivos adentro — un service
 // worker ahí no suma nada y solo puede interferir con el esquema local de WebView.
-const isNativeApp = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
-if (!isNativeApp && "serviceWorker" in navigator) {
+// isNativeApp() ya es una función global de burako.js (cargado arriba) — redeclararla acá
+// como "const isNativeApp" chocaba con esa función (mismo nombre, mismo scope global de
+// script clásico) y tiraba un SyntaxError real en cualquier navegador, sin romper el juego
+// en sí (burako.js ya había terminado de correr) pero dejando el service worker sin
+// registrarse nunca, en silencio.
+if (!isNativeApp() && "serviceWorker" in navigator) {
   window.addEventListener("load", () => { navigator.serviceWorker.register("sw.js").catch(() => {}); });
 }
 </script>

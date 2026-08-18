@@ -1720,6 +1720,19 @@ function clearClaiming(){
   if(G._claiming&&Object.keys(G._claiming).length){ G._claiming={}; }
   if(G._claimingTimers){ Object.values(G._claimingTimers).forEach(t=>clearTimeout(t)); G._claimingTimers={}; }
 }
+/* Mismo patrón que markClaiming/clearClaiming, para las acciones de sala
+   (crear/unirse/listo/iniciar) — antes ninguna de las 4 mostraba nada entre
+   el click y la respuesta del servidor, así que en una conexión lenta el
+   botón parecía no hacer nada. Se limpia solo con la respuesta real
+   ("joined"/"state"/"error") o a los 9s por si se perdió. */
+function markLobbyPending(key){
+  G._lobbyPending=key;
+  clearTimeout(G._lobbyPendingTimer);
+  G._lobbyPendingTimer=setTimeout(()=>{ G._lobbyPending=null; render(); },9000);
+}
+function clearLobbyPending(){
+  if(G._lobbyPending){ G._lobbyPending=null; clearTimeout(G._lobbyPendingTimer); }
+}
 /* Mismo "Reclamar todo" que el pase normal (ver claimAllPass) — acá cada nivel
    SIEMPRE pasa por el servidor (claimGalacticoPass no tiene camino offline), así
    que el resumen que se muestra es una PREDICCIÓN a partir de la misma tabla
@@ -4245,19 +4258,31 @@ function renderHelp(app){
       <p><b>Grupo:</b> el mismo número en colores distintos (máx. 4, sin repetir color).</p>
       <div class="ex sk-clasica">${exGrp.map(t=>tileHTML(t)).join("")}</div>
       <h3>🚪 Salir con 30</h3>
-      <p>Tu primera bajada tiene que ser <b>un solo juego que sume 30 o más</b> (ej: 10-10-10). Hasta que salgas, no podés tocar la mesa. Después ya bajás lo que quieras, hasta un 1-2-3.</p>
+      <p>Tu primera bajada tiene que sumar <b>30 puntos o más entre todos los juegos que bajes ese turno</b> (podés hacerlo con uno solo, ej: 10-10-10, o con dos o tres juegos más chicos que entre todos lleguen a 30). Hasta que salgas, no podés tocar la mesa. Después ya bajás lo que quieras, hasta un 1-2-3.</p>
+      <div class="ex sk-clasica">${[{color:"rojo",number:10},{color:"azul",number:10},{color:"amarillo",number:10}].map(t=>tileHTML(t)).join("")}</div>
+      <p style="font-size:11px;color:rgba(232,238,247,.5);margin-top:-8px">10+10+10 = 30 → alcanza para salir con un solo juego.</p>
+      <h3>🛠 Preparación</h3>
+      <p>Es la zona de armado, aparte de tu atril: mandá fichas ahí (tocando o arrastrando) para probar combinaciones sin comprometerlas todavía. Podés armar varios juegos a la vez, deshacer y reacomodar las veces que quieras — recién se bajan de verdad cuando confirmás.</p>
       <h3>🔧 Reorganizar la mesa</h3>
       <p>Cuando ya saliste, podés "abrir" un juego de la mesa y rearmarlo con tus fichas (ej: partir 1-2-3-4-5 y con tu 3 armar 1-2-3 y 3-4-5). Eso sí: no puede quedar ningún juego inválido ni de menos de 3 fichas.</p>
-      <h3>★ Comodines</h3>
-      <p>Valen por cualquier ficha. Pero un juego de la mesa que tenga comodín queda bloqueado: no se puede mover.</p>
+      <h3>★ Comodines y 🔒 candados</h3>
+      <p>Los comodines (★) valen por cualquier ficha. Pero cada juego que tenga un comodín queda "con candado": modificarlo (abrirlo, reacomodarlo, o insertarle una ficha tuya) gasta 1 de tus <b>3 candados por partida</b>. Un juego SIN comodín se puede tocar siempre, sin límite.</p>
+      <p>Cuando se te acaban los 3, ya no podés modificar ningún juego con comodín por el resto de la partida — el botón te avisa por qué en vez de no hacer nada.</p>
       <h3>⏱ Tu turno (1 minuto)</h3>
       <p>1. Modo <b>✋ Ordenar</b>: acomodá tu atril tocando ficha y destino.<br>
       2. Modo <b>🎯 Jugar</b>: seleccioná fichas y mandalas a la zona de armado.<br>
       3. <b>Formá juegos</b> y confirmá, o <b>tomá una ficha</b> del pozo y pasá.<br>
-      4. Botón <b>💡 Jugadas</b>: te marca qué juegos tenés armables.</p>
+      4. Botón <b>💡 Jugadas</b>: te marca qué juegos tenés armables.<br>
+      5. Si se te vence el minuto, pasás el turno sin comer fichas <b>y perdés una vida</b>.</p>
+      <h3>🏳 Rendirse</h3>
+      <p>Desde el menú de pausa podés rendirte y salir de la partida en cualquier momento — cuenta como derrota, sin afectar tus fichas ni las de los demás.</p>
+      <h3>🏁 Fin de partida y puntaje</h3>
+      <p>Ganás vaciando el atril primero. Si se acaba el pozo (o el tiempo, en partidas con límite), gana quien tenga <b>menos puntos</b> en las fichas que le quedan — no importa cuántas fichas sean, importa cuánto valen: las numeradas valen su número, y cada comodín vale 25.</p>
+      <div class="ex sk-clasica">${[{color:"rojo",number:3},{color:"azul",number:7},{joker:true}].map(t=>tileHTML(t)).join("")}</div>
+      <p style="font-size:11px;color:rgba(232,238,247,.5);margin-top:-8px">3 + 7 + 25 (comodín) = 35 puntos restantes.</p>
       <div style="margin-top:14px;font-size:11.5px;color:rgba(232,238,247,.55);line-height:1.6;background:rgba(0,0,0,.2);border-radius:10px;padding:10px 12px">
         Por partida tenés: <b style="color:#ffe9a8">❤ ${MAX_LIVES} vidas</b> (si se vence tu turno, perdés una vida y pasás sin comer fichas; sin vidas, abandonás),
-        <b style="color:#7dd3fc">💡 10 pistas</b> y <b style="color:#ffe9a8">🔓 3 rupturas</b> de juegos con comodín.
+        <b style="color:#7dd3fc">💡 10 pistas</b> y <b style="color:#ffe9a8">🔓 3 candados</b> para modificar juegos con comodín.
       </div>
     </div>
   </div>`;
@@ -4495,6 +4520,29 @@ function renderGameover(app){
     </div>
   `;
 
+  // Fichas restantes en el atril al terminar — el VALOR de esas fichas (comodín=25,
+  // numeradas=su número), no la cantidad. Online viene calculado por el servidor
+  // (matchResult.finalHands); offline se arma acá mismo con la misma fórmula
+  // (tilePoints/handPoints, línea 582-583) a partir de G.players, que todavía
+  // conserva la mano de cada uno en este momento.
+  const finalHandRows = online
+    ? (mr.finalHands || []).map(r=>({name:r.name, tiles:r.tiles||[], points:r.points}))
+    : G.players.map(p=>({name:p.name, tiles:p.hand||[], points:handPoints(p)})).filter(r=>r.tiles.length).sort((a,b)=>a.points-b.points);
+  const withRemainingTiles = finalHandRows.filter(r=>r.tiles.length);
+  const finalHandsHTML = withRemainingTiles.length ? `
+    <div style="text-align:left;font-size:12px;background:rgba(0,0,0,.2);border-radius:10px;padding:8px 14px;margin-bottom:14px">
+      <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:rgba(232,238,247,.45);margin-bottom:6px">Fichas restantes</div>
+      ${withRemainingTiles.map(r=>`
+        <div style="margin-bottom:6px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:3px">
+            <span>${esc(r.name)}</span><span style="font-weight:800;color:#f87171">${r.tiles.map(t=>t.joker?25:t.number).join(" + ")} = ${r.points} pts</span>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:3px">${r.tiles.map(t=>tileHTML(t,"","width:22px;height:30px;font-size:11px")).join("")}</div>
+        </div>
+      `).join("")}
+    </div>
+  ` : "";
+
   app.innerHTML=`
   <div class="screen-center" style="padding:16px 8px">
     <div class="card ${G._enterCls}" style="text-align:center;max-height:92dvh;overflow-y:auto">
@@ -4503,6 +4551,7 @@ function renderGameover(app){
       ${betHTML}
       ${progressHTML}
       ${scoresHTML}
+      ${finalHandsHTML}
       <button class="btn btn-gold" onclick="G.matchResult=null;G.finalRanking=null;G.abandoned=false;G._handledWinnerId=null;${G.online?"leaveRoomToMenu()":G.rankedOffline?"goRankedOffline()":"goSorteo()"}">${G.online?"🏠 Volver al menú":"↻ Revancha"}</button>
       ${!G.online?`<button class="btn btn-ghost" onclick="G.matchResult=null;G.finalRanking=null;goMenu()">🏠 Menú</button>`:""}
     </div>
@@ -4554,16 +4603,13 @@ function teammateRackHTML(tiles, opts){
   </div></div>`;
 }
 
+// Badge chico e integrado (icono + número, sin card/borde alrededor) — vive
+// en el HUD, no en una columna propia de la mesa (ver renderPlaying). Usa
+// clases propias (.pozo-badge), NO .bag/.b/.cnt: esas las siguen usando
+// renderSorteo/renderDealing/netSorteo/netDealing con su propio marcado más
+// grande (la bolsa animada de esas pantallas), y no hay que tocarlas.
 function bagHTML(onclickAttr){
-  return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px">
-    <div class="bag" ${onclickAttr||""}>
-      <div class="b" style="left:0;top:6px"></div>
-      <div class="b" style="left:5px;top:3px"></div>
-      <div class="b" style="left:10px;top:0"></div>
-      <div class="cnt">${G.bag.length}</div>
-    </div>
-    <span style="font-size:10px;color:#ffe9a8;font-weight:700">Pozo</span>
-  </div>`;
+  return `<span class="pozo-badge" ${onclickAttr||""} title="Fichas en el pozo">🀫<span class="pozo-cnt">${G.bag.length}</span></span>`;
 }
 
 function renderDealing(app){
@@ -4656,8 +4702,8 @@ function oppCardHTML(p,idx){
       <div class="opp-meta">
         ${tier?`<span style="display:inline-flex;align-items:center;gap:2px">${tierBadgeHTML(tier,13)}${p.level?" Nv"+p.level:""}</span>`:""}
         <span title="Puntos de la partida">⭐${(G.scores&&G.scores[p.id])||0}</span>
-        <span title="Vidas">${"❤".repeat(Math.max(0,lives))}${lives<MAX_LIVES?"🖤".repeat(MAX_LIVES-lives):""}</span>
-        <span title="Fichas en mano">🀫${p.hand.length}</span>
+        <span class="opp-lives" title="Vidas">${"❤".repeat(Math.max(0,lives))}${lives<MAX_LIVES?"🖤".repeat(MAX_LIVES-lives):""}</span>
+        <span class="opp-handcount" title="Fichas en mano">🀫 ${p.hand.length}</span>
         <span class="opp-skin" title="Skin: ${esc(skinName(p.skin))}">🎨</span>
       </div>
     </div>
@@ -4689,7 +4735,7 @@ function meldHTML(m, canOpen){
     <div class="tiles">${shown.map(t=>tileHTML(t)).join("")}</div>
     <div class="info">
       <span>${m.ownerName?`<b>${esc(m.ownerName)}</b> · `:""}${info.valid?info.type+" · "+info.value+"pts":"inválido"}</span>
-      ${canOpen?(hasJoker?(G.jokerBreaksLeft>0?`<button class="openbtn" onclick="openMeld('${m.id}')">🔓${G.jokerBreaksLeft}</button>`:`<span>🔒</span>`):`<button class="openbtn" onclick="openMeld('${m.id}')">abrir</button>`):""}
+      ${canOpen?(hasJoker?(G.jokerBreaksLeft>0?`<button class="openbtn" title="🔒 Candados: ${3-G.jokerBreaksLeft}/3 usados" onclick="openMeld('${m.id}')">🔓${G.jokerBreaksLeft}</button>`:`<button class="openbtn" title="🔒 Sin candados disponibles: no podés modificar este juego con comodín." onclick="setMsg('🔒 Sin candados disponibles: no podés modificar este juego con comodín.');render()">🔒</button>`):`<button class="openbtn" onclick="openMeld('${m.id}')">abrir</button>`):""}
     </div>
   </div>`;
 }
@@ -4835,6 +4881,7 @@ function renderPlaying(app){
     <span class="title" onclick="togglePause(true)">☰ ${G.online&&NET.roomCode?"Sala "+NET.roomCode:"Burako"}</span>
     <div class="right">
       <button class="hist-toggle-btn ${G.historyPanelClosed?"":"on"}" onclick="toggleHistoryDrawer()" title="${G.historyPanelClosed?"Mostrar historial":"Ocultar historial"}">📜</button>
+      ${bagHTML()}
       <span id="matchclock" title="Tiempo restante de partida" class="hud-matchclock" style="${G.matchEndsAt?"":"display:none"}">${matchClockText()||""}</span>
       ${G.ranked?`<span style="font-size:11px;color:#ffe9a8">🏆 ${G.players.length}J</span>`:G.rankedOffline?`<span class="hud-ranked-badge" style="font-size:11px;color:#ffe9a8" title="Ranked Offline">🏆 Ranked</span>`:""}
       ${iAmEliminated?`<span style="font-size:12px;color:#c084fc;font-weight:800">👻 Espectando</span><span class="thinking">${esc(cur?cur.name:"")+" piensa"}</span>`:`
@@ -5016,11 +5063,6 @@ function renderPlaying(app){
         </div>`:""}
       </div>
       `}
-
-      <!-- Pozo -->
-      <div class="col-pouch">
-        ${bagHTML()}
-      </div>
     </div>
   </div>`;
   morph(app,_playingHtml);
@@ -5307,8 +5349,9 @@ function netConnect(host){
       // Profile
       if(msg.type==="profile"){ G.serverProfile=msg.profile; }
       // Game messages
-      if(msg.type==="joined"){ NET.myId=msg.playerId; NET.roomCode=msg.code; saveActiveRoom(msg.code,msg.playerId); G.screen="lobby"; render(); }
+      if(msg.type==="joined"){ clearLobbyPending(); NET.myId=msg.playerId; NET.roomCode=msg.code; saveActiveRoom(msg.code,msg.playerId); G.screen="lobby"; render(); }
       else if(msg.type==="state"){
+        clearLobbyPending();
         resolvePendingAction(false);
         if(DEBUG_GAME){ const t0=performance.now(); netApplyState(msg); dlog("netApplyState+morph tardó", (performance.now()-t0).toFixed(1)+"ms"); }
         else netApplyState(msg);
@@ -5337,6 +5380,7 @@ function netConnect(host){
         if(G.screen==="playing") render();
       }
       else if(msg.type==="error"){
+        clearLobbyPending();
         resolvePendingAction(true);
         if(G.screen==="playing"){
           G.history=G.history||[];
@@ -5416,7 +5460,9 @@ function netConnect(host){
       // app pasando a segundo plano un rato) te dejaba viendo la partida
       // congelada hasta que el servidor te diera por afuera a los 25s
       // (GRACE_MS) sin que el cliente se enterara ni lo intentara evitar.
-      if(G.online && G.screen==="playing"){
+      // inActiveMatch() (no solo "playing") — un corte durante sorteo/reparto
+      // online quedaba sin ningún intento de reconexión ni aviso.
+      if(G.online && inActiveMatch()){
         G.online=false;
         attemptMatchReconnect();
       }
@@ -5863,10 +5909,14 @@ confirmTurn=function(){
   // cual estaba para que el usuario pueda corregirla — nunca se pierde el trabajo
   // armado por un rechazo del servidor. Esto reemplaza depender ÚNICAMENTE de la
   // reconciliación pasiva en netApplyState (que solo actúa en el próximo "state").
-  const snapshot={workGroups:G.workGroups, workLoose:G.workLoose, openedMeldIds:G.openedMeldIds, openedBackup:G.openedBackup, selWork:new Set(G.selWork)};
+  const snapshot={workGroups:G.workGroups, workLoose:G.workLoose, openedMeldIds:G.openedMeldIds, openedBackup:G.openedBackup, selWork:new Set(G.selWork), jokerBreaksLeft:G.jokerBreaksLeft};
   const ok=sendGameAction(isReorg?"reorganize":"layMultiple", wsMsg, ()=>{
     G.workGroups=snapshot.workGroups; G.workLoose=snapshot.workLoose;
     G.openedMeldIds=snapshot.openedMeldIds; G.openedBackup=snapshot.openedBackup; G.selWork=snapshot.selWork;
+    // Los candados que se gastaron localmente al abrir melds con comodín (openMeld,
+    // ~línea 3061) también se restauran acá — si no, el contador quedaba mal hasta
+    // el próximo "state" del servidor.
+    G.jokerBreaksLeft=snapshot.jokerBreaksLeft;
     render();
   });
   if(!ok) return;
@@ -6324,7 +6374,7 @@ function renderNetConnect(app){
       <p style="font-size:10px;color:rgba(232,238,247,.5);margin:0 0 12px;text-align:center;line-height:1.4">${curWin[2]}</p>
       `}
       <p style="font-size:10px;color:rgba(232,238,247,.45);margin-bottom:10px;text-align:center">Sos el <b style="color:#ffe9a8">👑 administrador</b> de la sala</p>
-      <button class="btn btn-gold" onclick="doCreateRoom()">✔ Crear sala</button>
+      <button class="btn btn-gold" ${G._lobbyPending==="create"?"disabled":""} onclick="doCreateRoom()">${G._lobbyPending==="create"?"⏳ Creando sala…":"✔ Crear sala"}</button>
     </div></div>`; return;
   }
   if(step==="enterCode"){
@@ -6336,7 +6386,7 @@ function renderNetConnect(app){
       ${G.message?`<p style="text-align:center;font-size:12px;color:#f87171;font-weight:700;background:rgba(220,38,38,.12);border:1px solid rgba(220,38,38,.3);border-radius:8px;padding:6px 10px;margin:0 0 10px">⚠ ${esc(G.message)}</p>`:""}
       <label class="lbl">Código de sala (4 letras)</label>
       <input id="netroom" placeholder="ABCD" onkeydown="if(event.key==='Enter')doJoinExistingRoom()" style="text-transform:uppercase;width:100%;padding:14px;border-radius:9px;background:rgba(255,255,255,.06);border:1px solid rgba(184,150,63,.25);color:#ffe9a8;font-size:24px;letter-spacing:6px;text-align:center;font-weight:800;margin-bottom:10px" maxlength="4">
-      <button class="btn btn-gold" onclick="doJoinExistingRoom()">🚪 Entrar</button>
+      <button class="btn btn-gold" ${G._lobbyPending==="join"?"disabled":""} onclick="doJoinExistingRoom()">${G._lobbyPending==="join"?"⏳ Uniéndose…":"🚪 Entrar"}</button>
     </div></div>`; return;
   }
   if(step==="publicRooms"){
@@ -6352,7 +6402,7 @@ function renderNetConnect(app){
           <div style="font-weight:800;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.name)}</div>
           <div style="font-size:10.5px;color:rgba(232,238,247,.55)">👑 ${esc(r.adminName)} · ${r.playerCount}/${r.maxPlayers} · ${r.gameMode==="ranked"?"🏆 Ranked":r.gameMode==="monedas"?"🪙 Monedas":r.gameMode==="team2v2"?"🤝 2v2":r.gameMode==="galactico"?"🌌 Galáctico":"Casual"}</div>
         </div>
-        <button class="btn-sm" style="border-radius:8px;background:linear-gradient(180deg,#fcd34d,#f59e0b);color:#1a1200;flex-shrink:0" onclick="doJoinPublicRoom('${r.code}')">Unirse</button>
+        <button class="btn-sm" ${G._lobbyPending==="join"?"disabled":""} style="border-radius:8px;background:linear-gradient(180deg,#fcd34d,#f59e0b);color:#1a1200;flex-shrink:0" onclick="doJoinPublicRoom('${r.code}')">${G._lobbyPending==="join"?"⏳ Uniéndose…":"Unirse"}</button>
       </div>`).join(""):`<p style="text-align:center;color:rgba(232,238,247,.5)">No hay salas públicas${catLabel} abiertas ahora mismo.</p>`}
       <button class="btn btn-ghost" style="margin-top:8px" onclick="doListPublicRooms()">↻ Actualizar</button>
     </div></div>`; return;
@@ -6394,6 +6444,19 @@ async function doNetConnect(){
 // reconecta con reintentos y avisa con un mensaje visible si no puede.
 async function ensureConnected(){
   if(NET.ws&&NET.ws.readyState===1) return true;
+  // Si ya hay una restauración de sesión en curso (p.ej. resumeReconnect()
+  // disparado en silencio al volver de segundo plano en el lobby), hay que
+  // esperarla en vez de arrancar una segunda en paralelo — dos
+  // connectWithRetry a la vez se pisan el socket entre sí (netConnect cierra
+  // cualquier NET.ws anterior antes de abrir uno nuevo) y ESO era lo que
+  // producía el toast "Reconectando…" repetido estando en el lobby con la
+  // conexión en realidad sana o ya sanándose sola.
+  if(G._sessionOpInFlight){
+    const res=await G._sessionOpInFlight;
+    if(res.ok) return true;
+    if(res.reason==="expired") return false; // resumeSessionSilently ya dejó todo consistente (login de nuevo)
+    // si falló por otra razón (sin conexión, timeout), cae al intento propio de abajo
+  }
   setMsg("Reconectando…"); render();
   const ok=await connectWithRetry(defaultHost(),{onStatus:(t)=>{ setMsg(t); render(); }});
   if(!ok){ setMsg("⚠ No se pudo conectar al servidor. Probá de nuevo en un momento."); render(); return false; }
@@ -6402,6 +6465,7 @@ async function ensureConnected(){
 }
 async function doCreateRoom(){
   if(!(await ensureConnected())) return;
+  markLobbyPending("create"); render();
   const rc=G.roomConf||{};
   const gameMode=rc.gameMode||"casual";
   const name=G.serverProfile?G.serverProfile.username:P.name;
@@ -6414,6 +6478,7 @@ async function doJoinExistingRoom(){
   const room=document.querySelector("#netroom").value.trim().toUpperCase();
   if(!room||room.length!==4){ setMsg("Ingresá un código de 4 letras."); render(); return; }
   if(!(await ensureConnected())) return;
+  markLobbyPending("join"); render();
   netSend({type:"join", room, name: G.serverProfile?G.serverProfile.username:P.name, skin: P.skin||"clasica"});
 }
 async function doListPublicRooms(){
@@ -6423,7 +6488,16 @@ async function doListPublicRooms(){
 }
 async function doJoinPublicRoom(code){
   if(!(await ensureConnected())) return;
+  markLobbyPending("join"); render();
   netSend({type:"join", room:code, name: G.serverProfile?G.serverProfile.username:P.name, skin: P.skin||"clasica"});
+}
+function doSetReady(ready){
+  markLobbyPending("ready"); render();
+  netSend({type:"setReady", ready});
+}
+function doStartMatch(){
+  markLobbyPending("start"); render();
+  netSend({type:"start"});
 }
 function doRequestLeaderboard(){
   G._lbCb=function(msg){ if(msg.type==="leaderboard"){ G.leaderboardData=msg.data; G.netStep="leaderboard"; delete G._lbCb; render(); } };
@@ -6537,27 +6611,17 @@ function renderLobby(app){
         </div>`:""}
         <div style="font-size:11px;color:rgba(232,238,247,.55);margin-bottom:5px">Tapete de mesa:</div>
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px">
-          ${TAPETES.map(t=>`<button onclick="netSend({type:'setTapete',tapete:'${t.id}'})" style="padding:4px;border-radius:6px;background:${tapete===t.id?'rgba(251,191,36,.2)':'rgba(0,0,0,.25)'};border:1px solid ${tapete===t.id?'#fbbf24':'rgba(184,150,63,.2)'};cursor:pointer" title="${t.name}">
-            <div class="tp-${t.id}" style="width:100%;height:22px;border-radius:4px;overflow:hidden"><div class="mesa" style="margin:0;height:100%;border:none;border-radius:4px"></div></div>
-          </button>`).join("")}
-        </div>
-      </div>
-    `:inMonedas?"":`
-      <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:rgba(232,238,247,.45);margin:8px 0 6px">Mientras esperás — elegí tu skin</div>
-      <div style="background:rgba(0,0,0,.2);border:1px solid rgba(184,150,63,.15);border-radius:10px;padding:10px;margin-bottom:10px">
-        <div style="display:flex;flex-wrap:wrap;gap:4px;max-height:110px;overflow-y:auto">
-          ${(P.owned||['clasica']).map(sid=>{
-            const s=SKINS.find(x=>x.id===sid); if(!s) return "";
-            const active=P.skin===sid;
-            return `<button onclick="P.skin='${sid}';saveP();render()" style="padding:3px;border-radius:6px;background:${active?'rgba(251,191,36,.2)':'rgba(0,0,0,.25)'};border:1px solid ${active?'#fbbf24':'rgba(184,150,63,.2)'};cursor:pointer" title="${s.name}">
-              <div class="sk-${sid}" style="display:flex;gap:1px">${[7,3,11].map(n=>`<div class="tile c-rojo" style="width:16px;height:22px;font-size:9px">${n}</div>`).join("")}</div>
+          ${(P.ownedTapetes&&P.ownedTapetes.length?P.ownedTapetes:["clasico"]).map(tid=>{
+            const t=TAPETES.find(x=>x.id===tid); if(!t) return "";
+            return `<button onclick="netSend({type:'setTapete',tapete:'${t.id}'})" style="padding:4px;border-radius:6px;background:${tapete===t.id?'rgba(251,191,36,.2)':'rgba(0,0,0,.25)'};border:1px solid ${tapete===t.id?'#fbbf24':'rgba(184,150,63,.2)'};cursor:pointer" title="${t.name}">
+              <div class="tp-${t.id}" style="width:100%;height:22px;border-radius:4px;overflow:hidden"><div class="mesa" style="margin:0;height:100%;border:none;border-radius:4px"></div></div>
             </button>`;
           }).join("")}
         </div>
       </div>
-    `}
-    <button class="btn btn-gold" ${inMonedas&&!myBet?"disabled style='opacity:.4;cursor:not-allowed'":""} onclick="netSend({type:'setReady',ready:${!me.ready}})" style="${me.ready?'background:linear-gradient(180deg,#34d399,#059669)':''};margin-bottom:6px">${inMonedas&&!myBet?"🪙 Apostá primero para poder marcarte listo":me.ready?"✔ Estoy listo (tocá para cancelar)":"Marcar como listo"}</button>
-    ${isAdmin?`<button class="btn btn-gold" ${canStart?"":"disabled style='opacity:.4;cursor:not-allowed'"} onclick="netSend({type:'start'})" style="background:linear-gradient(180deg,#fcd34d,#f59e0b)">${canStart?"▶ EMPEZAR PARTIDA":players.length<2?"Faltan jugadores (mín 2)":(!teamsFull)?"Asigná 2 y 2 por equipo (y completá 4 jugadores)":missingBets.length?"Faltan apostar: "+missingBets.map(p=>p.name).join(", "):"Esperando que todos estén listos…"}</button>`:""}
+    `:""}
+    <button class="btn btn-gold" ${(inMonedas&&!myBet)||G._lobbyPending==="ready"?"disabled style='opacity:.4;cursor:not-allowed'":""} onclick="doSetReady(${!me.ready})" style="${me.ready?'background:linear-gradient(180deg,#34d399,#059669)':''};margin-bottom:6px">${G._lobbyPending==="ready"?"⏳ Confirmando…":inMonedas&&!myBet?"🪙 Apostá primero para poder marcarte listo":me.ready?"✔ Estoy listo (tocá para cancelar)":"Marcar como listo"}</button>
+    ${isAdmin?`<button class="btn btn-gold" ${(!canStart)||G._lobbyPending==="start"?"disabled style='opacity:.4;cursor:not-allowed'":""} onclick="doStartMatch()" style="background:linear-gradient(180deg,#fcd34d,#f59e0b)">${G._lobbyPending==="start"?"⏳ Iniciando partida…":canStart?"▶ EMPEZAR PARTIDA":players.length<2?"Faltan jugadores (mín 2)":(!teamsFull)?"Asigná 2 y 2 por equipo (y completá 4 jugadores)":missingBets.length?"Faltan apostar: "+missingBets.map(p=>p.name).join(", "):"Esperando que todos estén listos…"}</button>`:""}
     <button class="btn btn-ghost" onclick="doLeaveLobby()">Salir de la sala</button>
     <p style="font-size:10px;color:rgba(232,238,247,.4);margin-top:8px;text-align:center">${isAdmin?"Solo vos podés empezar":"Solo el admin puede empezar"}</p>
   </div></div>`;
@@ -6764,7 +6828,7 @@ document.addEventListener("visibilitychange",()=>{
     // entrar a la app en el menú/tienda/perfil dejaba todo "desconectado"
     // hasta tocar algo. Ahora se recupera solo en cualquier pantalla.
     const socketDead = !NET.ws || NET.ws.readyState!==1;
-    if(socketDead && G.screen==="playing"){
+    if(socketDead && inActiveMatch()){
       attemptMatchReconnect();
     } else if(socketDead && (G.online||G.serverConnected)){
       resumeReconnect();

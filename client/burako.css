@@ -210,7 +210,7 @@ body.galactico-mode .hud .title{color:#e9d5ff;text-shadow:0 0 10px rgba(168,85,2
 body.galactico-mode .actions .act-ok{background:linear-gradient(180deg,#34d399,#059669)}
 body.galactico-mode .actions .act-work{background:linear-gradient(180deg,#a855f7,#6b21a8)}
 body.galactico-mode .actions .act-draw{background:linear-gradient(180deg,#60a5fa,#1d4ed8)}
-body.galactico-mode .col-history,body.galactico-mode .col-prep,body.galactico-mode .col-rack,body.galactico-mode .col-pouch,body.galactico-mode .col-teammate{
+body.galactico-mode .col-history,body.galactico-mode .col-prep,body.galactico-mode .col-rack,body.galactico-mode .col-teammate{
   box-shadow:0 0 18px rgba(124,58,237,.12);
 }
 body.galactico-mode .ptitle{color:rgba(216,180,254,.85)}
@@ -910,8 +910,10 @@ input[type="range"]:disabled{opacity:.35;cursor:default}
 .rackhead .modes{display:flex;gap:5px}
 .rackhead .modes button{font-size:10px;padding:5px 9px;border-radius:8px;font-weight:800;background:rgba(255,255,255,.1);color:#e8eef7}
 .rackhead .modes button.on{background:linear-gradient(180deg,#fcd34d,#f59e0b);color:#1a1200}
-.rack{border-radius:14px;padding:7px;background:linear-gradient(180deg,var(--wood),var(--wood-dark));border:2px solid var(--wood-edge);box-shadow:inset 0 2px 8px rgba(0,0,0,.5), 0 4px 12px rgba(0,0,0,.4);max-width:760px;margin:0 auto}
-.rackgrid{display:grid;grid-template-columns:repeat(10,1fr);gap:4px}
+/* Anillo dorado fino sumado al azul existente (0 0 0 1px, no cambia tamaño/caja)
+   — el atril era todo azul sin ningún acento dorado del Design System. */
+.rack{border-radius:14px;padding:7px;background:linear-gradient(180deg,var(--wood),var(--wood-dark));border:2px solid var(--wood-edge);box-shadow:inset 0 2px 8px rgba(0,0,0,.5), 0 4px 12px rgba(0,0,0,.4), 0 0 0 1px rgba(212,175,88,.35);max-width:760px;margin:0 auto}
+.rackgrid{display:grid;grid-template-columns:repeat(10,1fr);gap:3px}
 .slot{aspect-ratio:3/4.2;border-radius:7px;background:var(--panel-bg);border:1px solid rgba(0,0,0,.35);display:flex;min-width:0;cursor:pointer;touch-action:none}
 .slot.dropover{border:2px solid #38bdf8;background:rgba(56,189,248,.15)}
 .slot.movesrc{border:2px solid var(--gold)}
@@ -2125,7 +2127,7 @@ body.ingame{background:
    oro" como el resto de la app (mismo material que ya usa .card en el menú/
    perfil). No se toca el borde de .col-prep (cian punteado, es la señal de
    "acá se sueltan fichas", cumple otra función). */
-.col-history,.col-prep,.col-rack,.col-pouch,.col-teammate{
+.col-history,.col-prep,.col-rack,.col-teammate{
   background:linear-gradient(165deg, rgba(8,18,42,.55), rgba(4,10,26,.62));
   border-color:rgba(212,175,88,.32);
 }
@@ -2237,8 +2239,17 @@ body.ingame{background:
    problema en el atril). */
 .prep-loose .tile,.prep-group-row .tile{touch-action:none}
 .prep-loose .tile{width:38px;height:52px;font-size:16px}
-.prep-groups{flex:1;overflow-y:auto;min-height:0;display:flex;flex-direction:column;gap:5px}
-.prep-group-row{display:flex;align-items:center;gap:4px;background:rgba(0,0,0,.18);border-radius:8px;padding:4px 5px}
+.prep-groups{flex:1;overflow-y:auto;min-height:0;display:flex;flex-direction:column;gap:8px}
+.prep-group-row{display:flex;align-items:center;gap:4px;background:rgba(0,0,0,.18);border:1px solid rgba(184,150,63,.2);border-radius:8px;padding:5px 6px;box-shadow:0 1px 4px rgba(0,0,0,.25)}
+/* Scrollbar propia de Preparación: fina, dorado/azul del Design System,
+   discreta en reposo y más visible al pasar el mouse — en vez de heredar la
+   scrollbar dorada genérica (::-webkit-scrollbar global, más gruesa) o la del
+   navegador, que acá se sentía pesada para un panel chico. */
+.col-prep::-webkit-scrollbar,.prep-loose::-webkit-scrollbar,.prep-groups::-webkit-scrollbar{width:5px}
+.col-prep::-webkit-scrollbar-track,.prep-loose::-webkit-scrollbar-track,.prep-groups::-webkit-scrollbar-track{background:transparent}
+.col-prep::-webkit-scrollbar-thumb,.prep-loose::-webkit-scrollbar-thumb,.prep-groups::-webkit-scrollbar-thumb{background:linear-gradient(180deg,rgba(212,175,88,.3),rgba(56,90,158,.3));border-radius:8px}
+.col-prep:hover::-webkit-scrollbar-thumb,.prep-loose:hover::-webkit-scrollbar-thumb,.prep-groups:hover::-webkit-scrollbar-thumb{background:linear-gradient(180deg,rgba(212,175,88,.7),rgba(56,90,158,.65))}
+.col-prep,.prep-loose,.prep-groups{scrollbar-width:thin;scrollbar-color:rgba(212,175,88,.4) transparent}
 .prep-group-row .meld{flex:1;margin:0;transform:none!important;overflow:visible;min-width:0}
 .prep-group-row .meld .tiles{flex-wrap:nowrap;overflow-x:auto}
 .prep-group-row .meld .tiles .tile{width:var(--tile-size-preparation)!important;height:var(--tile-size-preparation-h)!important;font-size:16px!important;margin-left:-3px}
@@ -2248,8 +2259,11 @@ body.ingame{background:
 .prep-hint{font-size:9.5px;color:rgba(232,238,247,.4);text-align:center;display:block;padding:4px 2px}
 .prep-hint-center{margin:auto;padding:12px 4px}
 
-/* Atril: acotado entre 480 y 780px, ya no es el único elástico de la fila */
-.col-rack{flex:0 1 780px;max-width:780px;min-width:0;height:100%;display:flex;flex-direction:column;overflow:hidden}
+/* Atril: acotado entre 480 y 780px, ya no es el único elástico de la fila.
+   El borde dorado/azul del Design System va ACÁ (no en .rack): adentro de
+   .col-rack, .rackpersp .rack se despoja de su propio border/box-shadow a
+   propósito (evita doble-caja, ver más abajo) — reforzarlo ahí no se ve. */
+.col-rack{flex:0 1 780px;max-width:780px;min-width:0;height:100%;display:flex;flex-direction:column;overflow:hidden;border-radius:var(--panel-radius);box-shadow:0 0 0 1px rgba(212,175,88,.3),inset 0 0 0 1px rgba(56,90,158,.35)}
 .col-rack .rackhead{background:var(--panel-bg);border-radius:var(--panel-radius) var(--panel-radius) 0 0;padding:4px 8px;display:flex;justify-content:space-between;align-items:center;gap:6px;flex-shrink:0}
 /* overflow-y:auto (no "hidden"): Modo Galáctico agrega .rack-abilities-row ANTES
    de la grilla normal del atril (una fila más, sin alto reservado aparte acá) —
@@ -2263,9 +2277,11 @@ body.ingame{background:
 .col-rack .rackhint{font-size:8.5px;color:rgba(232,238,247,.35);text-align:center;padding:2px 4px;flex-shrink:0}
 .hud-lives-sm{font-size:13px;line-height:1;letter-spacing:-1px}
 
-/* Pozo (ahora columna de la fila inferior: Historial | Preparación | Atril | Pozo) */
-.col-pouch{flex:0 0 110px;min-width:0;height:100%;border:1px solid var(--panel-border);border-radius:var(--panel-radius);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;overflow:hidden}
-@media(max-width:540px){.col-pouch{flex:0 0 84px}.col-pouch .bag{transform:scale(.75)}}
+/* Pozo: badge chico e integrado al HUD (icono + número), sin card/panel
+   alrededor — antes vivía en .col-pouch, una columna propia con borde pesado
+   en la fila inferior de la mesa; ahora es solo texto con un glow suave. */
+.pozo-badge{display:inline-flex;align-items:center;gap:3px;font-size:13px;line-height:1;color:#ffe9a8;text-shadow:0 0 6px rgba(251,191,36,.45);flex-shrink:0}
+.pozo-cnt{font-size:12px;font-weight:800;color:#e8eef7}
 
 /* ============================================================
    BLOQUE: PANEL DE OPONENTES ENRIQUECIDO
@@ -2305,10 +2321,14 @@ body.ingame{background:
 .opp-avatar{font-size:26px;line-height:1;position:relative;flex-shrink:0}
 .opp-elim{position:absolute;top:-2px;right:-4px;font-size:12px;color:#ef4444;font-weight:800;background:rgba(0,0,0,.7);border-radius:50%;padding:0 2px;line-height:1.3}
 .opp-info{flex:1;min-width:0}
-.opp-name{font-size:11px;font-weight:800;color:#ffe9a8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.opp-name{font-size:12.5px;font-weight:800;color:#ffe9a8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .opp-tag{font-size:9px;background:rgba(52,211,153,.2);color:#34d399;border-radius:4px;padding:0 3px;margin-left:3px;vertical-align:middle}
-.opp-meta{display:flex;flex-wrap:wrap;gap:4px;margin-top:2px;font-size:9.5px;color:rgba(232,238,247,.65)}
+.opp-meta{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin-top:3px;font-size:9.5px;color:rgba(232,238,247,.65)}
 .opp-meta span{white-space:nowrap}
+/* Jerarquía dentro de .opp-meta: vidas y cantidad de fichas se leen rápido de
+   un vistazo, no perdidas al mismo tamaño que puntos/skin. */
+.opp-lives{font-size:12px;letter-spacing:-1px}
+.opp-handcount{font-weight:800;color:#ffe9a8;background:rgba(0,0,0,.28);border-radius:6px;padding:1px 5px;font-size:10.5px}
 
 /* ============================================================
    BLOQUE: HUD — vidas, timer inline
@@ -2497,6 +2517,8 @@ body.ingame{background:
   body.ingame .opp-avatar{font-size:15px}
   body.ingame .opp-name{font-size:9.5px;max-width:64px}
   body.ingame .opp-meta{margin-top:0;gap:5px;font-size:8px}
+  body.ingame .opp-lives{font-size:9px}
+  body.ingame .opp-handcount{font-size:8px;padding:0 3px;border-radius:4px}
   body.ingame .opp-skin{display:none}
   body.ingame .opp-tag{display:none} /* "✓30"/"🛡"/etc: info secundaria, no entra en el chip chico */
 
@@ -2530,8 +2552,8 @@ body.ingame{background:
      bottomrow ya se lo comía todo) — esa era la razón real de que el atril
      "se sintiera arriba" pese al ajuste anterior. */
   body.ingame .bottomrow{
-    display:grid;grid-template-columns:1fr auto;grid-template-rows:auto auto;
-    grid-template-areas:"prep pouch" "rack rack";
+    display:grid;grid-template-columns:1fr;grid-template-rows:auto auto;
+    grid-template-areas:"prep" "rack";
     gap:5px;overflow:visible;flex:0 0 auto;
   }
   body.ingame .col-teammate{grid-column:1/-1;grid-row:1;order:-1;height:auto;max-height:100px}
@@ -2539,9 +2561,11 @@ body.ingame{background:
   body.ingame .col-prep{
     grid-area:prep;height:auto;max-height:20dvh;min-height:0;
     overflow-y:auto;-webkit-overflow-scrolling:touch;
+    /* Scroll nativo (swipe) sigue andando, pero sin la barra visible — en un
+       panel tan chico la scrollbar (aunque fina) competía con las fichas. */
+    scrollbar-width:none;
   }
-  body.ingame .col-pouch{grid-area:pouch;flex:none;width:60px;height:auto;padding:5px 2px;gap:2px}
-  body.ingame .col-pouch .bag{transform:scale(.62)}
+  body.ingame .col-prep::-webkit-scrollbar{display:none}
   /* Corrección a pedido del usuario (ronda 3): "solo se ven 2 filas y hay
      scroll" — antes JS (adjustMobileRackHeight, ELIMINADA) recortaba el atril
      a las filas que hacían falta según la cantidad real de fichas, pensado
