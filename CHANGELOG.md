@@ -2,6 +2,55 @@
 
 Todos los cambios notables del proyecto se documentan en este archivo.
 
+## [1.2.3] - 2026-08-19 — Matchmaking automático (Casual/Ranked)
+
+Hasta ahora, entrar a una partida online era 100% manual: crear sala y
+compartir código, escribir un código existente, o navegar la lista de
+salas públicas y tocar "Unirse" una por una. No existía ninguna cola ni
+emparejamiento automático. A pedido del usuario, se agregó matchmaking
+para los modos Casual y Ranked, con relleno de bots confirmado
+explícitamente para ambas colas si no aparecen suficientes rivales humanos
+a tiempo.
+
+**Auditoría primero**: ya existía un browser de salas públicas manual
+(`listRooms`/`roomList`) que se deja intacto — el matchmaking es una vía
+paralela, no un reemplazo. `rank_pts` hoy solo se usaba para mostrar tier
+y ordenar el leaderboard — cero lógica de proximidad/matching en ningún
+lado, se construyó desde cero. Partidas ranked ya soportaban bots como
+relleno sin romper `resolveMatch` (un bot sin `username` simplemente no
+puntúa) — el patrón "ranked con bots" ya era válido hoy, solo faltaba
+automatizarlo.
+
+**Servidor** (`server.js`): `matchQueues` en memoria (`casual`/`ranked`),
+intervalo de emparejamiento cada 2s (`MATCHMAKING_TICK_MS`, overrideable
+por env para tests). Casual agrupa los 4 más antiguos en cola (FIFO puro).
+Ranked ancla al jugador que espera hace más tiempo y le suma los 3 más
+cercanos en `rank_pts` disponibles en ese momento. Si el más antiguo de la
+cola lleva ≥20s esperando (`MATCH_WAIT_TIMEOUT_MS`) y no hay 4 humanos
+disponibles, arma la partida igual y rellena el resto con bots (mismo
+criterio de dificultad aleatoria que ya usa el matchmaking offline). La
+sala armada arranca directo con `startGame()` — entrar a la cola ya es la
+señal de "listo", sin pasar por el mensaje `start` manual. Limpieza de
+cola tanto en `queueLeave` explícito como al cerrar la conexión (mismo
+bloque donde ya se limpiaba al jugador de su sala).
+
+**Cliente** (`client/burako.js`, `client/burako.css`): reusa exactamente
+el mensaje `{type:"joined"}` que ya maneja el join manual — el cliente no
+necesitó código nuevo para "entrar a la partida ya armada". Se agregaron
+dos botones ("🎲 Casual rápido" / "⚡ Ranked rápido") en el hub de Todos
+contra todos y una pantalla de búsqueda nueva (spinner, segundos
+transcurridos, tamaño de cola, cancelar) con estilos Cristal/Design DNA
+existentes — sin componentes visuales nuevos de fondo.
+
+8 tests nuevos (`server/scripts/test-matchmaking.mjs`, servidor propio en
+puerto aislado con timeouts acelerados vía env): 4 jugadores casual
+terminan en la misma sala; ranked agrupa por cercanía de `rank_pts`
+excluyendo un outlier lejano; 1 solo jugador ranked + timeout arranca
+igual completando con 3 bots; `queueLeave` cancela y evita el match
+posterior; desconectar en cola no deja un "fantasma" que bloquee futuros
+matches. Regresión completa existente sin romperse (reglas, ranked, salas,
+chat, motor de recompensas, resolución de fin de partida, auth, e2e).
+
 ## [1.2.2] - 2026-08-19 — Fase 1: infraestructura de recompensas y progresión
 
 Infraestructura server-authoritative, idempotente y transaccional para que

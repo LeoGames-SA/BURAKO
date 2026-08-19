@@ -1611,6 +1611,110 @@ function useAtraccion(room, player, msg) {
   return { ok: false, err: "Elegí una combinación tuya en la mesa o fichas de tu mano como destino." };
 }
 
+/* ---------- Matchmaking automático (Casual/Ranked) ----------
+   Colas en memoria — separado del roomSweepTimer de arriba (ese es
+   limpieza de salas abandonadas, esto es emparejamiento). Un intervalo
+   propio intenta armar mesas de 4 cada MATCHMAKING_TICK_MS. Si no junta 4
+   jugadores reales a tiempo, rellena el resto con bots — misma política
+   que ya usan las salas ranked armadas a mano (un bot no tiene username,
+   así que resolveMatch/checkAchievements ya lo ignoran para todo lo que
+   puntúa: solo ocupa asiento, no rompe nada). */
+const matchQueues = { casual: [], ranked: [] };
+const MATCHMAKING_TICK_MS = Number(process.env.MATCHMAKING_TICK_MS) || 2000;
+const MATCH_TARGET_SIZE = 4;
+const MATCH_WAIT_TIMEOUT_MS = Number(process.env.MATCH_WAIT_TIMEOUT_MS) || 20000;
+
+function removeFromMatchQueues(ws) {
+  for (const mode of Object.keys(matchQueues)) {
+    const idx = matchQueues[mode].findIndex((q) => q.ws === ws);
+    if (idx !== -1) matchQueues[mode].splice(idx, 1);
+  }
+}
+
+function makeMatchmakingBot(usedNames) {
+  // Dificultad al azar entre las "de relleno" — expert/claude quedan afuera
+  // a propósito, son niveles que alguien elige, no un default de cola.
+  const pool = ["easy", "normal", "hard"];
+  const diff = pool[Math.floor(Math.random() * pool.length)];
+  const aiAvatars = { easy: "🤖", normal: "👾", hard: "💀" };
+  const aiNames = { easy: ["Bot Fácil", "Bot Blanda", "Bot Novato"], normal: ["Bot Alpha", "Bot Beta", "Bot Gamma"], hard: ["Bot Dura", "Bot Cruel", "Bot Salvaje"] };
+  const pickedName = (aiNames[diff] || aiNames.normal).find((n) => !usedNames.includes(n)) || "Bot " + (usedNames.length + 1);
+  return { id: C.nid("ai"), ws: null, name: pickedName, connected: true, isAI: true, ready: true, username: null, aiDifficulty: diff, avatar: aiAvatars[diff] || "🤖", skin: "clasica" };
+}
+
+/* Arma y arranca una sala a partir de un grupo de entradas de cola — mismo
+   shape de room que crea join:"NUEVA" (server.js más abajo), solo que acá
+   lo arma matchmaking en vez de un jugador manualmente, y arranca sola en
+   vez de esperar el mensaje "start" (entrar a la cola YA es "estoy listo"). */
+async function formMatchmakingRoom(entries, mode) {
+  const ranked = mode === "ranked";
+  const room = {
+    code: makeRoomCode(), name: (ranked ? "Ranked" : "Casual") + " automático",
+    public: false, players: [], started: false, table: [], bag: [], hands: {},
+    hasLaidInitial: {}, currentIdx: 0, meldCounter: 0, passStreak: 0,
+    ranked, gameMode: ranked ? "ranked" : "casual", chatLog: [],
+  };
+  rooms.set(room.code, room);
+
+  for (const entry of entries) {
+    const player = {
+      id: C.nid("p"), ws: entry.ws, name: entry.name, connected: true,
+      username: entry.username, skin: entry.skin || "clasica", nameeffect: entry.nameeffect || null,
+      banner: entry.banner || null, team: null, ready: true,
+      avatar: entry.avatar, rankPts: entry.rankPts, level: entry.level,
+      fx: entry.fx || "clasico", trail: entry.trail || "clasica",
+    };
+    room.players.push(player);
+    send(entry.ws, { type: "queueMatched" });
+    send(entry.ws, { type: "joined", code: room.code, playerId: player.id });
+    sendChatHistory(entry.ws, room);
+  }
+  const usedNames = room.players.map((p) => p.name);
+  while (room.players.length < MATCH_TARGET_SIZE) {
+    const bot = makeMatchmakingBot(usedNames);
+    usedNames.push(bot.name);
+    room.players.push(bot);
+  }
+  broadcast(room);
+  startGame(room);
+}
+
+function tryMatchQueue(mode) {
+  const queue = matchQueues[mode];
+  if (!queue.length) return;
+  for (let i = queue.length - 1; i >= 0; i--) { // conexiones muertas antes de armar nada
+    if (queue[i].ws.readyState !== 1) queue.splice(i, 1);
+  }
+  if (!queue.length) return;
+
+  const oldestWaitMs = Date.now() - queue[0].joinedAt;
+  const timedOut = oldestWaitMs >= MATCH_WAIT_TIMEOUT_MS;
+
+  if (queue.length < MATCH_TARGET_SIZE && !timedOut) {
+    queue.forEach((q) => send(q.ws, { type: "queueStatus", mode, waitingSeconds: Math.floor((Date.now() - q.joinedAt) / 1000), queueSize: queue.length }));
+    return;
+  }
+
+  let group;
+  if (mode === "ranked") {
+    // El que espera hace más tiempo + los más cercanos en rank_pts
+    // disponibles en este momento (sin ventana que se expande con el
+    // tiempo — con el volumen actual de jugadores, más simple y
+    // mantenible que un algoritmo tipo ELO; se ajusta con datos reales
+    // de uso si hace falta más adelante).
+    const anchor = queue[0];
+    const rest = queue.slice(1).sort((a, b) => Math.abs((a.rankPts || 1000) - (anchor.rankPts || 1000)) - Math.abs((b.rankPts || 1000) - (anchor.rankPts || 1000)));
+    group = [anchor, ...rest.slice(0, MATCH_TARGET_SIZE - 1)];
+  } else {
+    group = queue.slice(0, MATCH_TARGET_SIZE); // Casual: FIFO puro, sin criterio de rango
+  }
+  for (const g of group) { const idx = queue.indexOf(g); if (idx !== -1) queue.splice(idx, 1); }
+  formMatchmakingRoom(group, mode).catch((e) => console.error("[matchmaking] formMatchmakingRoom falló -", e.message));
+}
+
+const matchmakingTimer = setInterval(() => { tryMatchQueue("casual"); tryMatchQueue("ranked"); }, MATCHMAKING_TICK_MS);
+wss.on("close", () => clearInterval(matchmakingTimer));
+
 /* ---------- conexiones WebSocket ---------- */
 wss.on("connection", (ws) => {
   let room = null, player = null;
@@ -1667,6 +1771,30 @@ wss.on("connection", (ws) => {
           playerCount: r.players.length, maxPlayers: MAX_PLAYERS,
         }));
       send(ws, { type: "roomList", rooms: list });
+      return;
+    }
+    if (msg.type === "queueJoin") {
+      if (!authUser) return send(ws, { type: "error", msg: "No estás logueado." });
+      if (room) return send(ws, { type: "error", msg: "Salí de la sala actual antes de buscar partida." });
+      const mode = msg.mode === "ranked" ? "ranked" : "casual";
+      removeFromMatchQueues(ws); // por si ya estaba en la otra cola
+      const name = (msg.name || "Jugador").slice(0, 16);
+      const prof = await DB.getProfileByName(authUser);
+      const entry = {
+        ws, name, username: authUser, skin: msg.skin || "clasica", joinedAt: Date.now(),
+        avatar: prof ? prof.avatar : undefined, rankPts: prof ? prof.rankPts : undefined, level: prof ? prof.level : undefined,
+        fx: prof && prof.active ? (prof.active.effect || "clasico") : "clasico",
+        trail: prof && prof.active ? (prof.active.trail || "clasica") : "clasica",
+        nameeffect: prof && prof.active ? prof.active.nameeffect || null : null,
+        banner: prof && prof.active ? prof.active.banner || null : null,
+      };
+      matchQueues[mode].push(entry);
+      send(ws, { type: "queueStatus", mode, waitingSeconds: 0, queueSize: matchQueues[mode].length });
+      return;
+    }
+    if (msg.type === "queueLeave") {
+      removeFromMatchQueues(ws);
+      send(ws, { type: "queueLeft" });
       return;
     }
     if (msg.type === "buyItem") {
@@ -2223,6 +2351,7 @@ wss.on("connection", (ws) => {
   });
 
   ws.on("close", () => {
+    removeFromMatchQueues(ws); // si estaba esperando en una cola de matchmaking (nunca llegó a tener room/player), sale sin quedar "fantasma" emparejable
     if (!room || !player) return;
     const closedPlayer = player, closedRoom = room;
     closedPlayer.connected = false;

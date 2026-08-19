@@ -2,7 +2,7 @@
    BURAKO — app completa: menú, tutorial, sonidos, IA con delay
    ================================================================ */
 
-const GAME_VERSION = "1.2.2";
+const GAME_VERSION = "1.2.3";
 const MAX_PLAYERS_ONLINE = 8; // el server acepta hasta 8 en sala (mazo doble si se supera 4)
 const QUICK_CHAT_COOLDOWN_MS = 15000;
 const QUICK_CHAT_OPTIONS = [
@@ -18,6 +18,9 @@ const TEAM_CHAT_OPTIONS = [
   {send:"👍 Dale", show:"👍"}, {send:"🚫 No tengo", show:"🚫"}, {send:"⏳ Esperá", show:"⏳"},
 ];
 const CHANGELOG = [
+  {version:"1.2.3", date:"19/08/2026", items:[
+    "🎲⚡ Matchmaking automático: nuevos botones \"Casual rápido\" y \"Ranked rápido\" en Todos contra todos — buscan rivales solos, sin compartir código de sala. Si no aparecen suficientes a tiempo, la partida arranca igual completando con IA.",
+  ]},
   {version:"1.2.2", date:"19/08/2026", items:[
     "🏆 Arreglado: los logros que se desbloquean EN VIVO durante la partida (jugar una escalera, un grupo de 4 colores, romper un candado) nunca te avisaban ni se acreditaban — quedaba silenciado por un bug interno. Ahora sí se notifican y se acreditan al toque.",
   ]},
@@ -5371,6 +5374,9 @@ function netConnect(host){
       // Leaderboard callback
       if(msg.type==="leaderboard"&&G._lbCb){ G._lbCb(msg); return; }
       if(msg.type==="roomList"){ G.publicRooms=msg.rooms||[]; if(G.screen==="netConnect"&&G.netStep==="publicRooms") render(); return; }
+      if(msg.type==="queueStatus"){ G.searchingSeconds=msg.waitingSeconds||0; G.searchingSize=msg.queueSize||0; if(G.screen==="netConnect"&&G.netStep==="searching") render(); return; }
+      if(msg.type==="queueMatched"){ setMsg("¡Encontramos partida!"); return; }
+      if(msg.type==="queueLeft"){ return; }
       // Rank update
       if(msg.type==="rankUpdate"){ G.rankUpdate=msg; if(msg.profile) syncProfileFromServer(msg.profile); }
       else if(msg.type==="profile"){ clearClaiming(); syncProfileFromServer(msg.profile); render(); }
@@ -6413,10 +6419,23 @@ function renderNetConnect(app){
       <h2 style="font-family:var(--font-display);color:#ffe9a8;font-size:20px;margin-bottom:12px">👥 Todos contra todos</h2>
       ${G.message?`<p style="text-align:center;font-size:12px;color:#f87171;font-weight:700;background:rgba(220,38,38,.12);border:1px solid rgba(220,38,38,.3);border-radius:8px;padding:6px 10px;margin:0 0 10px">⚠ ${esc(G.message)}</p>`:""}
       <div style="display:flex;flex-direction:column;gap:8px">
-        <button class="btn btn-gold" onclick="goCreateRoom('ffa')">➕ Crear sala nueva</button>
-        <button class="btn btn-gold" onclick="G.netCategory='ffa';G.netStep='enterCode';render()" style="background:linear-gradient(180deg,#38bdf8,#0369a1);color:#fff">🚪 Unirse a una sala</button>
-        <button class="btn btn-gold" onclick="G.netCategory='ffa';doListPublicRooms()" style="background:linear-gradient(180deg,#34d399,#059669);color:#04231a">🌍 Salas públicas</button>
+        <button class="btn btn-gold" onclick="doQueueJoin('casual')" style="background:linear-gradient(180deg,#c084fc,#7e22ce);color:#fff">🎲 Casual rápido</button>
+        <button class="btn btn-gold" onclick="doQueueJoin('ranked')" style="background:linear-gradient(180deg,#fbbf24,#b45309)">⚡ Ranked rápido</button>
+        <p style="font-size:9.5px;color:rgba(232,238,247,.45);margin:-4px 0 4px;text-align:center;line-height:1.3">Busca rivales automáticamente — si no aparecen a tiempo, se completa con IA.</p>
+        <button class="btn btn-ghost" onclick="goCreateRoom('ffa')">➕ Crear sala nueva</button>
+        <button class="btn btn-ghost" onclick="G.netCategory='ffa';G.netStep='enterCode';render()">🚪 Unirse a una sala</button>
+        <button class="btn btn-ghost" onclick="G.netCategory='ffa';doListPublicRooms()">🌍 Salas públicas</button>
       </div>
+    </div></div>`; return;
+  }
+  if(step==="searching"){
+    const mode=G.searchingMode||"casual";
+    app.innerHTML=`<div class="screen-center"><div class="card ${G._enterCls}" style="text-align:center">
+      <h2 style="font-family:var(--font-display);color:#ffe9a8;font-size:18px;margin-bottom:6px">${mode==="ranked"?"⚡ Buscando partida Ranked…":"🎲 Buscando partida Casual…"}</h2>
+      <div class="searching-spinner" aria-hidden="true"></div>
+      <p style="font-size:12px;color:rgba(232,238,247,.7);margin:10px 0 4px">${G.searchingSeconds||0}s buscando rivales${G.searchingSize?` · ${G.searchingSize} en cola`:""}</p>
+      <p style="font-size:10px;color:rgba(232,238,247,.45);margin-bottom:14px;line-height:1.3">Si no aparecen suficientes a tiempo, se completa con IA y arranca igual.</p>
+      <button class="btn btn-ghost" onclick="doQueueLeave()">✖ Cancelar búsqueda</button>
     </div></div>`; return;
   }
   if(step==="teamHub"){
@@ -6626,6 +6645,16 @@ async function doJoinPublicRoom(code){
   if(!(await ensureConnected())) return;
   markLobbyPending("join"); render();
   netSend({type:"join", room:code, name: G.serverProfile?G.serverProfile.username:P.name, skin: P.skin||"clasica"});
+}
+async function doQueueJoin(mode){
+  if(!(await ensureConnected())) return;
+  G.searchingMode=mode; G.searchingSeconds=0; G.searchingSize=0;
+  G.screen="netConnect"; G.netStep="searching"; render();
+  netSend({type:"queueJoin", mode, name: G.serverProfile?G.serverProfile.username:P.name, skin: P.skin||"clasica"});
+}
+function doQueueLeave(){
+  netSend({type:"queueLeave"});
+  G.netStep="ffaHub"; render();
 }
 function doSetReady(ready){
   markLobbyPending("ready"); render();

@@ -536,6 +536,15 @@ body.galactico-mode .ptitle{color:rgba(216,180,254,.85)}
 input[type="range"]{accent-color:#f59e0b;height:20px;cursor:pointer}
 input[type="range"]:disabled{opacity:.35;cursor:default}
 
+/* ---------- Matchmaking: pantalla "buscando partida" ---------- */
+.searching-spinner{
+  width:40px;height:40px;margin:8px auto 0;border-radius:50%;
+  border:3px solid rgba(251,191,36,.2);border-top-color:var(--gold);
+  animation:searchingSpin 1s linear infinite;
+}
+@keyframes searchingSpin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.searching-spinner{animation:none;border-top-color:rgba(251,191,36,.2)}}
+
 /* ---------- Botones de modo (menú Multijugador): pill + chip de ícono ---------- */
 .mode-btn{
   display:flex;align-items:center;gap:10px;width:100%;padding:7px 16px 7px 7px;
