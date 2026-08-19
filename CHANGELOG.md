@@ -2,6 +2,17 @@
 
 Todos los cambios notables del proyecto se documentan en este archivo.
 
+## [1.2.1] - 2026-08-19 — Fix: caché del service worker desactualizada
+
+Bug real reportado: fondo animado (estrellas/fichas flotando) ausente por
+completo en el menú, tanto en la APK como en el navegador. Causa: `sw.js`
+cachea html/css/js con una `CACHE_VERSION` que hay que subir a mano cada vez
+que cambia `GAME_VERSION` (estaba en "burako-v2.8.0", sin tocar hace
+varias versiones) — sin eso, quien ya había abierto la app antes queda
+sirviendo una mezcla de archivos viejos cacheados en vez de los nuevos.
+`CACHE_VERSION` ahora sincronizada con `GAME_VERSION` — fuerza una
+recarga limpia de todo el caché en el próximo ingreso.
+
 ## [1.2.0] - 2026-08-19 — Mini-fase: UX de chat (texto libre)
 
 En pruebas reales, un jugador no encontraba el chat ni entendía dónde tocar.

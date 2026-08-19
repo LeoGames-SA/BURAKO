@@ -2,7 +2,7 @@
    BURAKO — app completa: menú, tutorial, sonidos, IA con delay
    ================================================================ */
 
-const GAME_VERSION = "1.2.0";
+const GAME_VERSION = "1.2.1";
 const MAX_PLAYERS_ONLINE = 8; // el server acepta hasta 8 en sala (mazo doble si se supera 4)
 const QUICK_CHAT_COOLDOWN_MS = 15000;
 const QUICK_CHAT_OPTIONS = [
@@ -18,6 +18,9 @@ const TEAM_CHAT_OPTIONS = [
   {send:"👍 Dale", show:"👍"}, {send:"🚫 No tengo", show:"🚫"}, {send:"⏳ Esperá", show:"⏳"},
 ];
 const CHANGELOG = [
+  {version:"1.2.1", date:"19/08/2026", items:[
+    "🛠 Arreglado: el fondo animado (estrellas/fichas flotando) podía no verse en el menú por archivos viejos guardados en caché del celular/navegador. Con esta actualización se limpia el caché viejo automáticamente.",
+  ]},
   {version:"1.2.0", date:"19/08/2026", items:[
     "💬 Chat nuevo: ahora podés escribir mensajes de texto libre en las salas online (antes solo había frases/emojis predefinidos). Botón claro \"💬 Chat\" con aviso de mensajes nuevos, panel compacto en PC y una bandeja que se desliza desde abajo en el celular — no tapa la mesa ni el atril.",
   ]},
