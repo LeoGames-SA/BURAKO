@@ -525,7 +525,7 @@ async function fetchProfileRaw(usernameLower) {
 }
 
 function rowToProfileShape(row) {
-  const inv = { skin: [], tapete: [], effect: [], soundfx: [], trail: [], avatar: [], nameeffect: [], banner: [] };
+  const inv = { skin: [], tapete: [], effect: [], soundfx: [], trail: [], avatar: [], nameeffect: [], banner: [], title: [] };
   (row.inventory_items || []).forEach((i) => { if (inv[i.item_type]) inv[i.item_type].push(i.item_id); });
   const achievements = {};
   (row.profile_achievements || []).forEach((a) => { achievements[a.achievement_id] = new Date(a.unlocked_at).getTime(); });
@@ -544,11 +544,13 @@ function rowToProfileShape(row) {
     inventory: {
       skins: inv.skin, tapetes: inv.tapete, effects: inv.effect, soundfx: inv.soundfx,
       trails: inv.trail, avatars: inv.avatar, nameeffects: inv.nameeffect, banners: inv.banner,
+      titles: inv.title,
     },
     active: {
       skin: row.active_skin, tapete: row.active_tapete, effect: row.active_effect,
       soundfx: row.active_soundfx, trail: row.active_trail,
       nameeffect: row.active_nameeffect, banner: row.active_banner,
+      title: row.active_title,
     },
     stats: {
       games: row.games, wins: row.wins, losses: row.losses,
@@ -583,12 +585,13 @@ async function persistProfile(p) {
       active_skin: p.active.skin, active_tapete: p.active.tapete, active_effect: p.active.effect,
       active_soundfx: p.active.soundfx, active_trail: p.active.trail,
       active_nameeffect: p.active.nameeffect, active_banner: p.active.banner,
+      active_title: p.active.title,
     })
     .eq("id", p._id);
   if (error) throw new Error("persistProfile (profiles): " + error.message);
 
   const invRows = [];
-  const typeMap = { skins: "skin", tapetes: "tapete", effects: "effect", soundfx: "soundfx", trails: "trail", avatars: "avatar", nameeffects: "nameeffect", banners: "banner" };
+  const typeMap = { skins: "skin", tapetes: "tapete", effects: "effect", soundfx: "soundfx", trails: "trail", avatars: "avatar", nameeffects: "nameeffect", banners: "banner", titles: "title" };
   for (const [srcKey, item_type] of Object.entries(typeMap)) {
     for (const item_id of p.inventory[srcKey] || []) invRows.push({ profile_id: p._id, item_type, item_id });
   }
@@ -610,6 +613,100 @@ async function persistProfile(p) {
   if (passRows.length) {
     const { error: e3 } = await supabase.from("pass_claims").upsert(passRows, { onConflict: "profile_id,pass_type,level", ignoreDuplicates: true });
     if (e3) throw new Error("persistProfile (pass_claims): " + e3.message);
+  }
+}
+
+/* ============================================================
+   MOTOR DE RECOMPENSAS (Fase 1) — ver docs/backend/ o el changelog de esta
+   fase para el diseño completo. Dos primitivas:
+
+   - claimGrantSlot(profileId, sourceType, sourceId, rewards): el gate de
+     idempotencia real (antes no existía ninguno a nivel DB — un logro o un
+     nivel de pase podían pagarse dos veces por una carrera entre dos
+     requests casi simultáneos, aunque el registro de "desbloqueado" en su
+     tabla quedara una sola vez). Un INSERT liso a reward_grants con su
+     unique constraint — si ya existe, el insert falla con 23505
+     (unique_violation) y acá se traduce a claimed:false sin tocar nada más.
+     Se usa como guard ANTES de la lógica existente de otorgar (logros,
+     pases, resultado de partida) sin reescribir esa lógica.
+   - grantRewards(username, rewards, source): el motor completo para
+     features NUEVAS (Ranked rewards, Ruleta, Misiones, Torre — no
+     implementadas todavía) que no tienen ya un objeto de perfil cargado en
+     memoria — aplica coins/xp/rankPts/items de forma atómica vía el RPC
+     grant_rewards (una función = una transacción: si algo falla a mitad,
+     Postgres hace rollback de todo, nunca queda "coins sí, skin no").
+
+   rewards: [{type:'coins',amount}, {type:'xp',amount},
+             {type:'item',itemType,itemId}, {type:'title',itemId},
+             {type:'rank_delta',amount}]
+   source: {type:'match'|'achievement'|'pass'|'pass_galactico'|futuro, id}
+   ============================================================ */
+async function claimGrantSlot(profileId, sourceType, sourceId, rewards) {
+  const { data, error } = await supabase
+    .from("reward_grants")
+    .insert({ profile_id: profileId, source_type: sourceType, source_id: String(sourceId), rewards: rewards || [] })
+    .select()
+    .single();
+  if (error) {
+    if (error.code === "23505") return { claimed: false }; // ya existía — otra request ya lo otorgó
+    throw new Error("claimGrantSlot: " + error.message);
+  }
+  return { claimed: true, grant: data };
+}
+
+async function grantRewards(username, rewards, source) {
+  try {
+    const row = await fetchProfileRaw(username.trim().toLowerCase());
+    if (!row) return { ok: false, error: "Usuario inexistente." };
+    const { data, error } = await supabase.rpc("grant_rewards", {
+      p_profile_id: row.id,
+      p_source_type: source.type,
+      p_source_id: String(source.id),
+      p_rewards: rewards,
+    });
+    if (error) return { ok: false, error: error.message };
+    return { ok: true, ...data };
+  } catch (e) {
+    console.error("[db] grantRewards: error para", username, "-", e.message);
+    return { ok: false, error: "Servidor no disponible en este momento. Probá de nuevo." };
+  }
+}
+
+/* Catálogo central de recompensas — a propósito vacío/mínimo en esta fase
+   (no hay Ruleta/Misiones/Torre todavía, ver Fase 1). Es el lugar donde
+   esas fases futuras van a agregar entradas (rank_promo_gold,
+   tower_rank_3, daily_first_win, mission_x, ...) en vez de hardcodear
+   números mágicos en server.js — cada entrada es un array `rewards` listo
+   para pasarle directo a grantRewards/claimGrantSlot. */
+const REWARD_DEFINITIONS = {};
+
+/* Historial de partida — matches/match_participants existían en el esquema
+   desde el inicio pero nunca se escribían (0 filas siempre). ensureMatchRow
+   crea (o reusa, cacheada en room._matchDbId) la fila de "matches" al
+   resolver una partida, dando un id real para usar como source_id del
+   guard de idempotencia de resolveMatch. Best-effort: un fallo acá nunca
+   debe frenar el resultado real de la partida. */
+async function ensureMatchRow({ roomCode, gameMode, ranked, startedAt }) {
+  try {
+    const { data, error } = await supabase
+      .from("matches")
+      .insert({ room_code: roomCode || null, game_mode: gameMode || "casual", ranked: !!ranked, started_at: new Date(startedAt || Date.now()).toISOString() })
+      .select("id")
+      .single();
+    if (error) throw new Error(error.message);
+    return data.id;
+  } catch (e) {
+    console.error("[db] ensureMatchRow: error -", e.message);
+    return null;
+  }
+}
+async function recordMatchParticipants(matchId, rows) {
+  if (!matchId || !rows || !rows.length) return;
+  try {
+    const { error } = await supabase.from("match_participants").insert(rows.map(r => ({ match_id: matchId, ...r })));
+    if (error) throw new Error(error.message);
+  } catch (e) {
+    console.error("[db] recordMatchParticipants: error -", e.message);
   }
 }
 
@@ -848,7 +945,8 @@ function _findItem(kind, id) {
 }
 function _invKey(kind) {
   return kind === "skin" ? "skins" : kind === "tapete" ? "tapetes" : kind === "soundfx" ? "soundfx"
-    : kind === "nameeffect" ? "nameeffects" : kind === "banner" ? "banners" : kind === "trail" ? "trails" : "effects";
+    : kind === "nameeffect" ? "nameeffects" : kind === "banner" ? "banners" : kind === "trail" ? "trails"
+    : kind === "title" ? "titles" : "effects";
 }
 
 async function buyItem(username, kind, id) {
@@ -864,7 +962,7 @@ async function buyItem(username, kind, id) {
     if (p.coins < item.price) return { ok: false, error: "No te alcanzan las monedas (necesitás " + item.price + ")." };
     p.coins -= item.price;
     p.inventory[invKey].push(id);
-    const newAchs = checkAchievements(p, {});
+    const newAchs = await checkAchievements(p, {});
     await persistProfile(p);
     return { ok: true, profile: publicProfile(p), newAchievements: newAchs };
   } catch (e) {
@@ -879,10 +977,11 @@ async function setActive(username, kind, id) {
     if (!lp.ok) return lp;
     const p = lp.p;
     const activeKey = kind === "skin" ? "skin" : kind === "tapete" ? "tapete" : kind === "soundfx" ? "soundfx"
-      : kind === "nameeffect" ? "nameeffect" : kind === "banner" ? "banner" : kind === "trail" ? "trail" : "effect";
-    // Nombre y banner son adornos OPCIONALES (a diferencia de skin/tapete/efecto, que
-    // siempre tienen algo activo) — "none" los apaga sin necesitar poseer nada.
-    if (id === "none" && (kind === "nameeffect" || kind === "banner")) {
+      : kind === "nameeffect" ? "nameeffect" : kind === "banner" ? "banner" : kind === "trail" ? "trail"
+      : kind === "title" ? "title" : "effect";
+    // Nombre, banner y título son adornos OPCIONALES (a diferencia de skin/tapete/
+    // efecto, que siempre tienen algo activo) — "none" los apaga sin necesitar poseer nada.
+    if (id === "none" && (kind === "nameeffect" || kind === "banner" || kind === "title")) {
       p.active[activeKey] = null;
       await persistProfile(p);
       return { ok: true, profile: publicProfile(p) };
@@ -940,6 +1039,12 @@ async function claimPass(username, level) {
     if (!L) return { ok: false, error: "Nivel de pase inválido." };
     if (p.passClaimed[level]) return { ok: false, error: "Ya reclamaste esa recompensa." };
     if (levelFromXp(p.xp).level < level) return { ok: false, error: "Todavía no llegaste a ese nivel." };
+    // Gate real de idempotencia (antes el único guard era p.passClaimed[level]
+    // en memoria — dos clicks/reintentos casi simultáneos podían pagar la
+    // recompensa dos veces aunque pass_claims, con su propia PK, terminara
+    // mostrando un solo claim registrado).
+    const slot = await claimGrantSlot(p._id, "pass", level, [L.reward]);
+    if (!slot.claimed) return { ok: false, error: "Ya reclamaste esa recompensa." };
     p.passClaimed[level] = true;
     const r = L.reward;
     if (r.coins) p.coins += r.coins;
@@ -970,6 +1075,8 @@ async function claimGalacticoPass(username, level) {
     if (!L) return { ok: false, error: "Nivel de pase inválido." };
     if (p.galactico.claimed[level]) return { ok: false, error: "Ya reclamaste esa recompensa." };
     if (galacticoLevelFromXp(p.galactico.xp).level < level) return { ok: false, error: "Todavía no llegaste a ese nivel." };
+    const slot = await claimGrantSlot(p._id, "pass_galactico", level, [L.reward]);
+    if (!slot.claimed) return { ok: false, error: "Ya reclamaste esa recompensa." };
     p.galactico.claimed[level] = true;
     const r = L.reward;
     if (r.coins) p.coins += r.coins;
@@ -1004,12 +1111,25 @@ async function setAvatar(username, avatar) {
 }
 
 /* ---------- Logros: se corren después de cada acción relevante ---------- */
-function checkAchievements(profile, ctx) {
+async function checkAchievements(profile, ctx) {
   const newly = [];
   for (const ach of ACHIEVEMENTS) {
     if (profile.achievements[ach.id]) continue;
     try {
       if (ach.check(profile, ctx)) {
+        // Gate real de idempotencia ANTES de tocar coins/xp: dos chequeos
+        // casi simultáneos para el mismo jugador (ej. un logro "en vivo"
+        // durante la partida corriendo en paralelo con el chequeo de fin de
+        // partida) antes podían pagar el mismo logro dos veces — el único
+        // guard era `profile.achievements[ach.id]` en memoria sobre un
+        // objeto recién leído, que no protege contra la carrera. Ahora el
+        // unique constraint de reward_grants decide atómicamente quién
+        // llega primero.
+        const slot = await claimGrantSlot(profile._id, "achievement", ach.id, [
+          { type: "coins", amount: ach.coinReward },
+          { type: "xp", amount: ach.xpReward },
+        ]);
+        if (!slot.claimed) continue; // ya lo otorgó otra request — no volver a sumar
         profile.achievements[ach.id] = Date.now();
         profile.coins += ach.coinReward;
         profile.xp += ach.xpReward;
@@ -1047,6 +1167,24 @@ async function resolveMatch(results, opts) {
     }
     if (!row) return null;
     const p = rowToProfileShape(row);
+
+    // Gate real de idempotencia a nivel DB — antes de esto, el único
+    // mecanismo era `player._statsResolved` en server.js: un flag
+    // puramente EN MEMORIA de ese proceso/sala, que no protege contra un
+    // reinicio del server, dos instancias, ni un reintento/replay del
+    // mismo mensaje. Con matchId real (ver ensureMatchRow en server.js),
+    // el unique constraint de reward_grants decide atómicamente si esta
+    // combinación (jugador, partida) ya se resolvió — si `opts.matchId` no
+    // vino (llamador viejo/defensivo), no bloquea, sigue como antes.
+    if (opts.matchId) {
+      try {
+        const slot = await claimGrantSlot(p._id, "match", opts.matchId, [{ note: "resultado de partida", place: r.place }]);
+        if (!slot.claimed) return null; // ya resuelto — no volver a aplicar
+      } catch (e) {
+        console.error("[db] resolveMatch: claimGrantSlot falló para", r.username, "-", e.message);
+        return null; // ante la duda, no aplicar dos veces
+      }
+    }
 
     const before = {
       xp: p.xp, level: levelFromXp(p.xp).level,
@@ -1113,7 +1251,7 @@ async function resolveMatch(results, opts) {
       jokerBreaksUsed: r.jokerBreaksUsed || 0,
       opponentsTilesLeft: r.opponentsTilesLeft || 0,
     };
-    const newAchievements = checkAchievements(p, ctx);
+    const newAchievements = await checkAchievements(p, ctx);
 
     // === Pase Galáctico: progreso APARTE, solo si la partida fue de ese modo ===
     let galactico = null;
@@ -1137,6 +1275,7 @@ async function resolveMatch(results, opts) {
 
     return {
       username: p.username,
+      profileId: p._id, // para escribir match_participants sin tener que resolver username -> id de nuevo
       place,
       won: isWinner,
       xpGained,
@@ -1165,7 +1304,7 @@ async function checkLive(username, ctx) {
     const lp = await loadForMutation(username);
     if (!lp.ok) return [];
     const p = lp.p;
-    const newly = checkAchievements(p, ctx);
+    const newly = await checkAchievements(p, ctx);
     if (newly.length) await persistProfile(p);
     return newly;
   } catch (e) {
@@ -1192,7 +1331,7 @@ async function leaderboard(n = 20) {
 }
 
 module.exports = {
-  CATALOG, TIERS, ACHIEVEMENTS, PASS_LEVELS, GALACTICO_PASS_LEVELS,
+  CATALOG, TIERS, ACHIEVEMENTS, PASS_LEVELS, GALACTICO_PASS_LEVELS, REWARD_DEFINITIONS,
   register, login,
   resumeSession, invalidateSession,
   getProfileByName,
@@ -1200,6 +1339,8 @@ module.exports = {
   claimPass, claimGalacticoPass,
   reserveBet, creditCoins,
   resolveMatch,
+  checkLive, // bugfix Fase 1: nunca estaba exportado — "logros en vivo" durante la partida no funcionaba nunca (silenciado por un try/catch vacío en reportLiveAchievements)
   leaderboard,
   levelFromXp, tierOf, galacticoLevelFromXp,
+  grantRewards, claimGrantSlot, ensureMatchRow, recordMatchParticipants,
 };

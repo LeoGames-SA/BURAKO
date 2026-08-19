@@ -2,6 +2,62 @@
 
 Todos los cambios notables del proyecto se documentan en este archivo.
 
+## [1.2.2] - 2026-08-19 — Fase 1: infraestructura de recompensas y progresión
+
+Infraestructura server-authoritative, idempotente y transaccional para que
+todos los sistemas futuros (Ranked rewards, Ruleta, Misiones, Torre) usen el
+mismo motor en vez de mutar `profiles.coins/xp` cada uno por su cuenta.
+
+**Auditoría primero** (sin crear tablas nuevas antes de saber qué había):
+`matches`/`match_participants` existían en el esquema desde el inicio pero
+nunca se escribían (0 filas siempre); no existía ninguna función RPC/
+transaccional (`supabase.rpc`) en todo el repo — todo era read-modify-write
+desde Node; el único mecanismo de idempotencia para logros/pases era un
+chequeo en memoria sobre un objeto recién leído, que no protege contra dos
+requests casi simultáneos; para el resultado de partida, el único guard era
+`player._statsResolved`, un flag en memoria de ese proceso/sala — cero
+protección ante un reinicio del server o un replay del mismo mensaje.
+
+**Motor nuevo** (migración `supabase/migrations/20260819142555_reward_engine.sql`):
+- `reward_grants`: ledger/historial de toda recompensa otorgada, con
+  `unique(profile_id, source_type, source_id)` — el mecanismo real de
+  idempotencia que antes no existía a nivel DB.
+- RPC `grant_rewards(profile_id, source_type, source_id, rewards)`:
+  transaccional (una función = una transacción) — si algo falla a mitad,
+  Postgres hace rollback de TODO (coins, xp, items, el registro del
+  ledger), nunca queda "coins sí, skin no". Verificado con un test real:
+  un item con `item_type` inválido rechaza la transacción completa sin
+  dejar ni las coins aplicadas ni un registro fantasma en el ledger.
+- `db.js`: `grantRewards()` (motor completo, para features nuevas) y
+  `claimGrantSlot()` (gate liviano de idempotencia, usado para envolver la
+  lógica YA EXISTENTE de logros/pases/resultado de partida sin reescribirla
+  — más seguro que una migración completa de esa lógica, ya endurecida dos
+  veces esta sesión en Ranked/MMR).
+- `checkAchievements`/`claimPass`/`claimGalacticoPass`/`resolveMatch` ahora
+  pasan por ese gate — arregla una carrera real: un logro podía pagarse dos
+  veces si el chequeo "en vivo" durante la partida corría casi al mismo
+  tiempo que el chequeo de fin de partida.
+- `resolveMatch` sigue usando exactamente el mismo cálculo de XP/coins/
+  rankDelta por puesto (sin tocar esa lógica), pero ahora protegido por el
+  ledger real en vez de `_statsResolved` en memoria.
+- `matches`/`match_participants` finalmente se escriben: `finishMatch()`
+  crea una fila de partida y un participante por jugador (lugar, puntaje,
+  XP/monedas/rankDelta ganados) — el historial real de partida que faltaba.
+- Títulos: base lista (reutiliza `inventory_items` con `item_type='title'`
+  en vez de un segundo inventario, `profiles.active_title` nuevo,
+  `setActive('title', id)` extendido) — sin ningún título real todavía
+  (no hay fuente que los otorgue: Torre no está implementada).
+- Bug real encontrado en el camino: `DB.checkLive` nunca estaba exportado
+  desde `db.js` — los logros que se desbloquean EN VIVO durante la partida
+  nunca funcionaron, silenciado por un `try/catch` vacío. Corregido.
+
+23 tests nuevos (`server/scripts/test-reward-engine.mjs`): reward simple,
+idempotencia secuencial, reward múltiple consistente, reward fallido sin
+estado parcial, usuario inexistente, concurrencia real (2 requests
+simultáneos → un solo claim), título unlock+equip, persistencia tras
+releer el perfil (relogin). Regresión completa existente sin romperse
+(reglas, ranked, salas, chat, resolución de fin de partida, auth, e2e).
+
 ## [1.2.1] - 2026-08-19 — Fix: caché del service worker desactualizada
 
 Bug real reportado: fondo animado (estrellas/fichas flotando) ausente por

@@ -2,7 +2,7 @@
    BURAKO — app completa: menú, tutorial, sonidos, IA con delay
    ================================================================ */
 
-const GAME_VERSION = "1.2.1";
+const GAME_VERSION = "1.2.2";
 const MAX_PLAYERS_ONLINE = 8; // el server acepta hasta 8 en sala (mazo doble si se supera 4)
 const QUICK_CHAT_COOLDOWN_MS = 15000;
 const QUICK_CHAT_OPTIONS = [
@@ -18,6 +18,9 @@ const TEAM_CHAT_OPTIONS = [
   {send:"👍 Dale", show:"👍"}, {send:"🚫 No tengo", show:"🚫"}, {send:"⏳ Esperá", show:"⏳"},
 ];
 const CHANGELOG = [
+  {version:"1.2.2", date:"19/08/2026", items:[
+    "🏆 Arreglado: los logros que se desbloquean EN VIVO durante la partida (jugar una escalera, un grupo de 4 colores, romper un candado) nunca te avisaban ni se acreditaban — quedaba silenciado por un bug interno. Ahora sí se notifican y se acreditan al toque.",
+  ]},
   {version:"1.2.1", date:"19/08/2026", items:[
     "🛠 Arreglado: el fondo animado (estrellas/fichas flotando) podía no verse en el menú por archivos viejos guardados en caché del celular/navegador. Con esta actualización se limpia el caché viejo automáticamente.",
   ]},

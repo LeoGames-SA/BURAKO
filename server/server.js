@@ -597,6 +597,20 @@ function resetTurnTimer(room) {
   }, 1000);
 }
 
+/* Fase 1 — historial real de partida: matches/match_participants existían en
+   el esquema desde el inicio pero nunca se escribían (0 filas siempre). Se
+   crea (o reusa, cacheada en room._matchDbId) UNA fila de "matches" por
+   partida real — tanto forfeitPlayer (rendición a mitad de partida, sigue
+   para el resto) como finishMatch (cierre real) la comparten, así todos los
+   jugadores de la MISMA partida quedan bajo el mismo matchId. También sirve
+   de source_id real para el guard de idempotencia de DB.resolveMatch (antes
+   solo existía _statsResolved, en memoria de este proceso — ver db.js). */
+async function ensureMatchDbId(room) {
+  if (room._matchDbId) return room._matchDbId;
+  room._matchDbId = await DB.ensureMatchRow({ roomCode: room.code, gameMode: room.gameMode, ranked: !!room.ranked, startedAt: room.startedAt });
+  return room._matchDbId;
+}
+
 /* Rinde a un jugador (rendición explícita o desconexión en partida en curso):
    sus fichas vuelven al pozo mezcladas y la partida sigue para el resto. */
 async function forfeitPlayer(room, player, opts) {
@@ -625,8 +639,13 @@ async function forfeitPlayer(room, player, opts) {
   if (player.username && !endsMatchNow) {
     const placeForSurr = room.players.filter(p => p.username).length; // último
     try {
-      const selfUpdate = await DB.resolveMatch([{ username: player.username, place: placeForSurr, jokerBreaksUsed: 3 - (room.jokerBreaks[player.id] || 0), opponentsTilesLeft: 0 }], { ranked: !!room.ranked, playersCount: totalHuman, gameMode: room.gameMode });
+      const matchId = await ensureMatchDbId(room);
+      const selfUpdate = await DB.resolveMatch([{ username: player.username, place: placeForSurr, jokerBreaksUsed: 3 - (room.jokerBreaks[player.id] || 0), opponentsTilesLeft: 0 }], { ranked: !!room.ranked, playersCount: totalHuman, gameMode: room.gameMode, matchId });
       player._statsResolved = true;
+      const su = selfUpdate[0];
+      if (matchId && su) {
+        DB.recordMatchParticipants(matchId, [{ profile_id: su.profileId, place: placeForSurr, score: room.scores[player.id] || 0, surrendered: true, xp_gained: su.xpGained, coins_gained: su.coinsGained, rank_delta: su.rankDelta }]);
+      }
       if (player.ws) send(player.ws, { type: "matchResult", won: false, place: placeForSurr, winnerName: null, surrendererId: player.id, iSurrendered: true, ranked: !!room.ranked, update: selfUpdate[0] || null, betResult: null });
     } catch (e) { console.error("[forfeitPlayer] DB.resolveMatch falló para", player.username, "-", e.message); }
   }
@@ -740,6 +759,7 @@ async function endGameByPoints(room) {
 async function finishMatch(room, winnerId, opts) {
   opts = opts || {};
   if (!winnerId) return;
+  const matchId = await ensureMatchDbId(room);
   clearInterval(room.turnTimer);
   room.winnerId = winnerId;
   room.started = false;
@@ -836,9 +856,23 @@ async function finishMatch(room, winnerId, opts) {
       // estado real de cada jugador sin importar qué camino cerró la partida.
       surrendered: results.some(r => r.surrendered),
       gameMode: room.gameMode,
+      matchId,
     });
   } catch (e) {
     console.error("[finishMatch] DB.resolveMatch falló -", e.message);
+  }
+
+  // Historial real de partida (Fase 1) — un participant por jugador
+  // efectivamente resuelto ACÁ (los ya resueltos antes por forfeitPlayer ya
+  // escribieron el suyo, y quedaron fuera de `results`/`updates` por el
+  // mismo filtro `_statsResolved` de arriba, así que no hay duplicados).
+  if (matchId && updates.length) {
+    const rows = updates.map((u) => {
+      const rp = room.players.find((pp) => pp.username === u.username);
+      const r = results.find((rr) => rr.username === u.username);
+      return { profile_id: u.profileId, place: u.place, score: rp ? (room.scores[rp.id] || 0) : 0, surrendered: !!(r && r.surrendered), xp_gained: u.xpGained, coins_gained: u.coinsGained, rank_delta: u.rankDelta };
+    });
+    DB.recordMatchParticipants(matchId, rows);
   }
 
   // enviar matchResult a cada humano con SU update completo — a quien ya se
