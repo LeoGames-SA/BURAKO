@@ -2,6 +2,32 @@
 
 Todos los cambios notables del proyecto se documentan en este archivo.
 
+## [1.2.0] - 2026-08-19 — Mini-fase: UX de chat (texto libre)
+
+En pruebas reales, un jugador no encontraba el chat ni entendía dónde tocar.
+Investigación: no existía chat de texto libre — solo un "quick chat" de
+frases/emojis predefinidos, mezclado dentro del panel de Historial junto con
+el log de partida (fichas robadas, juegos bajados, etc.), sin ninguna
+etiqueta que lo distinguiera. Reemplazado por completo:
+
+- Punto de entrada único y claro: botón "💬 Chat" (o "💬 Chat · N" con
+  mensajes sin leer) en el HUD, separado del Historial.
+- PC: panel compacto flotante sobre la mesa (no tapa el atril), alto fijo,
+  scroll interno, últimos 10 mensajes.
+- Android/mobile: bottom-sheet que ocupa ~45% de la pantalla, no tapa la
+  mesa permanentemente.
+- Input de texto real ("Escribí un mensaje...", Enter o botón Enviar),
+  límite de 200 caracteres, texto siempre escapado (sin HTML arbitrario).
+- Servidor: buffer de chat por sala capado a 25 mensajes (antes no se
+  guardaba nada — quien se unía a mitad de partida no veía nada de lo
+  conversado; ahora recibe el historial reciente al entrar/reconectar).
+- Rendimiento (Fase 0.5): recibir un mensaje de chat NO dispara un render
+  completo de la mesa — actualiza solo la lista de mensajes/badge, mismo
+  criterio que ya usa el timer. Verificado con Playwright: 0 llamadas a
+  `renderPlaying()` al recibir un chat con la mesa cargada de juegos.
+
+23 tests de UI (Playwright) + 10 tests de servidor nuevos.
+
 ## [1.1.2] - 2026-08-18 — Fase 0.5.1: bug de resolución final de partida
 
 Bug real reportado tras probar en producción: en una partida de 3, alguien se

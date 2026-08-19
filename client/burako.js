@@ -2,7 +2,7 @@
    BURAKO — app completa: menú, tutorial, sonidos, IA con delay
    ================================================================ */
 
-const GAME_VERSION = "1.1.2";
+const GAME_VERSION = "1.2.0";
 const MAX_PLAYERS_ONLINE = 8; // el server acepta hasta 8 en sala (mazo doble si se supera 4)
 const QUICK_CHAT_COOLDOWN_MS = 15000;
 const QUICK_CHAT_OPTIONS = [
@@ -18,6 +18,9 @@ const TEAM_CHAT_OPTIONS = [
   {send:"👍 Dale", show:"👍"}, {send:"🚫 No tengo", show:"🚫"}, {send:"⏳ Esperá", show:"⏳"},
 ];
 const CHANGELOG = [
+  {version:"1.2.0", date:"19/08/2026", items:[
+    "💬 Chat nuevo: ahora podés escribir mensajes de texto libre en las salas online (antes solo había frases/emojis predefinidos). Botón claro \"💬 Chat\" con aviso de mensajes nuevos, panel compacto en PC y una bandeja que se desliza desde abajo en el celular — no tapa la mesa ni el atril.",
+  ]},
   {version:"1.1.2", date:"18/08/2026", items:[
     "🏳 Arreglado: si alguien se rendía y la partida terminaba después por tiempo o pozo agotado, podía llegar a figurar como ganador (por quedar con el atril vacío). Ahora rendirse siempre es derrota, sin importar cómo termine la partida después.",
   ]},
@@ -584,6 +587,7 @@ const G = {
   tableViewOpen:false,     // modo "Ver mesa" (⛶): vista ampliada/focus — efímero, no se persiste entre partidas
   surrenderConfirmOpen:false, // confirmación propia de "Rendirse" (antes usaba confirm() nativo)
   offlineStatsOpen:false, // modal "Ver mi progreso offline" (Ranked Offline)
+  chatLog:[], chatOpen:false, chatUnread:0, // chat de texto libre — separado de G.history a propósito (ver appendChatMessageDOM)
 };
 function tilePoints(t){ return t.joker?25:t.number; }
 function handPoints(p){ return p.hand.reduce((s,t)=>s+tilePoints(t),0); }
@@ -2339,6 +2343,7 @@ function startDealing(){
   const initTiles=G.initTiles||14;
   G.players.forEach(p=>{ if(!p.isHuman) p.hand=deck.splice(0,initTiles); });
   G.bag=deck; G.table=[]; G.meldCounter=0; G.history=[]; G.historyDrawerOpen=false;
+  G.chatLog=[]; G.chatOpen=false; G.chatUnread=0;
   G.rack=Array(RACK_SLOTS).fill(null); G.reserve=[]; G.dealCount=0; G.currentIdx=0; G.dealtStagger={};
   G.workLoose=[]; G.workGroups=[]; G.selWork=new Set(); G.selHand=new Set();
   G.openedMeldIds=[]; G.openedBackup={};
@@ -4913,6 +4918,7 @@ function renderPlaying(app){
     <span class="title" onclick="togglePause(true)">☰ ${G.online&&NET.roomCode?"Sala "+NET.roomCode:"Burako"}</span>
     <div class="right">
       <button class="hist-toggle-btn ${G.historyPanelClosed?"":"on"}" onclick="toggleHistoryDrawer()" title="${G.historyPanelClosed?"Mostrar historial":"Ocultar historial"}">📜</button>
+      ${(G.online&&G.gameMode!=="team2v2")?`<button id="chatToggleBtn" class="chat-toggle-btn" onclick="toggleChat()" title="Chat">💬 Chat<span id="chatBadge" class="chat-badge" style="${G.chatUnread?"":"display:none"}"> · ${G.chatUnread||0}</span></button>`:""}
       ${bagHTML()}
       <span id="matchclock" title="Tiempo restante de partida" class="hud-matchclock" style="${G.matchEndsAt?"":"display:none"}">${matchClockText()||""}</span>
       ${G.ranked?`<span style="font-size:11px;color:#ffe9a8">🏆 ${G.players.length}J</span>`:G.rankedOffline?`<span class="hud-ranked-badge" style="font-size:11px;color:#ffe9a8" title="Ranked Offline">🏆 Ranked</span>`:""}
@@ -4963,8 +4969,6 @@ function renderPlaying(app){
            en .col-teammate) -->
       ${(()=>{
         const isTeam2v2=G.gameMode==="team2v2";
-        const left=Math.max(0,QUICK_CHAT_COOLDOWN_MS-(Date.now()-(G._lastChatSentAt||0)));
-        const secsLeft=Math.ceil(left/1000);
         return `<div class="hist-drawer-backdrop ${G.historyDrawerOpen?"open":""}" onclick="if(event.target===this)toggleHistoryDrawer()"></div>
         <div class="col-history ${G.historyDrawerOpen?"drawer-open":""} ${G.historyPanelClosed?"panel-closed":""}"${isTeam2v2?` style="flex:0 0 150px"`:""}>
         <button class="hist-drawer-close" onclick="toggleHistoryDrawer()" title="Cerrar">✕</button>
@@ -4972,12 +4976,6 @@ function renderPlaying(app){
         <div class="history-list" data-preserve-scroll="history">
           ${(G.history&&G.history.length)?G.history.slice().reverse().map(historyItemHTML).join(""):`<span class="history-empty">Sin jugadas todavía.</span>`}
         </div>
-        ${(G.online&&!isTeam2v2)?`<div class="chat-quickrow">
-          <div class="chat-quickrow-label">💬${secsLeft>0?" "+secsLeft+"s":""}</div>
-          <div class="chat-quickrow-grid">
-            ${QUICK_CHAT_OPTIONS.map(o=>`<button ${secsLeft>0?"disabled":""} onclick="doQuickChat('${o.send.replace(/'/g,"\\'")}')" title="${esc(o.send)}">${esc(o.show)}</button>`).join("")}
-          </div>
-        </div>`:""}
       </div>`;
       })()}
 
@@ -5096,7 +5094,7 @@ function renderPlaying(app){
       </div>
       `}
     </div>
-  </div>`;
+  </div>${chatPanelHTML()}`;
   morph(app,_playingHtml);
 
   renderAchievementToasts();
@@ -5454,19 +5452,21 @@ function netConnect(host){
         render();
       }
       else if(msg.type==="chat"){
-        G.history=G.history||[];
-        const mine=msg.playerId===NET.myId;
-        G.history.push({time:new Date().toLocaleTimeString('es-UY',{hour:'2-digit',minute:'2-digit',second:'2-digit'}), text:(mine?"Vos":msg.playerName)+": "+msg.text, kind:"chat"});
-        if(G.history.length>50) G.history.shift();
-        if(!mine){
-          G.chatBubbles=G.chatBubbles||{};
-          G.chatBubbles[msg.playerId]=msg.text;
-          clearTimeout(G._chatBubbleT&&G._chatBubbleT[msg.playerId]);
-          G._chatBubbleT=G._chatBubbleT||{};
-          G._chatBubbleT[msg.playerId]=setTimeout(()=>{ delete G.chatBubbles[msg.playerId]; render(); },3200);
-        }
+        // Camino liviano a propósito (Fase 0.5): appendChatMessageDOM toca
+        // solo el DOM del chat, nunca renderPlaying()/la mesa entera.
+        appendChatMessageDOM({id:msg.id, playerId:msg.playerId, playerName:msg.playerName, text:msg.text});
         Sound.select();
-        render();
+      }
+      else if(msg.type==="chatHistory"){
+        // Historial que manda el server una sola vez al entrar/reconectar a
+        // una sala que ya tenía mensajes — no dispara render tampoco; si el
+        // panel ya está abierto en este momento (raro, recién se entró) se
+        // repuebla, si no simplemente queda en G.chatLog para cuando se abra.
+        G.chatLog=(msg.messages||[]).slice(-30);
+        if(G.chatOpen){
+          const list=document.querySelector("#chatMsgList");
+          if(list){ list.innerHTML=G.chatLog.slice(-10).map(chatMsgHTML).join(""); list.scrollTop=list.scrollHeight; }
+        }
       }
       else if(msg.type==="teamChat"){
         // Chat de equipo: solo llega de tu compañero (el server ya filtra), así que
@@ -6005,17 +6005,83 @@ function doNudgeCancel(){
   setMsg("Le avisamos a tu compañero/a que cancele.");
   render();
 }
-function doQuickChat(text){
-  const now=Date.now();
-  if(G._lastChatSentAt && now-G._lastChatSentAt<QUICK_CHAT_COOLDOWN_MS) return;
-  G._lastChatSentAt=now;
-  netSend({type:"quickChat", text});
-  clearInterval(G._chatCooldownTick);
-  G._chatCooldownTick=setInterval(()=>{
-    if(Date.now()-G._lastChatSentAt>=QUICK_CHAT_COOLDOWN_MS) clearInterval(G._chatCooldownTick);
-    if(G.screen==="playing") render();
-  },1000);
-  render();
+/* ---------------- Chat de texto libre ----------------
+   Separado a propósito de G.history/renderPlaying(): un mensaje de chat NO
+   debe disparar un render completo de la mesa (Fase 0.5 — el costo de
+   render() escala con juegos en mesa). appendChatMessageDOM() toca solo el
+   DOM del panel de chat, mismo criterio que netUpdateTimerDOM() para el
+   timer. */
+const CHAT_MAX_LEN=200;
+function chatMsgHTML(m){
+  const mine=m.playerId===NET.myId;
+  return `<div class="chat-msg ${ownerClass(m.playerId)}" data-cid="${m.id}">
+    <span class="chat-msg-name">${mine?"Vos":esc(m.playerName)}</span>
+    <span class="chat-msg-text">${esc(m.text)}</span>
+  </div>`;
+}
+function chatPanelHTML(){
+  if(!(G.online&&G.gameMode!=="team2v2")) return "";
+  return `<div id="chatBackdrop" class="chat-backdrop ${G.chatOpen?"chat-open":""}" onclick="if(event.target===this)toggleChat()"></div>
+  <div id="chatPanel" class="chat-panel ${G.chatOpen?"chat-open":""}">
+    <div class="chat-panel-head">
+      <span class="chat-panel-title">💬 Chat</span>
+      <button class="chat-panel-close" onclick="toggleChat()" title="Cerrar">✕</button>
+    </div>
+    <div id="chatMsgList" class="chat-msglist">
+      ${(G.chatLog||[]).slice(-10).map(chatMsgHTML).join("")||`<span class="chat-empty">Sin mensajes todavía.</span>`}
+    </div>
+    <div class="chat-input-row">
+      <input id="chatInput" type="text" maxlength="${CHAT_MAX_LEN}" placeholder="Escribí un mensaje..." onkeydown="chatInputKeydown(event)"/>
+      <button class="chat-send-btn" onclick="sendChatMessage()">Enviar</button>
+    </div>
+  </div>`;
+}
+function appendChatMessageDOM(m){
+  G.chatLog=G.chatLog||[];
+  G.chatLog.push(m);
+  if(G.chatLog.length>30) G.chatLog.shift();
+  if(G.chatOpen){
+    const list=document.querySelector("#chatMsgList");
+    if(list){
+      const atBottom=(list.scrollHeight-list.scrollTop-list.clientHeight)<40;
+      list.insertAdjacentHTML("beforeend", chatMsgHTML(m));
+      while(list.children.length>10) list.removeChild(list.firstElementChild);
+      if(atBottom) list.scrollTop=list.scrollHeight;
+    }
+  } else {
+    G.chatUnread=(G.chatUnread||0)+1;
+    const badge=document.querySelector("#chatBadge");
+    if(badge){ badge.textContent=" · "+G.chatUnread; badge.style.display=""; }
+  }
+}
+function toggleChat(){
+  G.chatOpen=!G.chatOpen;
+  const panel=document.querySelector("#chatPanel");
+  const backdrop=document.querySelector("#chatBackdrop");
+  if(panel) panel.classList.toggle("chat-open", G.chatOpen);
+  if(backdrop) backdrop.classList.toggle("chat-open", G.chatOpen);
+  if(G.chatOpen){
+    G.chatUnread=0;
+    const badge=document.querySelector("#chatBadge"); if(badge) badge.style.display="none";
+    const list=document.querySelector("#chatMsgList");
+    if(list){
+      list.innerHTML=(G.chatLog||[]).slice(-10).map(chatMsgHTML).join("");
+      list.scrollTop=list.scrollHeight;
+    }
+    const input=document.querySelector("#chatInput"); if(input) input.focus();
+  }
+}
+function sendChatMessage(){
+  const input=document.querySelector("#chatInput");
+  if(!input) return;
+  const text=input.value.trim();
+  if(!text) return;
+  if(text.length>CHAT_MAX_LEN) return setMsg(`Mensaje demasiado largo (máx ${CHAT_MAX_LEN} caracteres).`);
+  netSend({type:"sendChat", text});
+  input.value="";
+}
+function chatInputKeydown(e){
+  if(e.key==="Enter"){ e.preventDefault(); sendChatMessage(); }
 }
 function doTeamChat(text){
   const now=Date.now();
@@ -6712,6 +6778,7 @@ function leaveRoomToMenu(){
   if(NET.ws && NET.ws.readyState===1) netSend({type:"leaveRoom"});
   clearInterval(G.timerHandle); clearInterval(G.matchTimerHandle); clearInterval(G._teamChatCooldownTick);
   G.players=[]; NET.roomCode=null; clearActiveRoom();
+  G.chatLog=[]; G.chatOpen=false; G.chatUnread=0;
   G.screen="menu"; render();
 }
 

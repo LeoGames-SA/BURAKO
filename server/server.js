@@ -31,6 +31,13 @@ const TEAM_CHAT_OPTIONS = [
   ...Array.from({ length: 13 }, (_, i) => "Necesito la " + (i + 1)),
   "Sí", "No", "¿Pasamos?", "👍 Dale", "🚫 No tengo", "⏳ Esperá",
 ];
+// Chat de texto libre (reemplaza el quick chat de presets en la UI, el
+// handler de quickChat/QUICK_CHAT_OPTIONS queda intacto server-side por si
+// una APK vieja todavía lo usa). Sin whitelist acá — texto real — así que sí
+// hace falta límite de largo y un rate-limit básico.
+const CHAT_MAX_LEN = 200;
+const CHAT_COOLDOWN_MS = 800;
+const CHAT_LOG_MAX = 25; // buffer por sala, para historial de recién unidos/reconectados — no para siempre (nunca se guardó nada hoy)
 
 /* ---------- servidor HTTP: sirve el cliente ---------- */
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".png": "image/png", ".jpg": "image/jpeg", ".woff2": "font/woff2", ".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".wav": "audio/wav", ".webmanifest": "application/manifest+json", ".json": "application/json" };
@@ -182,6 +189,13 @@ function broadcast(room) {
 
 function send(ws, obj) {
   if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj));
+}
+
+// Mini-fase de chat: el chat es 100% efímero (nunca se guardó nada), así que
+// quien recién entra o reconecta a una sala con conversación previa no veía
+// nada — se manda una vez al entrar, no en cada broadcast de stateFor().
+function sendChatHistory(ws, room) {
+  if (room.chatLog && room.chatLog.length) send(ws, { type: "chatHistory", messages: room.chatLog });
 }
 
 /* Chequea logros "en vivo" (durante la jugada) y notifica al jugador (recompensa) y a la sala (historial) */
@@ -1679,7 +1693,7 @@ wss.on("connection", (ws) => {
       const name = (msg.name || "Jugador").slice(0, 16);
       if (code === "NUEVA") {
         const gm0 = GAME_MODES.includes(msg.gameMode) ? msg.gameMode : (msg.ranked ? "ranked" : "casual");
-        room = { code: makeRoomCode(), name: (msg.roomName || "").trim().slice(0, 24) || ("Sala de " + name), public: !!msg.public, players: [], started: false, table: [], bag: [], hands: {}, hasLaidInitial: {}, currentIdx: 0, meldCounter: 0, passStreak: 0, ranked: gm0 === "team2v2" ? false : !!msg.ranked, gameMode: gm0 };
+        room = { code: makeRoomCode(), name: (msg.roomName || "").trim().slice(0, 24) || ("Sala de " + name), public: !!msg.public, players: [], started: false, table: [], bag: [], hands: {}, hasLaidInitial: {}, currentIdx: 0, meldCounter: 0, passStreak: 0, ranked: gm0 === "team2v2" ? false : !!msg.ranked, gameMode: gm0, chatLog: [] };
         rooms.set(room.code, room);
       } else {
         room = rooms.get(code);
@@ -1697,6 +1711,7 @@ wss.on("connection", (ws) => {
           room.hasLaidInitial[player.id] = false;
           room.jokerBreaks[player.id] = 3;
           send(ws, { type: "joined", code: room.code, playerId: player.id });
+          sendChatHistory(ws, room);
           room.players.forEach(p => send(p.ws, { type: "toast", msg: name + " se unió a la partida en curso." }));
           broadcast(room);
           return;
@@ -1708,6 +1723,7 @@ wss.on("connection", (ws) => {
       if (player.username) { const prof = await DB.getProfileByName(player.username); if (prof) { player.avatar = prof.avatar; player.rankPts = prof.rankPts; player.level = prof.level; player.nameeffect = prof.active && prof.active.nameeffect || null; player.banner = prof.active && prof.active.banner || null; } }
       room.players.push(player);
       send(ws, { type: "joined", code: room.code, playerId: player.id });
+      sendChatHistory(ws, room);
       broadcast(room);
       return;
     }
@@ -1734,6 +1750,7 @@ wss.on("connection", (ws) => {
       player = existing;
       room = targetRoom;
       send(ws, { type: "joined", code: room.code, playerId: existing.id });
+      sendChatHistory(ws, room);
       room.players.forEach(p => { if (p.ws && p.id !== existing.id) send(p.ws, { type: "toast", msg: existing.name + " se reconectó." }); });
       broadcast(room);
       return;
@@ -2136,6 +2153,21 @@ wss.on("connection", (ws) => {
       room.players.forEach((p) => {
         if (p.ws) send(p.ws, { type: "chat", playerId: player.id, playerName: player.name, text: msg.text });
       });
+      return;
+    }
+    if (msg.type === "sendChat") {
+      if (!room) return;
+      const text = String(msg.text || "").trim();
+      if (!text) return;
+      if (text.length > CHAT_MAX_LEN) return send(ws, { type: "error", msg: `Mensaje demasiado largo (máx ${CHAT_MAX_LEN} caracteres).` });
+      const now = Date.now();
+      if (player.lastFreeChatAt && now - player.lastFreeChatAt < CHAT_COOLDOWN_MS) return; // silencioso: no vale la pena un toast por cada tecleo rápido
+      player.lastFreeChatAt = now;
+      const chatMsg = { id: C.nid("cm"), playerId: player.id, playerName: player.name, text };
+      if (!room.chatLog) room.chatLog = [];
+      room.chatLog.push(chatMsg);
+      if (room.chatLog.length > CHAT_LOG_MAX) room.chatLog.shift();
+      room.players.forEach((p) => { if (p.ws) send(p.ws, { type: "chat", ...chatMsg }); });
       return;
     }
     if (msg.type === "teamChat") {

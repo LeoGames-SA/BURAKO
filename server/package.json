@@ -14,7 +14,9 @@
     "migrate:players": "node scripts/migrate-players-to-supabase.mjs",
     "validate:migration": "node scripts/validate-migration.mjs",
     "test:auth": "node scripts/test-etapa4-auth.mjs",
-    "test:e2e": "node scripts/test-etapa5-production.mjs"
+    "test:e2e": "node scripts/test-etapa5-production.mjs",
+    "test:chat": "node scripts/test-chat.mjs",
+    "test:chat-ui": "node scripts/test-chat-ui.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",
@@ -22,6 +24,7 @@
     "ws": "^8.18.0"
   },
   "devDependencies": {
-    "supabase": "^2.114.0"
+    "supabase": "^2.114.0",
+    "playwright": "^1.48.0"
   }
 }
