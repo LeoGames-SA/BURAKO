@@ -2,6 +2,68 @@
 
 Todos los cambios notables del proyecto se documentan en este archivo.
 
+## [sin bump de versión] - 2026-08-20 — Perf: menos round-trips a Supabase en fin de partida
+
+Cambio 100% backend (`server/db.js`), CERO archivos de cliente tocados —
+por eso no hay bump de `GAME_VERSION`/entrada en Novedades ni build de APK
+para esta entrada: no hay nada perceptible para el jugador más que menor
+latencia. Sigue a la medición de latencia (ver sesión anterior): `resolveMatch`
+tardaba ~1.8-2.4s por jugador, dominado por una cadena secuencial de
+llamadas a Supabase.
+
+**Causa real identificada**: `checkAchievements` hacía UN `claimGrantSlot`
+(insert) POR CADA logro que calificaba, uno atrás del otro — en el peor
+caso real (la primera partida de un jugador nuevo, donde varios logros se
+cumplen a la vez: `first_game` + `first_win` + `clean_win` + `quick_win`
+juntos) eso son varios round trips secuenciales solo para logros, sumados
+a los ya existentes de `fetchProfileRaw` + `claimGrantSlot` (del resultado
+de partida) + `persistProfile`. Además, `persistProfile` siempre re-subía
+la tabla `profile_achievements` COMPLETA (todo el historial del jugador,
+no solo lo nuevo) en cada partida, aunque no hubiera nada nuevo que
+guardar — redundante pero idempotente (`ignoreDuplicates`), así que era
+puro desperdicio de un round trip en el caso común (sin logro nuevo).
+
+**Optimización** (sin tocar reglas, montos de recompensa, Ranked/MMR ni la
+garantía de idempotencia del reward engine de Fase 1):
+- `checkAchievements`: separa el chequeo (`ach.check()`, puro en memoria,
+  sin DB) de la reclamación. Junta TODOS los logros candidatos primero, y
+  los reclama con UN SOLO `upsert(...).select()` con `ignoreDuplicates`
+  sobre `reward_grants` — mismo unique constraint, misma semántica de "si
+  ya lo tenía otra request, no se paga de nuevo", pero en un round trip en
+  vez de hasta 26. Verificado empíricamente contra Supabase real (no
+  asumido) que `ignoreDuplicates+select()` devuelve SOLO las filas
+  realmente insertadas, nunca las que ya existían — es el mecanismo exacto
+  del que depende la idempotencia de este cambio.
+- `persistProfile(p, opts)`: nuevo parámetro opcional `opts.newAchievementIds`
+  — si se pasa, sube SOLO esos logros nuevos a `profile_achievements` en
+  vez de re-subir el historial completo (los viejos ya están persistidos
+  de cuando se desbloquearon la primera vez). Sin el parámetro (los otros
+  9 call sites existentes, sin tocar), el comportamiento queda IDÉNTICO al
+  de antes — cambio 100% aditivo y opt-in, cero riesgo para el resto del
+  código que llama a `persistProfile`.
+- `resolveMatch`/`checkLive` (los dos call sites de fin de partida y logros
+  en vivo) ahora pasan `newAchievementIds` con la lista real devuelta por
+  `checkAchievements`.
+
+**Verificación**: regresión completa existente (92/92: reglas, ranked,
+salas, chat, auth, motor de recompensas, resolución de fin de partida,
+matchmaking) sin romperse. Test dedicado nuevo (ad-hoc, no commiteado)
+que fuerza 4 logros simultáneos en una sola partida — confirma que se
+otorgan los 4 exactamente una vez, quedan persistidos, una segunda
+resolución del mismo jugador NO los vuelve a pagar, y las coins ganadas
+suman exacto lo esperado.
+
+**Medición antes/después** (mismo script, `server/scripts/measure-latency-ops.mjs`,
+operación `surrender→finishMatch`, caso sin logros nuevos — el caso común):
+- Local (dev→Supabase directo): ~1900-2080ms → ~1370-1410ms (~30% menos,
+  1 round trip removido siempre).
+- Producción (cliente→Render→Supabase): pendiente de re-medir tras el
+  deploy de este commit (ver reporte de infraestructura).
+- El caso con varios logros simultáneos (ej. primera partida de un
+  jugador nuevo) es donde más se nota — antes escalaba con la cantidad de
+  logros desbloqueados (hasta ~26 round trips posibles), ahora es 1 solo
+  round trip sin importar cuántos se desbloqueen a la vez.
+
 ## [1.2.3] - 2026-08-19 — Matchmaking automático (Casual/Ranked)
 
 Hasta ahora, entrar a una partida online era 100% manual: crear sala y

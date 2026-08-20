@@ -569,7 +569,7 @@ function rowToProfileShape(row) {
    de "profiles" se pisan con un UPDATE; las colecciones (inventario, logros,
    pases) son de solo-agregar en la lógica actual, así que un upsert con
    ignoreDuplicates alcanza sin tener que diffear contra lo que ya había. */
-async function persistProfile(p) {
+async function persistProfile(p, opts) {
   const { error } = await supabase
     .from("profiles")
     .update({
@@ -600,7 +600,17 @@ async function persistProfile(p) {
     if (e1) throw new Error("persistProfile (inventory_items): " + e1.message);
   }
 
-  const achRows = Object.entries(p.achievements).map(([achievement_id, ts]) => ({ profile_id: p._id, achievement_id, unlocked_at: new Date(ts).toISOString() }));
+  // Perf: por default re-sube TODO el historial de logros (compat total con
+  // los demás call sites, sin cambiar su comportamiento) — es idempotente
+  // (upsert+ignoreDuplicates) pero redundante en el camino caliente de fin
+  // de partida, donde YA sabemos exactamente cuáles son nuevos. Si el
+  // llamador pasa `opts.newAchievementIds`, se sube SOLO esa lista — los
+  // demás ya están persistidos de cuando se desbloquearon la primera vez,
+  // no hace falta re-escribirlos en cada partida.
+  const achSource = (opts && opts.newAchievementIds)
+    ? opts.newAchievementIds.map((id) => [id, p.achievements[id]]).filter(([, ts]) => ts != null)
+    : Object.entries(p.achievements);
+  const achRows = achSource.map(([achievement_id, ts]) => ({ profile_id: p._id, achievement_id, unlocked_at: new Date(ts).toISOString() }));
   if (achRows.length) {
     const { error: e2 } = await supabase.from("profile_achievements").upsert(achRows, { onConflict: "profile_id,achievement_id", ignoreDuplicates: true });
     if (e2) throw new Error("persistProfile (profile_achievements): " + e2.message);
@@ -1112,35 +1122,48 @@ async function setAvatar(username, avatar) {
 
 /* ---------- Logros: se corren después de cada acción relevante ---------- */
 async function checkAchievements(profile, ctx) {
-  const newly = [];
+  // Perf (medición de latencia, ago/2026): antes, cada logro que calificaba
+  // hacía SU PROPIO claimGrantSlot (1 insert secuencial c/u) — hasta 26
+  // round trips a Supabase en el peor caso real (la primera partida de un
+  // jugador nuevo, donde varios logros se cumplen a la vez: first_game +
+  // first_win + clean_win + ... juntos). Ahora: el chequeo `ach.check()` es
+  // puro en memoria (sin tocar DB) para juntar TODOS los candidatos, y se
+  // reclaman con UN SOLO upsert por lote — mismo mecanismo de idempotencia
+  // (unique constraint de reward_grants vía onConflict+ignoreDuplicates: si
+  // otra request ya lo otorgó, esa fila simplemente no vuelve en `.select()`,
+  // sin error), pero en un único round trip en vez de N. Verificado
+  // empíricamente contra Supabase real que ignoreDuplicates+select() SOLO
+  // devuelve las filas realmente insertadas, nunca las que ya existían.
+  const candidates = [];
   for (const ach of ACHIEVEMENTS) {
     if (profile.achievements[ach.id]) continue;
-    try {
-      if (ach.check(profile, ctx)) {
-        // Gate real de idempotencia ANTES de tocar coins/xp: dos chequeos
-        // casi simultáneos para el mismo jugador (ej. un logro "en vivo"
-        // durante la partida corriendo en paralelo con el chequeo de fin de
-        // partida) antes podían pagar el mismo logro dos veces — el único
-        // guard era `profile.achievements[ach.id]` en memoria sobre un
-        // objeto recién leído, que no protege contra la carrera. Ahora el
-        // unique constraint de reward_grants decide atómicamente quién
-        // llega primero.
-        const slot = await claimGrantSlot(profile._id, "achievement", ach.id, [
-          { type: "coins", amount: ach.coinReward },
-          { type: "xp", amount: ach.xpReward },
-        ]);
-        if (!slot.claimed) continue; // ya lo otorgó otra request — no volver a sumar
-        profile.achievements[ach.id] = Date.now();
-        profile.coins += ach.coinReward;
-        profile.xp += ach.xpReward;
-        profile.stats.totalCoinsEarned += ach.coinReward;
-        profile.stats.totalXpEarned += ach.xpReward;
-        newly.push({
-          id: ach.id, name: ach.name, desc: ach.desc,
-          coinReward: ach.coinReward, xpReward: ach.xpReward,
-        });
-      }
-    } catch (e) {}
+    try { if (ach.check(profile, ctx)) candidates.push(ach); } catch (e) {}
+  }
+  if (!candidates.length) return [];
+
+  const rows = candidates.map((ach) => ({
+    profile_id: profile._id, source_type: "achievement", source_id: ach.id,
+    rewards: [{ type: "coins", amount: ach.coinReward }, { type: "xp", amount: ach.xpReward }],
+  }));
+  const { data, error } = await supabase
+    .from("reward_grants")
+    .upsert(rows, { onConflict: "profile_id,source_type,source_id", ignoreDuplicates: true })
+    .select("source_id");
+  if (error) { console.error("[db] checkAchievements: upsert de reward_grants falló -", error.message); return []; }
+  const claimedIds = new Set((data || []).map((r) => r.source_id));
+
+  const newly = [];
+  for (const ach of candidates) {
+    if (!claimedIds.has(ach.id)) continue; // otra request lo ganó la carrera — no volver a sumar
+    profile.achievements[ach.id] = Date.now();
+    profile.coins += ach.coinReward;
+    profile.xp += ach.xpReward;
+    profile.stats.totalCoinsEarned += ach.coinReward;
+    profile.stats.totalXpEarned += ach.xpReward;
+    newly.push({
+      id: ach.id, name: ach.name, desc: ach.desc,
+      coinReward: ach.coinReward, xpReward: ach.xpReward,
+    });
   }
   return newly;
 }
@@ -1267,7 +1290,7 @@ async function resolveMatch(results, opts) {
     const leveledUp = after.level > before.level;
 
     try {
-      await persistProfile(p);
+      await persistProfile(p, { newAchievementIds: newAchievements.map((a) => a.id) });
     } catch (e) {
       console.error("[db] resolveMatch: no se pudo guardar el resultado de", r.username, "-", e.message);
       return null; // no se confirma un update que no llegó a guardarse
@@ -1305,7 +1328,7 @@ async function checkLive(username, ctx) {
     if (!lp.ok) return [];
     const p = lp.p;
     const newly = await checkAchievements(p, ctx);
-    if (newly.length) await persistProfile(p);
+    if (newly.length) await persistProfile(p, { newAchievementIds: newly.map((a) => a.id) });
     return newly;
   } catch (e) {
     console.error("[db] checkLive: error para", username, "-", e.message);
