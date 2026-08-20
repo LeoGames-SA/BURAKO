@@ -1,0 +1,52 @@
+# Burako — server WS+HTTP en Fly.io, región São Paulo (gru), en PARALELO a
+# Render mientras se compara latencia real (ver informe de infraestructura).
+# No reemplaza render.yaml — Render sigue siendo el endpoint de producción
+# hasta confirmar que Fly baja el piso de red de forma clara.
+#
+# IMPORTANTE — una sola máquina, siempre: el estado de las salas (rooms,
+# manos, turnos) vive en memoria de UN SOLO proceso Node (ver server.js,
+# `const rooms = new Map()`). Nunca correr `fly scale count` por encima de 1
+# — dos réplicas atendiendo la misma app repartirían jugadores de una misma
+# sala entre procesos con memoria distinta, y la partida se rompería.
+app = "burako-server-gru"  # ajustar si el nombre ya está tomado en Fly
+primary_region = "gru"
+
+[build]
+
+[env]
+  # SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY van como secrets (`fly secrets
+  # set`), nunca acá — este archivo se commitea al repo.
+  PORT = "8181"
+
+[http_service]
+  internal_port = 8181
+  force_https = true
+  # Pedido explícito: SIEMPRE encendido, sin dormir — es justo lo que
+  # elimina el cold-start que tiene Render Free hoy.
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  # "requests" (el default que usé al armar esto) hace que fly-proxy trate la
+  # conexión como agrupable/reusable entre pedidos de request-response, algo
+  # pensado para HTTP normal — NO para un WebSocket persistente. El propio
+  # blog post oficial de Fly sobre WebSockets (fly.io/blog/websockets-and-fly)
+  # usa "connections" en su fly.toml de referencia. Causa más probable de los
+  # cierres código 1006 durante el soak test: fly-proxy reciclando la conexión
+  # en huecos sin tráfico entre turnos, no un timeout de idle documentado.
+  [http_service.concurrency]
+    type = "connections"
+    soft_limit = 40
+    hard_limit = 60
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "15s"
+    method = "GET"
+    timeout = "5s"
+    path = "/"
+    protocol = "http"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

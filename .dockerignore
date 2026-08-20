@@ -1,0 +1,30 @@
+# Todo lo que NO hace falta dentro de la imagen de Fly (server + estático de
+# client/ nada más — ver Dockerfile). Mantiene la imagen chica y evita subir
+# secretos/artefactos de build que no pertenecen ahí.
+#
+# OJO: los patrones sin "**/" adelante en .dockerignore SOLO matchean en la
+# raíz del build context, NO recursivo (a diferencia de .gitignore) — un bug
+# real que tuvimos acá: ".env" sin "**/" NO excluía "server/.env", así que
+# terminó copiado adentro de la imagen. Todo lo que deba excluirse sin
+# importar la profundidad va con "**/" explícito.
+.git/
+.tools/
+**/node_modules/
+client/android/
+client/www/
+client/src/
+**/.env
+**/.env.local
+**/.env.*.local
+server/players.json
+server/backups/
+**/*.bak-*
+**/*.log
+npm-debug.log*
+**/*.apk
+scratch-perf/
+scratch-perf-profile.mjs
+docs/
+supabase/
+"Imagenes de referencia"/
+.claude/

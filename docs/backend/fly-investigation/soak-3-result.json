@@ -1,0 +1,619 @@
+{
+  "wsUrl": "wss://burako-server-gru.fly.dev",
+  "durationTargetMin": 28,
+  "rounds": 171,
+  "gameplay": {
+    "p50": 594.8700999999419,
+    "p95": 1111.084300000046,
+    "samples": 124
+  },
+  "pingPuro": {
+    "p50": 190.39820000000327,
+    "p95": 972.2571000000462,
+    "samples": 29
+  },
+  "loginMs": 917.0821000000005,
+  "resumeSessionMs": 1084.6166999999996,
+  "finishMatchMs": null,
+  "disconnects": [
+    {
+      "player": "C",
+      "connectionId": "c5",
+      "at": "2026-08-20T16:42:23.084Z",
+      "code": 1006,
+      "reason": "",
+      "gapMs": 23846
+    },
+    {
+      "player": "B",
+      "connectionId": "c4",
+      "at": "2026-08-20T16:42:29.213Z",
+      "code": 1006,
+      "reason": "",
+      "gapMs": 29896
+    },
+    {
+      "player": "C",
+      "connectionId": "c6",
+      "at": "2026-08-20T16:42:55.102Z",
+      "code": 1006,
+      "reason": "",
+      "gapMs": null
+    },
+    {
+      "player": "A",
+      "connectionId": "c3",
+      "at": "2026-08-20T16:43:29.232Z",
+      "code": 1006,
+      "reason": "",
+      "gapMs": 34175
+    },
+    {
+      "player": "C",
+      "connectionId": "c7",
+      "at": "2026-08-20T16:50:42.960Z",
+      "code": 1006,
+      "reason": "",
+      "gapMs": 32680
+    },
+    {
+      "player": "C",
+      "connectionId": "c8",
+      "at": "2026-08-20T16:50:52.810Z",
+      "code": 1006,
+      "reason": "",
+      "gapMs": null
+    },
+    {
+      "player": "C",
+      "connectionId": "c9",
+      "at": "2026-08-20T16:51:25.738Z",
+      "code": 1006,
+      "reason": "",
+      "gapMs": null
+    }
+  ],
+  "reconnects": [
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:42:53.909Z",
+      "ms": 20013.21880000003,
+      "ok": false
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:43:18.743Z",
+      "ms": 906.6960999999428,
+      "ok": true
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:50:52.810Z",
+      "ms": 9052.601800000062,
+      "ok": false
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:51:25.738Z",
+      "ms": 8212.01829999988,
+      "ok": false
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:51:51.557Z",
+      "ms": 1179.9466999999713,
+      "ok": true
+    }
+  ],
+  "errors": [
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:42:15.840Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:42:33.896Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakB_d45ca928",
+      "at": "2026-08-20T16:43:05.829Z",
+      "type": "ping-timeout",
+      "detail": "timeout esperando catalog"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:43:17.837Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:43:35.821Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakA_5dcf5c00",
+      "at": "2026-08-20T16:43:48.172Z",
+      "type": "ping-timeout",
+      "detail": "timeout esperando catalog"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:44:00.183Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:44:17.944Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:44:36.236Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:44:53.849Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakB_d45ca928",
+      "at": "2026-08-20T16:45:06.677Z",
+      "type": "ping-timeout",
+      "detail": "timeout esperando catalog"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:45:18.677Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:45:36.934Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakA_5dcf5c00",
+      "at": "2026-08-20T16:45:49.464Z",
+      "type": "ping-timeout",
+      "detail": "timeout esperando catalog"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:46:01.466Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:46:17.656Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:46:34.579Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:46:52.954Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakB_d45ca928",
+      "at": "2026-08-20T16:47:07.462Z",
+      "type": "ping-timeout",
+      "detail": "timeout esperando catalog"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:47:19.467Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:47:35.841Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakA_5dcf5c00",
+      "at": "2026-08-20T16:47:49.845Z",
+      "type": "ping-timeout",
+      "detail": "timeout esperando catalog"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:48:01.859Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:48:19.166Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:48:36.170Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:48:54.267Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakB_d45ca928",
+      "at": "2026-08-20T16:49:07.676Z",
+      "type": "ping-timeout",
+      "detail": "timeout esperando catalog"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:49:19.692Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:49:35.651Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakA_5dcf5c00",
+      "at": "2026-08-20T16:49:47.337Z",
+      "type": "ping-timeout",
+      "detail": "timeout esperando catalog"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:49:59.342Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:50:17.495Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:50:31.756Z",
+      "type": "ping-timeout",
+      "detail": "timeout esperando catalog"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:50:43.757Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakA_5dcf5c00",
+      "at": "2026-08-20T16:51:05.515Z",
+      "type": "ping-timeout",
+      "detail": "timeout esperando catalog"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:51:17.526Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakB_d45ca928",
+      "at": "2026-08-20T16:51:38.365Z",
+      "type": "ping-timeout",
+      "detail": "timeout esperando catalog"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:51:50.377Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:52:09.771Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakA_5dcf5c00",
+      "at": "2026-08-20T16:52:23.016Z",
+      "type": "ping-timeout",
+      "detail": "timeout esperando catalog"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:52:35.021Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:52:52.999Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:53:09.353Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:53:24.931Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakB_d45ca928",
+      "at": "2026-08-20T16:53:39.320Z",
+      "type": "ping-timeout",
+      "detail": "timeout esperando catalog"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:53:51.323Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:54:08.298Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakA_5dcf5c00",
+      "at": "2026-08-20T16:54:20.920Z",
+      "type": "ping-timeout",
+      "detail": "timeout esperando catalog"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:54:32.933Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:54:48.469Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:55:06.060Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:55:22.291Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakB_d45ca928",
+      "at": "2026-08-20T16:55:35.949Z",
+      "type": "ping-timeout",
+      "detail": "timeout esperando catalog"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:55:47.960Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:56:05.986Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakA_5dcf5c00",
+      "at": "2026-08-20T16:56:18.340Z",
+      "type": "ping-timeout",
+      "detail": "timeout esperando catalog"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:56:30.359Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:56:46.456Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:57:02.011Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:57:20.269Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakB_d45ca928",
+      "at": "2026-08-20T16:57:33.199Z",
+      "type": "ping-timeout",
+      "detail": "timeout esperando catalog"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:57:45.207Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:58:02.210Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "soakA_5dcf5c00",
+      "at": "2026-08-20T16:58:16.239Z",
+      "type": "ping-timeout",
+      "detail": "timeout esperando catalog"
+    },
+    {
+      "player": "soakC_80202a40",
+      "at": "2026-08-20T16:58:28.249Z",
+      "type": "action-timeout",
+      "detail": "timeout esperando matcher"
+    },
+    {
+      "player": "cierre",
+      "at": "2026-08-20T16:58:56.137Z",
+      "type": "finishMatch-o-rejoin-fallo",
+      "detail": "timeout esperando matcher"
+    }
+  ],
+  "rejoinWithoutReloginOk": false,
+  "connectionLog": [
+    {
+      "connectionId": "c1",
+      "player": "A",
+      "openedAt": "2026-08-20T16:29:54.949Z",
+      "closedAt": "2026-08-20T16:30:02.818Z",
+      "closeCode": 1005,
+      "closeReason": "",
+      "lastMessageAt": "2026-08-20T16:29:57.642Z",
+      "pingsSent": 0,
+      "msgsReceived": 1
+    },
+    {
+      "connectionId": "c2",
+      "player": "A",
+      "openedAt": "2026-08-20T16:29:57.843Z",
+      "closedAt": "2026-08-20T16:30:03.785Z",
+      "closeCode": 1005,
+      "closeReason": "",
+      "lastMessageAt": "2026-08-20T16:29:58.559Z",
+      "pingsSent": 0,
+      "msgsReceived": 1
+    },
+    {
+      "connectionId": "c3",
+      "player": "A",
+      "openedAt": "2026-08-20T16:29:58.734Z",
+      "closedAt": "2026-08-20T16:43:29.232Z",
+      "closeCode": 1006,
+      "closeReason": "",
+      "lastMessageAt": "2026-08-20T16:42:55.057Z",
+      "pingsSent": 53,
+      "msgsReceived": 736
+    },
+    {
+      "connectionId": "c4",
+      "player": "B",
+      "openedAt": "2026-08-20T16:30:00.322Z",
+      "closedAt": "2026-08-20T16:42:29.213Z",
+      "closeCode": 1006,
+      "closeReason": "",
+      "lastMessageAt": "2026-08-20T16:41:59.317Z",
+      "pingsSent": 49,
+      "msgsReceived": 725
+    },
+    {
+      "connectionId": "c5",
+      "player": "C",
+      "openedAt": "2026-08-20T16:30:02.200Z",
+      "closedAt": "2026-08-20T16:42:23.084Z",
+      "closeCode": 1006,
+      "closeReason": "",
+      "lastMessageAt": "2026-08-20T16:41:59.238Z",
+      "pingsSent": 48,
+      "msgsReceived": 719
+    },
+    {
+      "connectionId": "c6",
+      "player": "C",
+      "openedAt": null,
+      "closedAt": "2026-08-20T16:42:55.102Z",
+      "closeCode": 1006,
+      "closeReason": "",
+      "lastMessageAt": null,
+      "pingsSent": 0,
+      "msgsReceived": 0
+    },
+    {
+      "connectionId": "c7",
+      "player": "C",
+      "openedAt": "2026-08-20T16:43:17.959Z",
+      "closedAt": "2026-08-20T16:50:42.960Z",
+      "closeCode": 1006,
+      "closeReason": "",
+      "lastMessageAt": "2026-08-20T16:50:10.280Z",
+      "pingsSent": 30,
+      "msgsReceived": 32
+    },
+    {
+      "connectionId": "c8",
+      "player": "C",
+      "openedAt": null,
+      "closedAt": "2026-08-20T16:50:52.810Z",
+      "closeCode": 1006,
+      "closeReason": "",
+      "lastMessageAt": null,
+      "pingsSent": 0,
+      "msgsReceived": 0
+    },
+    {
+      "connectionId": "c9",
+      "player": "C",
+      "openedAt": null,
+      "closedAt": "2026-08-20T16:51:25.738Z",
+      "closeCode": 1006,
+      "closeReason": "",
+      "lastMessageAt": null,
+      "pingsSent": 0,
+      "msgsReceived": 0
+    },
+    {
+      "connectionId": "c10",
+      "player": "C",
+      "openedAt": "2026-08-20T16:51:50.515Z",
+      "closedAt": null,
+      "closeCode": null,
+      "closeReason": null,
+      "lastMessageAt": "2026-08-20T16:58:55.530Z",
+      "pingsSent": 29,
+      "msgsReceived": 33
+    }
+  ]
+}

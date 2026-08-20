@@ -1,0 +1,49 @@
+[2026-08-20T16:29:53.751Z] === Soak test realista contra wss://burako-server-gru.fly.dev (duración objetivo: 28.0 min) ===
+[2026-08-20T16:29:54.949Z] [conn c1/A] open
+[2026-08-20T16:29:57.843Z] [conn c2/A] open
+[2026-08-20T16:29:58.560Z] login (A) = 917.1ms
+[2026-08-20T16:29:58.734Z] [conn c3/A] open
+[2026-08-20T16:29:59.644Z] resumeSession (A) = 1084.6ms
+[2026-08-20T16:30:00.322Z] [conn c4/B] open
+[2026-08-20T16:30:02.200Z] [conn c5/C] open
+[2026-08-20T16:30:02.818Z] [conn c1/A] close code=1005 reason="" msgsRecibidos=1 gapDesdeUltimoMsg=5176ms intencional=true
+[2026-08-20T16:30:03.785Z] [conn c2/A] close code=1005 reason="" msgsRecibidos=1 gapDesdeUltimoMsg=5226ms intencional=true
+[2026-08-20T16:30:04.198Z] 3 jugadores logueados: soakA_5dcf5c00, soakB_d45ca928, soakC_80202a40
+[2026-08-20T16:30:05.514Z] los 3 en la sala W9UZ
+[2026-08-20T16:30:09.623Z] partida arrancada, fase playing
+[2026-08-20T16:31:24.672Z] ronda 15 — 1.2/28.0 min — gameplayRTT p50=115ms p95=1038ms — desconexiones=0 errores=0
+[2026-08-20T16:32:46.947Z] ronda 30 — 2.6/28.0 min — gameplayRTT p50=136ms p95=1983ms — desconexiones=0 errores=0
+[2026-08-20T16:34:14.109Z] ronda 45 — 4.1/28.0 min — gameplayRTT p50=136ms p95=1038ms — desconexiones=0 errores=0
+[2026-08-20T16:35:35.527Z] ronda 60 — 5.4/28.0 min — gameplayRTT p50=156ms p95=1111ms — desconexiones=0 errores=0
+[2026-08-20T16:37:05.211Z] ronda 75 — 6.9/28.0 min — gameplayRTT p50=164ms p95=1290ms — desconexiones=0 errores=0
+[2026-08-20T16:38:39.128Z] ronda 90 — 8.5/28.0 min — gameplayRTT p50=400ms p95=1174ms — desconexiones=0 errores=0
+[2026-08-20T16:40:04.992Z] ronda 105 — 9.9/28.0 min — gameplayRTT p50=519ms p95=1111ms — desconexiones=0 errores=0
+[2026-08-20T16:41:32.270Z] ronda 120 — 11.4/28.0 min — gameplayRTT p50=587ms p95=1174ms — desconexiones=0 errores=0
+[2026-08-20T16:42:23.084Z] [conn c5/C] close code=1006 reason="" msgsRecibidos=719 gapDesdeUltimoMsg=23846ms intencional=false
+[2026-08-20T16:42:29.213Z] [conn c4/B] close code=1006 reason="" msgsRecibidos=725 gapDesdeUltimoMsg=29896ms intencional=false
+[2026-08-20T16:42:55.102Z] [conn c6/C] close code=1006 reason="" msgsRecibidos=0 gapDesdeUltimoMsg=nullms intencional=false
+[2026-08-20T16:43:17.959Z] [conn c7/C] open
+[2026-08-20T16:43:18.743Z] reconexión de soakC_80202a40: OK en 907ms
+[2026-08-20T16:43:29.232Z] [conn c3/A] close code=1006 reason="" msgsRecibidos=736 gapDesdeUltimoMsg=34175ms intencional=false
+[2026-08-20T16:46:01.467Z] ronda 135 — 15.9/28.0 min — gameplayRTT p50=595ms p95=1111ms — desconexiones=4 errores=15
+[2026-08-20T16:50:42.960Z] [conn c7/C] close code=1006 reason="" msgsRecibidos=32 gapDesdeUltimoMsg=32680ms intencional=false
+[2026-08-20T16:50:52.810Z] [conn c8/C] close code=1006 reason="" msgsRecibidos=0 gapDesdeUltimoMsg=nullms intencional=false
+[2026-08-20T16:51:25.738Z] [conn c9/C] close code=1006 reason="" msgsRecibidos=0 gapDesdeUltimoMsg=nullms intencional=false
+[2026-08-20T16:51:25.738Z] ronda 150 — 21.3/28.0 min — gameplayRTT p50=595ms p95=1111ms — desconexiones=7 errores=36
+[2026-08-20T16:51:50.515Z] [conn c10/C] open
+[2026-08-20T16:51:51.557Z] reconexión de soakC_80202a40: OK en 1180ms
+[2026-08-20T16:56:30.359Z] ronda 165 — 26.3/28.0 min — gameplayRTT p50=595ms p95=1111ms — desconexiones=7 errores=57
+[2026-08-20T16:58:32.248Z] Duración de gameplay cumplida (171 rondas). Cerrando la partida...
+[2026-08-20T16:58:56.137Z] ⚠ el cierre de partida (finishMatch/rejoin) falló: timeout esperando matcher
+[2026-08-20T16:58:56.138Z] 
+=== RESUMEN SOAK TEST ===
+[2026-08-20T16:58:56.138Z] Rondas jugadas: 171 en 28.0 min
+[2026-08-20T16:58:56.138Z] Gameplay RTT — p50=594.9ms p95=1111.1ms (n=124)
+[2026-08-20T16:58:56.138Z] Ping puro (sin DB) — p50=190.4ms p95=972.3ms (n=29)
+[2026-08-20T16:58:56.138Z] login=917.1ms resumeSession=1084.6ms finishMatch=undefinedms
+[2026-08-20T16:58:56.138Z] Desconexiones inesperadas: 7
+[2026-08-20T16:58:56.138Z] Reconexiones intentadas: 5 (ok: 2)
+[2026-08-20T16:58:56.138Z] Errores: 66
+[2026-08-20T16:58:56.138Z] Entrar a otra partida sin re-loguearse: FALLÓ
+[2026-08-20T16:58:56.138Z] Resultado escrito en scripts/soak-fly-result3.json
+[2026-08-20T16:58:58.979Z] [cleanup] usuarios de prueba borrados de Supabase.

@@ -1,0 +1,66 @@
+[2026-08-20T15:57:07.472Z] === Soak test realista contra wss://burako-server-gru.fly.dev (duración objetivo: 28.0 min) ===
+[2026-08-20T15:57:08.065Z] [conn c1/A] open
+[2026-08-20T15:57:11.112Z] [conn c2/A] open
+[2026-08-20T15:57:11.563Z] login (A) = 1095.6ms
+[2026-08-20T15:57:11.979Z] [conn c3/A] open
+[2026-08-20T15:57:12.372Z] resumeSession (A) = 809.2ms
+[2026-08-20T15:57:15.627Z] [conn c1/A] close code=1005 reason="" msgsRecibidos=1 gapDesdeUltimoMsg=5160ms intencional=true
+[2026-08-20T15:57:17.153Z] [conn c2/A] close code=1005 reason="" msgsRecibidos=1 gapDesdeUltimoMsg=5590ms intencional=true
+[2026-08-20T15:57:22.781Z] [conn c4/B] open
+[2026-08-20T15:57:25.489Z] [conn c5/C] open
+[2026-08-20T15:57:27.261Z] 3 jugadores logueados: soakA_1dc87575, soakB_74920401, soakC_4f4d8a0f
+[2026-08-20T15:57:28.040Z] los 3 en la sala AKRZ
+[2026-08-20T15:57:32.175Z] partida arrancada, fase playing
+[2026-08-20T15:58:47.637Z] ronda 15 — 1.3/28.0 min — gameplayRTT p50=120ms p95=999ms — desconexiones=0 errores=0
+[2026-08-20T16:00:05.476Z] ronda 30 — 2.5/28.0 min — gameplayRTT p50=133ms p95=999ms — desconexiones=0 errores=0
+[2026-08-20T16:00:45.192Z] (attach rechazado, esperable: Selección inválida.)
+[2026-08-20T16:00:50.322Z] (attach rechazado, esperable: Selección inválida.)
+[2026-08-20T16:00:56.275Z] (attach rechazado, esperable: Selección inválida.)
+[2026-08-20T16:01:00.505Z] (attach rechazado, esperable: Selección inválida.)
+[2026-08-20T16:01:04.696Z] (attach rechazado, esperable: Selección inválida.)
+[2026-08-20T16:01:11.258Z] (attach rechazado, esperable: Selección inválida.)
+[2026-08-20T16:01:17.142Z] (attach rechazado, esperable: Selección inválida.)
+[2026-08-20T16:01:22.203Z] (attach rechazado, esperable: Selección inválida.)
+[2026-08-20T16:01:26.741Z] (attach rechazado, esperable: Selección inválida.)
+[2026-08-20T16:01:26.741Z] ronda 45 — 3.9/28.0 min — gameplayRTT p50=120ms p95=999ms — desconexiones=0 errores=0
+[2026-08-20T16:01:31.965Z] (attach rechazado, esperable: Selección inválida.)
+[2026-08-20T16:01:36.949Z] (attach rechazado, esperable: Selección inválida.)
+[2026-08-20T16:02:51.509Z] ronda 60 — 5.3/28.0 min — gameplayRTT p50=135ms p95=2727ms — desconexiones=0 errores=0
+[2026-08-20T16:04:05.270Z] [conn c3/A] close code=1006 reason="" msgsRecibidos=504 gapDesdeUltimoMsg=24181ms intencional=false
+[2026-08-20T16:04:05.271Z] [conn c5/C] close code=1006 reason="" msgsRecibidos=494 gapDesdeUltimoMsg=24182ms intencional=false
+[2026-08-20T16:04:05.271Z] [conn c4/B] close code=1006 reason="" msgsRecibidos=492 gapDesdeUltimoMsg=25183ms intencional=false
+[2026-08-20T16:04:15.088Z] [conn c6/B] close code=1006 reason="" msgsRecibidos=0 gapDesdeUltimoMsg=nullms intencional=false
+[2026-08-20T16:04:48.770Z] [conn c7/B] close code=1006 reason="" msgsRecibidos=0 gapDesdeUltimoMsg=nullms intencional=false
+[2026-08-20T16:05:13.940Z] [conn c8/B] open
+[2026-08-20T16:05:15.119Z] reconexión de soakB_74920401: OK en 1787ms
+[2026-08-20T16:06:31.578Z] [conn c8/B] close code=1006 reason="" msgsRecibidos=4 gapDesdeUltimoMsg=25077ms intencional=false
+[2026-08-20T16:06:39.954Z] [conn c9/B] open
+[2026-08-20T16:06:40.914Z] reconexión de soakB_74920401: OK en 1153ms
+[2026-08-20T16:07:22.370Z] ronda 75 — 9.8/28.0 min — gameplayRTT p50=163ms p95=4192ms — desconexiones=6 errores=15
+[2026-08-20T16:12:16.564Z] ronda 90 — 14.7/28.0 min — gameplayRTT p50=163ms p95=4192ms — desconexiones=6 errores=35
+[2026-08-20T16:13:16.903Z] [conn c9/B] close code=1006 reason="" msgsRecibidos=23 gapDesdeUltimoMsg=37301ms intencional=false
+[2026-08-20T16:13:38.960Z] [conn c10/B] close code=1006 reason="" msgsRecibidos=0 gapDesdeUltimoMsg=nullms intencional=false
+[2026-08-20T16:14:03.248Z] [conn c11/B] open
+[2026-08-20T16:14:04.562Z] reconexión de soakB_74920401: OK en 1923ms
+[2026-08-20T16:14:51.848Z] [conn c11/B] close code=1006 reason="" msgsRecibidos=3 gapDesdeUltimoMsg=26346ms intencional=false
+[2026-08-20T16:15:03.603Z] [conn c12/B] open
+[2026-08-20T16:15:04.742Z] reconexión de soakB_74920401: OK en 3425ms
+[2026-08-20T16:17:42.557Z] ronda 105 — 20.2/28.0 min — gameplayRTT p50=163ms p95=4192ms — desconexiones=9 errores=56
+[2026-08-20T16:17:46.635Z] [conn c12/B] close code=1006 reason="" msgsRecibidos=9 gapDesdeUltimoMsg=39569ms intencional=false
+[2026-08-20T16:18:07.178Z] [conn c13/B] open
+[2026-08-20T16:18:08.311Z] reconexión de soakB_74920401: OK en 1352ms
+[2026-08-20T16:22:55.437Z] ronda 120 — 25.4/28.0 min — gameplayRTT p50=163ms p95=4192ms — desconexiones=10 errores=78
+[2026-08-20T16:25:37.456Z] Duración de gameplay cumplida (128 rondas). Cerrando la partida...
+[2026-08-20T16:26:01.848Z] ⚠ el cierre de partida (finishMatch/rejoin) falló: timeout esperando matcher
+[2026-08-20T16:26:01.849Z] 
+=== RESUMEN SOAK TEST ===
+[2026-08-20T16:26:01.849Z] Rondas jugadas: 128 en 28.0 min
+[2026-08-20T16:26:01.849Z] Gameplay RTT — p50=163.3ms p95=4192.1ms (n=66)
+[2026-08-20T16:26:01.849Z] Ping puro (sin DB) — p50=278.5ms p95=2058.0ms (n=17)
+[2026-08-20T16:26:01.849Z] login=1095.6ms resumeSession=809.2ms finishMatch=undefinedms
+[2026-08-20T16:26:01.849Z] Desconexiones inesperadas: 10
+[2026-08-20T16:26:01.849Z] Reconexiones intentadas: 8 (ok: 5)
+[2026-08-20T16:26:01.849Z] Errores: 90
+[2026-08-20T16:26:01.849Z] Entrar a otra partida sin re-loguearse: FALLÓ
+[2026-08-20T16:26:01.849Z] Resultado escrito en scripts/soak-fly-result2.json
+[2026-08-20T16:26:05.153Z] [cleanup] usuarios de prueba borrados de Supabase.

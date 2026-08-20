@@ -153,7 +153,7 @@ async function runPass(label) {
   await timeit(`${label}:iniciarPartida(start)`, async () => {
     wsHost._buffer.length = 0;
     send(wsHost, { type: "start" });
-    await waitFor(wsHost, (m) => m.type === "state" && m.phase === "sorteo", 10000);
+    await waitFor(wsHost, (m) => m.type === "state" && m.phase === "sorteo", 25000);
   });
 
   send(wsHost, { type: "reveal" });
