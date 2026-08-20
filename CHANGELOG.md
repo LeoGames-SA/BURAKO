@@ -2,6 +2,78 @@
 
 Todos los cambios notables del proyecto se documentan en este archivo.
 
+## [1.2.5] - 2026-08-20 — Matchmaking: bug crítico de sorteo/reparto + composición correcta
+
+**Auditoría primero** (pedido explícito: no duplicar lo que ya existía).
+Matchmaking Casual/Ranked ya estaba shippeado desde 1.2.3: colas server-side
+separadas, botones, backfill con bots, limpieza de fantasmas al cancelar/
+desconectar, emparejamiento por MMR en Ranked. Lo que faltaba de verdad:
+progreso `N/4` explícito, tiempo estimado, estados de UI claros, ventana de
+MMR que se amplía con el tiempo (antes era fija, sin expandirse), y — el
+hallazgo más importante — un bug real que rompía el gameplay.
+
+**Bug crítico encontrado (reportado por el usuario jugando una partida
+real)**: entrar a una partida por matchmaking mostraba todo bien, pero
+`sorteo` y `reparto` no respondían — no se podía tomar la ficha ni recibir
+la mano inicial. Causa raíz: `room`/`player` son variables de **closure de
+cada conexión WebSocket**, seteadas normalmente adentro del handler de
+`"join"` de ESA MISMA conexión. `formMatchmakingRoom()` arma la sala desde
+el timer global de matchmaking — un contexto de ejecución totalmente
+distinto, sin ningún acceso a esos bindings — así que un jugador emparejado
+recibía `"joined"` y veía la sala, pero cualquier acción de juego (`reveal`,
+`draw`, `lay`...) pisaba el guard `if (!room || !player) return` de cada
+handler y no hacía nada, en silencio. Los tests anteriores no lo agarraron
+porque solo chequeaban `started:true` — ese flag ya se pone en `true` ANTES
+de entrar a la fase `"sorteo"` (ver `startGame()`), así que una sala
+trabada en sorteo para siempre igual pasaba esa aserción.
+
+**Fix**: `ws._applyRoomPlayer(room, player)` — un setter colgado de cada
+conexión al abrirla (`wss.on("connection", ...)`), el único punto de
+entrada que le permite a código externo al closure (`formMatchmakingRoom`)
+actualizar el `room`/`player` reales de esa conexión. Matchmaking sigue
+usando el MISMO `startGame()` que la sala manual — no hay un segundo
+pipeline de sorteo/reparto en paralelo.
+
+**Composición corregida** (pedido explícito: nunca rellenar de más):
+mínimo 2, máximo 4, sin forzar bots hasta completar 4.
+- 4 humanos en cola → arranca ya, sin bots.
+- 3 humanos al vencer el timeout → arranca con 3, sin bots.
+- 2 humanos al vencer el timeout → arranca con 2, sin bots.
+- 1 humano al vencer el timeout → se agrega EXACTAMENTE 1 bot (arranca
+  1 vs IA) — la IA es fallback para no dejar a una persona sola esperando
+  para siempre, nunca relleno "hasta 4".
+
+**Ranked — ventana de MMR progresiva**: antes agrupaba con los 3 más
+cercanos disponibles en el momento, sin ninguna restricción de distancia.
+Ahora la ventana de tolerancia arranca angosta (`RANKED_RANGE_BASE`, según
+`rank_pts` del que espera hace más tiempo) y se amplía con cada segundo de
+espera (`RANKED_RANGE_GROWTH_PER_SEC`) hasta cubrir prácticamente cualquier
+rango para cuando se cumple el timeout — sigue siendo UNA sola cola (nunca
+sub-colas por bracket de MMR). Mismo algoritmo para cuentas nuevas y
+migradas (no hay ninguna distinción de origen en `rank_pts`, confirmado en
+la auditoría).
+
+**Timeout**: `MATCH_WAIT_TIMEOUT_MS` de 20s a 30s.
+
+**Cliente**: nuevos estados explícitos en la pantalla de búsqueda —
+"Buscando… N/4 jugadores" con tiempo transcurrido y tiempo máximo estimado,
+"¡Partida encontrada!" (con la cantidad real de jugadores, o "Completando
+con IA…" si quedó solo), "Iniciando…" — con una demora corta y deliberada
+antes de entrar a la sala para que esos estados lleguen a verse (la sala
+armada por matchmaking arranca sola del lado del server, así que el
+`"state"` de sorteo llegaba casi pisando al `"joined"`). Botón de cancelar
+nunca queda deshabilitado — se oculta una vez que la partida ya está
+confirmada, en vez de mostrarse "congelado".
+
+20 tests nuevos/reescritos (`test-matchmaking.mjs`) — a diferencia de los
+anteriores, cada caso que arma una sala real la empuja hasta fase
+`"playing"` DE VERDAD (reveal + dealDraw reales, no solo `started:true`),
+exactamente la aserción que hubiera agarrado el bug crítico desde el
+principio. Cubre las 4 composiciones (1+bot, 2, 3, 4), la ventana de MMR
+angosta Y su expansión con el tiempo, cancelación y limpieza de fantasmas.
+Regresión completa existente sin romperse (104/104: reglas, ranked, salas,
+chat, auth, motor de recompensas, resolución de fin de partida).
+
 ## [1.2.4] - 2026-08-20 — Fix: reconexión en PC/web nunca más cae en la pantalla de IP LAN
 
 Reportado por el usuario: "salís de la partida... para volver a jugar

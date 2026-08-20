@@ -1621,8 +1621,14 @@ function useAtraccion(room, player, msg) {
    puntúa: solo ocupa asiento, no rompe nada). */
 const matchQueues = { casual: [], ranked: [] };
 const MATCHMAKING_TICK_MS = Number(process.env.MATCHMAKING_TICK_MS) || 2000;
-const MATCH_TARGET_SIZE = 4;
-const MATCH_WAIT_TIMEOUT_MS = Number(process.env.MATCH_WAIT_TIMEOUT_MS) || 20000;
+const MATCH_TARGET_SIZE = 4; // techo real (nunca se rellena de más — mínimo real es 2, ver formMatchmakingRoom)
+const MATCH_WAIT_TIMEOUT_MS = Number(process.env.MATCH_WAIT_TIMEOUT_MS) || 30000;
+// Ranked: ventana de MMR que se agranda con el tiempo esperado por el más
+// antiguo de la cola (el "ancla") — arranca angosta (parejas de nivel
+// similar) y se va abriendo hasta cubrir prácticamente cualquiera para
+// cuando se cumple el timeout. Una sola cola (sin sub-colas por bracket).
+const RANKED_RANGE_BASE = Number(process.env.RANKED_RANGE_BASE) || 100;
+const RANKED_RANGE_GROWTH_PER_SEC = Number(process.env.RANKED_RANGE_GROWTH_PER_SEC) || 40;
 
 function removeFromMatchQueues(ws) {
   for (const mode of Object.keys(matchQueues)) {
@@ -1642,10 +1648,15 @@ function makeMatchmakingBot(usedNames) {
   return { id: C.nid("ai"), ws: null, name: pickedName, connected: true, isAI: true, ready: true, username: null, aiDifficulty: diff, avatar: aiAvatars[diff] || "🤖", skin: "clasica" };
 }
 
-/* Arma y arranca una sala a partir de un grupo de entradas de cola — mismo
-   shape de room que crea join:"NUEVA" (server.js más abajo), solo que acá
-   lo arma matchmaking en vez de un jugador manualmente, y arranca sola en
-   vez de esperar el mensaje "start" (entrar a la cola YA es "estoy listo"). */
+/* Arma y arranca una sala a partir de un grupo de entradas de cola — MISMO
+   shape de room y MISMA secuencia que join:"NUEVA" + start (server.js más
+   abajo): matchmaking no reinventa un segundo pipeline de sorteo/reparto,
+   arma la sala con esa forma exacta y llama al mismo startGame() de siempre.
+   Composición: mínimo 2, máximo 4 — nunca se rellena con bots hasta 4. Si
+   al momento de armar el grupo quedó UN SOLO humano (nadie más entró a
+   tiempo), se le agrega exactamente 1 bot (arranca 1v1 contra IA). Con 2, 3
+   o 4 humanos reales, arranca así, sin agregar ningún bot — la IA es
+   solamente el fallback para que una persona sola no espere para siempre. */
 async function formMatchmakingRoom(entries, mode) {
   const ranked = mode === "ranked";
   const room = {
@@ -1665,17 +1676,27 @@ async function formMatchmakingRoom(entries, mode) {
       fx: entry.fx || "clasico", trail: entry.trail || "clasica",
     };
     room.players.push(player);
-    send(entry.ws, { type: "queueMatched" });
+    // Bug real (encontrado en prueba manual): sin esto, la conexión emparejada
+    // recibía "joined" y veía la sala, pero room/player de ESA conexión (las
+    // variables de closure que usa cada handler de juego) nunca quedaban
+    // seteadas — formMatchmakingRoom corre desde el timer global, no desde el
+    // handler de mensajes de esa conexión. Resultado: sorteo/reparto/draw/lay
+    // pisaban el guard `if (!room || !player) return` de cada handler y no
+    // hacían nada, en silencio. Ver el setter `ws._applyRoomPlayer` (armado
+    // por conexión en wss.on("connection")).
+    if (entry.ws._applyRoomPlayer) entry.ws._applyRoomPlayer(room, player);
+    send(entry.ws, { type: "queueMatched", humanCount: entries.length });
     send(entry.ws, { type: "joined", code: room.code, playerId: player.id });
     sendChatHistory(entry.ws, room);
   }
-  const usedNames = room.players.map((p) => p.name);
-  while (room.players.length < MATCH_TARGET_SIZE) {
-    const bot = makeMatchmakingBot(usedNames);
-    usedNames.push(bot.name);
+  if (room.players.length === 1) {
+    const bot = makeMatchmakingBot(room.players.map((p) => p.name));
     room.players.push(bot);
   }
   broadcast(room);
+  // Mismo pipeline que la sala manual (join → ready → start): entrar a la
+  // cola YA es "estoy listo", así que se salta directo a startGame(), pero
+  // es EL MISMO startGame() que usa el flujo manual, no una copia.
   startGame(room);
 }
 
@@ -1689,25 +1710,30 @@ function tryMatchQueue(mode) {
 
   const oldestWaitMs = Date.now() - queue[0].joinedAt;
   const timedOut = oldestWaitMs >= MATCH_WAIT_TIMEOUT_MS;
-
-  if (queue.length < MATCH_TARGET_SIZE && !timedOut) {
-    queue.forEach((q) => send(q.ws, { type: "queueStatus", mode, waitingSeconds: Math.floor((Date.now() - q.joinedAt) / 1000), queueSize: queue.length }));
-    return;
-  }
+  const sendWaitingStatus = () => queue.forEach((q) => send(q.ws, {
+    type: "queueStatus", mode,
+    waitingSeconds: Math.floor((Date.now() - q.joinedAt) / 1000),
+    queueSize: Math.min(queue.length, MATCH_TARGET_SIZE),
+    maxWaitSeconds: Math.max(0, Math.ceil((MATCH_WAIT_TIMEOUT_MS - (Date.now() - q.joinedAt)) / 1000)),
+  }));
 
   let group;
   if (mode === "ranked") {
-    // El que espera hace más tiempo + los más cercanos en rank_pts
-    // disponibles en este momento (sin ventana que se expande con el
-    // tiempo — con el volumen actual de jugadores, más simple y
-    // mantenible que un algoritmo tipo ELO; se ajusta con datos reales
-    // de uso si hace falta más adelante).
     const anchor = queue[0];
-    const rest = queue.slice(1).sort((a, b) => Math.abs((a.rankPts || 1000) - (anchor.rankPts || 1000)) - Math.abs((b.rankPts || 1000) - (anchor.rankPts || 1000)));
-    group = [anchor, ...rest.slice(0, MATCH_TARGET_SIZE - 1)];
+    const allowedRange = timedOut ? Infinity : RANKED_RANGE_BASE + RANKED_RANGE_GROWTH_PER_SEC * (oldestWaitMs / 1000);
+    const within = queue.slice(1)
+      .filter((q) => Math.abs((q.rankPts || 1000) - (anchor.rankPts || 1000)) <= allowedRange)
+      .sort((a, b) => Math.abs((a.rankPts || 1000) - (anchor.rankPts || 1000)) - Math.abs((b.rankPts || 1000) - (anchor.rankPts || 1000)));
+    const candidate = [anchor, ...within].slice(0, MATCH_TARGET_SIZE);
+    if (candidate.length >= MATCH_TARGET_SIZE || timedOut) group = candidate;
+    else { sendWaitingStatus(); return; }
   } else {
-    group = queue.slice(0, MATCH_TARGET_SIZE); // Casual: FIFO puro, sin criterio de rango
+    // Casual: FIFO puro, sin criterio de rango.
+    if (queue.length >= MATCH_TARGET_SIZE) group = queue.slice(0, MATCH_TARGET_SIZE);
+    else if (timedOut) group = queue.slice(0, queue.length);
+    else { sendWaitingStatus(); return; }
   }
+  if (!group.length) return;
   for (const g of group) { const idx = queue.indexOf(g); if (idx !== -1) queue.splice(idx, 1); }
   formMatchmakingRoom(group, mode).catch((e) => console.error("[matchmaking] formMatchmakingRoom falló -", e.message));
 }
@@ -1718,6 +1744,18 @@ wss.on("close", () => clearInterval(matchmakingTimer));
 /* ---------- conexiones WebSocket ---------- */
 wss.on("connection", (ws) => {
   let room = null, player = null;
+  // Bug real (matchmaking): room/player son variables de closure de ESTA
+  // conexión, seteadas normalmente adentro del handler de "join" de ESTA
+  // MISMA conexión. formMatchmakingRoom corre desde el timer global de
+  // matchmaking — un contexto de ejecución totalmente distinto, sin acceso
+  // a estos bindings — así que un jugador emparejado nunca tenía room/player
+  // seteados: recibía "joined" y veía la sala, pero cualquier acción de
+  // juego (reveal, draw, lay...) pisaba el guard `if (!room || !player)
+  // return` de cada handler y no hacía nada, en silencio. Este setter,
+  // colgado del ws, es el único punto de entrada que le permite a código
+  // EXTERNO a este closure (formMatchmakingRoom) actualizar el room/player
+  // reales de esta conexión.
+  ws._applyRoomPlayer = (r, p) => { room = r; player = p; };
 
   let authUser = null; // username del jugador autenticado en este WS
 

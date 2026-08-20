@@ -2,7 +2,7 @@
    BURAKO — app completa: menú, tutorial, sonidos, IA con delay
    ================================================================ */
 
-const GAME_VERSION = "1.2.4";
+const GAME_VERSION = "1.2.5";
 const MAX_PLAYERS_ONLINE = 8; // el server acepta hasta 8 en sala (mazo doble si se supera 4)
 const QUICK_CHAT_COOLDOWN_MS = 15000;
 const QUICK_CHAT_OPTIONS = [
@@ -18,6 +18,10 @@ const TEAM_CHAT_OPTIONS = [
   {send:"👍 Dale", show:"👍"}, {send:"🚫 No tengo", show:"🚫"}, {send:"⏳ Esperá", show:"⏳"},
 ];
 const CHANGELOG = [
+  {version:"1.2.5", date:"20/08/2026", items:[
+    "🐛 Arreglado un bug importante: en algunos casos, entrar a una partida por Matchmaking (Casual/Ranked rápido) dejaba la pantalla del sorteo/reparto sin responder — no se podía tomar la ficha ni recibir las fichas iniciales. Ya está resuelto.",
+    "🎲⚡ Matchmaking: ahora las partidas arrancan con 2, 3 o 4 jugadores reales tal cual entran, sin completar de más con IA — la IA solo entra si quedaste solo en la búsqueda, para no dejarte esperando para siempre. Pantalla de búsqueda con estados más claros (jugadores encontrados, \"¡Partida encontrada!\", \"Iniciando…\").",
+  ]},
   {version:"1.2.4", date:"20/08/2026", items:[
     "🔌 Arreglado: si la conexión se cortaba (por ejemplo al volver de una partida) y no lograba reconectarse sola, en PC/navegador podías quedar en una pantalla vieja pidiendo una IP de red local, sin forma clara de volver a jugar. Ahora reintenta la conexión de forma visible y, si hace falta, te manda directo al login — nunca a esa pantalla.",
   ]},
@@ -5377,8 +5381,20 @@ function netConnect(host){
       // Leaderboard callback
       if(msg.type==="leaderboard"&&G._lbCb){ G._lbCb(msg); return; }
       if(msg.type==="roomList"){ G.publicRooms=msg.rooms||[]; if(G.screen==="netConnect"&&G.netStep==="publicRooms") render(); return; }
-      if(msg.type==="queueStatus"){ G.searchingSeconds=msg.waitingSeconds||0; G.searchingSize=msg.queueSize||0; if(G.screen==="netConnect"&&G.netStep==="searching") render(); return; }
-      if(msg.type==="queueMatched"){ setMsg("¡Encontramos partida!"); return; }
+      if(msg.type==="queueStatus"){
+        G.searchingSeconds=msg.waitingSeconds||0; G.searchingSize=msg.queueSize||0; G.searchingMaxWait=msg.maxWaitSeconds||0;
+        if(G.screen==="netConnect"&&G.netStep==="searching"&&G.searchingPhase!=="found") render();
+        return;
+      }
+      if(msg.type==="queueMatched"){
+        // Estado intermedio explícito: "encontramos partida" ANTES de entrar —
+        // el "joined" que sigue casi al toque queda demorado un toque (ver
+        // handler de "joined" más abajo) solo para que este estado se alcance
+        // a ver, en vez de saltar directo de "buscando" a la mesa.
+        G.searchingPhase="found"; G.searchingHumanCount=msg.humanCount||1;
+        if(G.screen==="netConnect"&&G.netStep==="searching") render();
+        return;
+      }
       if(msg.type==="queueLeft"){ return; }
       // Rank update
       if(msg.type==="rankUpdate"){ G.rankUpdate=msg; if(msg.profile) syncProfileFromServer(msg.profile); }
@@ -5394,8 +5410,30 @@ function netConnect(host){
       // Profile
       if(msg.type==="profile"){ G.serverProfile=msg.profile; }
       // Game messages
-      if(msg.type==="joined"){ clearLobbyPending(); NET.myId=msg.playerId; NET.roomCode=msg.code; saveActiveRoom(msg.code,msg.playerId); G.screen="lobby"; render(); }
+      if(msg.type==="joined"){
+        const fromMatchmakingSearch=(G.screen==="netConnect"&&G.netStep==="searching");
+        const enterRoom=()=>{
+          clearLobbyPending(); NET.myId=msg.playerId; NET.roomCode=msg.code; saveActiveRoom(msg.code,msg.playerId);
+          G._deferStateUntil=null;
+          if(G._deferredState){ const st=G._deferredState; G._deferredState=null; netApplyState(st); }
+          else { G.screen="lobby"; render(); }
+        };
+        if(fromMatchmakingSearch){
+          // "Partida encontrada" (seteado por queueMatched, justo antes de esto)
+          // -> "Iniciando..." -> recién ahí entra a la sala. Una sala armada por
+          // matchmaking arranca SOLA del lado del server (ver formMatchmakingRoom):
+          // el "state" de sorteo llega casi pisando a este "joined", así que
+          // además de demorar el cambio de pantalla acá hay que frenar el handler
+          // de "state" de abajo con el mismo plazo — si no, ese "state" cambia
+          // G.screen solo (netApplyState fuerza pantalla según la fase) y este
+          // paso de "Partida encontrada"/"Iniciando…" nunca llega a verse.
+          G.searchingPhase="starting"; render();
+          G._deferStateUntil=Date.now()+700;
+          setTimeout(enterRoom, 700);
+        } else enterRoom();
+      }
       else if(msg.type==="state"){
+        if(G._deferStateUntil && Date.now()<G._deferStateUntil){ G._deferredState=msg; return; }
         clearLobbyPending();
         resolvePendingAction(false);
         if(DEBUG_GAME){ const t0=performance.now(); netApplyState(msg); dlog("netApplyState+morph tardó", (performance.now()-t0).toFixed(1)+"ms"); }
@@ -6446,12 +6484,29 @@ function renderNetConnect(app){
   }
   if(step==="searching"){
     const mode=G.searchingMode||"casual";
+    const phase=G.searchingPhase||"searching";
+    const found=Math.min(G.searchingSize||0,4);
+    let title,body,showCancel=true;
+    if(phase==="starting"){
+      title="✔ ¡Partida encontrada!";
+      body=`<p style="font-size:13px;color:#ffe9a8;font-weight:700;margin:10px 0 4px">Iniciando…</p>`;
+      showCancel=false;
+    } else if(phase==="found"){
+      title="✔ ¡Partida encontrada!";
+      body=G.searchingHumanCount===1
+        ? `<p style="font-size:13px;color:rgba(232,238,247,.8);margin:10px 0 4px">Completando con IA…</p>`
+        : `<p style="font-size:13px;color:rgba(232,238,247,.8);margin:10px 0 4px">${G.searchingHumanCount} jugadores</p>`;
+      showCancel=false;
+    } else {
+      title=mode==="ranked"?"⚡ Buscando partida Ranked…":"🎲 Buscando partida Casual…";
+      body=`<p style="font-size:12px;color:rgba(232,238,247,.7);margin:10px 0 4px">${found}/4 jugadores${G.searchingSeconds?` · ${G.searchingSeconds}s buscando`:""}</p>
+      <p style="font-size:10px;color:rgba(232,238,247,.45);margin-bottom:14px;line-height:1.3">${G.searchingMaxWait?`Como máximo, en ${G.searchingMaxWait}s más se completa con IA si hace falta.`:"Si no aparecen suficientes a tiempo, se completa con IA."}</p>`;
+    }
     app.innerHTML=`<div class="screen-center"><div class="card ${G._enterCls}" style="text-align:center">
-      <h2 style="font-family:var(--font-display);color:#ffe9a8;font-size:18px;margin-bottom:6px">${mode==="ranked"?"⚡ Buscando partida Ranked…":"🎲 Buscando partida Casual…"}</h2>
+      <h2 style="font-family:var(--font-display);color:#ffe9a8;font-size:18px;margin-bottom:6px">${title}</h2>
       <div class="searching-spinner" aria-hidden="true"></div>
-      <p style="font-size:12px;color:rgba(232,238,247,.7);margin:10px 0 4px">${G.searchingSeconds||0}s buscando rivales${G.searchingSize?` · ${G.searchingSize} en cola`:""}</p>
-      <p style="font-size:10px;color:rgba(232,238,247,.45);margin-bottom:14px;line-height:1.3">Si no aparecen suficientes a tiempo, se completa con IA y arranca igual.</p>
-      <button class="btn btn-ghost" onclick="doQueueLeave()">✖ Cancelar búsqueda</button>
+      ${body}
+      ${showCancel?`<button class="btn btn-ghost" onclick="doQueueLeave()">✖ Cancelar búsqueda</button>`:""}
     </div></div>`; return;
   }
   if(step==="teamHub"){
@@ -6664,12 +6719,14 @@ async function doJoinPublicRoom(code){
 }
 async function doQueueJoin(mode){
   if(!(await ensureConnected())) return;
-  G.searchingMode=mode; G.searchingSeconds=0; G.searchingSize=0;
+  G.searchingMode=mode; G.searchingSeconds=0; G.searchingSize=0; G.searchingMaxWait=0;
+  G.searchingPhase="searching"; G.searchingHumanCount=0;
   G.screen="netConnect"; G.netStep="searching"; render();
   netSend({type:"queueJoin", mode, name: G.serverProfile?G.serverProfile.username:P.name, skin: P.skin||"clasica"});
 }
 function doQueueLeave(){
   netSend({type:"queueLeave"});
+  G.searchingPhase="searching";
   G.netStep="ffaHub"; render();
 }
 function doSetReady(ready){
