@@ -2,6 +2,44 @@
 
 Todos los cambios notables del proyecto se documentan en este archivo.
 
+## [1.2.4] - 2026-08-20 — Fix: reconexión en PC/web nunca más cae en la pantalla de IP LAN
+
+Reportado por el usuario: "salís de la partida... para volver a jugar
+multijugador tengo que desloguearme e ingresar de nuevo, desde PC".
+
+**Causa real** (`client/burako.js`, `goOnlineConnect`): si `resumeSessionSilently()`
+fallaba por CUALQUIER motivo (token vencido, o el WS no lograba conectar —
+confirmado en la medición de latencia: intentos de conexión contra Render
+colgados 20s+ y fallando del todo, más de una vez en esta sesión), la rama
+de PC/web caía en `netStep="connect"`: la pantalla de "Multijugador · Red
+local" pidiendo una IP manual (`192.168.0.5:8181`), pensada para testing en
+LAN. La rama de la app nativa (Android) sí mandaba al login correctamente;
+la de PC/web nunca se actualizó para hacer lo mismo. El usuario quedaba en
+una pantalla que no tiene sentido para un jugador real, sin ninguna pista
+de qué hacer — el único camino que encontraba para salir era desloguearse
+y volver a entrar a mano, lo que fuerza un login real y por lo tanto
+"arregla" el síntoma sin que nadie supiera por qué.
+
+**Fix**: `goOnlineConnect()` ahora distingue el motivo del fallo:
+- Sesión realmente vencida/token inválido (`reason==="expired"`) → login
+  normal, directo.
+- Falla temporal de conexión (sin red, timeout, Render recién
+  despertando) → reintenta de forma VISIBLE (usa el mismo
+  `connectWithRetry` con backoff que ya existía, ahora conectado a un
+  mensaje de estado real en pantalla — "Iniciando servidor (puede tardar
+  hasta un minuto)…", "Reintentando conexión…" — en vez de un
+  "Conectando al servidor…" estático que no cambiaba durante el reintento).
+- Si tras reintentar sigue sin poder conectar, o nunca hubo sesión: login
+  normal, en PC/web y en Android por igual. La pantalla de IP manual queda
+  intacta en el código para acceso de desarrollo, pero deja de ser un
+  destino automático para un usuario real.
+
+**Verificación**: 3 casos nuevos con Playwright real (sin token → login;
+token inválido → login, nunca la pantalla LAN; sesión válida → camino
+feliz intacto, llega a `joinRoom` sin romperse) + regresión completa
+existente (chat UI 22/23, la 1 fallida es el flake preexistente
+documentado, no relacionado).
+
 ## [sin bump de versión] - 2026-08-20 — Perf: menos round-trips a Supabase en fin de partida
 
 Cambio 100% backend (`server/db.js`), CERO archivos de cliente tocados —

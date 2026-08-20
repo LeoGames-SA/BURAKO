@@ -2,7 +2,7 @@
    BURAKO — app completa: menú, tutorial, sonidos, IA con delay
    ================================================================ */
 
-const GAME_VERSION = "1.2.3";
+const GAME_VERSION = "1.2.4";
 const MAX_PLAYERS_ONLINE = 8; // el server acepta hasta 8 en sala (mazo doble si se supera 4)
 const QUICK_CHAT_COOLDOWN_MS = 15000;
 const QUICK_CHAT_OPTIONS = [
@@ -18,6 +18,9 @@ const TEAM_CHAT_OPTIONS = [
   {send:"👍 Dale", show:"👍"}, {send:"🚫 No tengo", show:"🚫"}, {send:"⏳ Esperá", show:"⏳"},
 ];
 const CHANGELOG = [
+  {version:"1.2.4", date:"20/08/2026", items:[
+    "🔌 Arreglado: si la conexión se cortaba (por ejemplo al volver de una partida) y no lograba reconectarse sola, en PC/navegador podías quedar en una pantalla vieja pidiendo una IP de red local, sin forma clara de volver a jugar. Ahora reintenta la conexión de forma visible y, si hace falta, te manda directo al login — nunca a esa pantalla.",
+  ]},
   {version:"1.2.3", date:"19/08/2026", items:[
     "🎲⚡ Matchmaking automático: nuevos botones \"Casual rápido\" y \"Ranked rápido\" en Todos contra todos — buscan rivales solos, sin compartir código de sala. Si no aparecen suficientes a tiempo, la partida arranca igual completando con IA.",
   ]},
@@ -6352,32 +6355,45 @@ async function goOnlineConnect(){
   }
   const token=getSessionToken();
   if(token){
-    // El socket se cayó en segundo plano (común en redes móviles) — antes esto
-    // mostraba directo la pantalla de "IP del servidor" (pensada para LAN) sin
-    // ni probar reconectar solo primero.
+    // El socket se cayó en segundo plano (común en redes móviles, y en Render
+    // Free tras el sleep por inactividad) — reconectar solo antes de pedirle
+    // nada al usuario.
+    G.netConnectStatus=null;
     G.screen="netConnect"; G.netStep="connecting"; render();
-    const res=await resumeSessionSilently();
+    const res=await resumeSessionSilently({onStatus:(t)=>{ G.netConnectStatus=t; render(); }});
     if(res.ok){
       G.screen="netConnect"; G.netStep="joinRoom"; render();
       return;
     }
+    if(res.reason!=="expired"){
+      // Falla TEMPORAL (sin conexión / timeout / servidor recién despertando)
+      // — NUNCA un problema de sesión, así que reintentar visible en vez de
+      // mandar a loguearse de nuevo (y mucho menos a la pantalla de IP LAN,
+      // que antes era el único destino posible acá y dejaba al usuario sin
+      // ninguna pista de qué hacer). connectWithRetry ya reintenta con
+      // backoff y avisa "puede tardar hasta un minuto" si hace falta.
+      const ok=await connectWithRetry(defaultHost(), {onStatus:(t)=>{ G.netConnectStatus=t; render(); }});
+      if(ok){
+        const res2=await resumeSessionSilently();
+        if(res2.ok){ G.screen="netConnect"; G.netStep="joinRoom"; render(); return; }
+      }
+    }
   }
-  if(isNativeApp()){
-    // En la app no existe un concepto de "IP de LAN propia" — si no hay
-    // sesión guardada (o el resume falló de verdad), va directo al login en
-    // vez de un campo de IP que nunca tendría sentido ahí.
-    G.authIntent="joinRoom";
-    withLogoFlip(()=>{ G.screen="auth"; G.authStep="login"; G.authMode="login"; render(); });
-    return;
-  }
-  G.screen="netConnect"; G.netStep="connect"; render();
+  // Sin sesión válida: nunca hubo token, la sesión realmente venció/el token
+  // es inválido, o seguimos sin poder conectar tras reintentar — en todos los
+  // casos el único destino con sentido es el login normal (mismo camino en
+  // PC/web y en la app nativa; la pantalla de "IP de red local" de abajo
+  // queda como acceso manual para desarrollo, ya no es un fallback automático
+  // para un usuario real).
+  G.authIntent="joinRoom";
+  withLogoFlip(()=>{ G.screen="auth"; G.authStep="login"; G.authMode="login"; render(); });
 }
 function renderNetConnect(app){
   const lastHost=localStorage.getItem("burako_lan_host")||defaultHost();
   const lastName=localStorage.getItem("burako_lan_name")||P.name||"Jugador";
   const step=G.netStep||"connect";
   if(step==="connecting"){
-    app.innerHTML=`<div class="screen-center auth-screen"><div class="fan-compact">${fanLogoHTML()}</div><div class="card ${G._enterCls}" style="text-align:center"><p style="font-size:13px;color:rgba(232,238,247,.5);margin-top:12px">Conectando al servidor…</p></div></div>`;return;
+    app.innerHTML=`<div class="screen-center auth-screen"><div class="fan-compact">${fanLogoHTML()}</div><div class="card ${G._enterCls}" style="text-align:center"><p style="font-size:13px;color:rgba(232,238,247,.5);margin-top:12px">${esc(G.netConnectStatus||"Conectando al servidor…")}</p></div></div>`;return;
   }
   if(step==="connect"){
     app.innerHTML=`<div class="screen-center auth-screen"><div class="fan-compact">${fanLogoHTML()}</div><div class="card ${G._enterCls}">
