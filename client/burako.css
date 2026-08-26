@@ -561,7 +561,18 @@ input[type="range"]:disabled{opacity:.35;cursor:default}
    padding:0 en la card base para poder pegar un header a los 4 bordes (ver
    .rt-topbar) sin depender del padding de .card, que cambia en mobile. */
 .rt-card{padding:0;overflow:hidden;display:flex;flex-direction:column;max-height:88dvh;width:min(380px,92vw)}
+/* [v1.3.2] Ambientación flotante detrás del contenido — gemas de colores
+   (mismos tonos que las fichas) yendo y viniendo despacio + chispas doradas
+   subiendo, contenidas por el overflow:hidden de .rt-card. z-index:0 para
+   quedar SIEMPRE detrás de .rt-topbar/.rt-body (ambos suben a z-index:1). */
+.rt-bg-float{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:0}
+.rt-bg-gem{position:absolute;border-radius:7px;opacity:.14;box-shadow:0 0 16px currentColor;animation-name:rtFloatGem;animation-timing-function:ease-in-out;animation-iteration-count:infinite}
+.rt-bg-spark{position:absolute;width:3px;height:3px;border-radius:50%;background:var(--gold-text);box-shadow:0 0 6px 1px var(--gold-text);opacity:0;animation-name:rtRiseSpark;animation-timing-function:linear;animation-iteration-count:infinite}
+@keyframes rtFloatGem{0%,100%{transform:translateY(0) rotate(0deg)}50%{transform:translateY(-18px) rotate(8deg)}}
+@keyframes rtRiseSpark{0%{transform:translateY(0);opacity:0}10%{opacity:.85}90%{opacity:.25}100%{transform:translateY(-220px);opacity:0}}
+@media(prefers-reduced-motion:reduce){.rt-bg-gem,.rt-bg-spark{animation:none;opacity:0}}
 .rt-topbar{
+  position:relative;z-index:1;
   display:flex;align-items:center;gap:10px;padding:14px 16px;flex-shrink:0;
   border-bottom:1px solid var(--panel-border);
   background:linear-gradient(180deg,rgba(0,0,0,.22),transparent);
@@ -589,7 +600,7 @@ input[type="range"]:disabled{opacity:.35;cursor:default}
   .rt-back-label{display:none}
   .rt-title{padding-right:40px;font-size:14px}
 }
-.rt-body{flex:1;overflow-y:auto;padding:18px 20px 24px;display:flex;flex-direction:column;align-items:center;text-align:center;scroll-behavior:smooth}
+.rt-body{position:relative;z-index:1;flex:1;overflow-y:auto;padding:18px 20px 24px;display:flex;flex-direction:column;align-items:center;text-align:center;scroll-behavior:smooth}
 @media(prefers-reduced-motion:reduce){.rt-body{scroll-behavior:auto}}
 .rt-cta{position:relative;overflow:hidden}
 .rt-cta::after{
@@ -705,6 +716,25 @@ input[type="range"]:disabled{opacity:.35;cursor:default}
   .daily-pip-current,.daily-prize-amount{animation:none}
 }
 
+/* [v1.3.2] Regalo al superar un piso de Torre — antes el premio aparecía
+   directo como texto; ahora es una caja que invita a tocarla (rebote +
+   brillo) y al abrirla revela el monto con el mismo brillo dorado que ya
+   usa el premio de la Ruleta (.daily-prize-amount), para que las dos
+   pantallas de recompensa se sientan de la misma familia visual. */
+.tower-gift-box{
+  display:flex;flex-direction:column;align-items:center;gap:6px;
+  background:none;border:none;cursor:pointer;padding:10px 0 4px;margin:0 auto;
+  animation:towerGiftBounce 1.4s ease-in-out infinite;
+}
+.tower-gift-icon{font-size:44px;filter:drop-shadow(0 0 14px rgba(251,191,36,.5))}
+@keyframes towerGiftBounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+.tower-gift-hint{font-size:11.5px;color:var(--gold-text);font-weight:700}
+.tower-gift-prize{
+  font-family:var(--font-display);font-size:26px;color:var(--gold-text);line-height:1.2;
+  margin:8px 0 4px;animation:dailyPrizeGlow 2s ease-in-out infinite;
+}
+@media(prefers-reduced-motion:reduce){.tower-gift-box{animation:none}.tower-gift-prize{animation:none}}
+
 /* ---------- Torre semanal ----------
    v1.3.1: la lista plana de 10 filas pasó a ser una senda serpenteante
    (zigzag) conectada por una línea animada, con el piso actual como faro
@@ -722,7 +752,7 @@ input[type="range"]:disabled{opacity:.35;cursor:default}
 .tower-map svg{position:absolute;inset:0;width:100%;height:100%;z-index:0}
 .tower-path{fill:none;stroke:url(#towerPathGrad);stroke-width:3;stroke-linecap:round;stroke-dasharray:2 12;animation:towerPathFlow 1.4s linear infinite}
 @keyframes towerPathFlow{to{stroke-dashoffset:-28}}
-.tower-floor{position:absolute;display:flex;align-items:center;gap:9px;z-index:1;transform:translate(-50%,-50%);width:78%;max-width:230px}
+.tower-floor{position:absolute;display:flex;align-items:center;gap:9px;z-index:1;transform:translate(-50%,-50%);width:78%;max-width:230px;cursor:pointer}
 .tower-floor.side-l{flex-direction:row-reverse;text-align:right}
 .tower-floor-node{
   position:relative;width:44px;height:44px;border-radius:50%;flex-shrink:0;
@@ -753,6 +783,11 @@ input[type="range"]:disabled{opacity:.35;cursor:default}
 .tower-floor-title{font-family:var(--font-body);font-weight:800;font-size:12px;color:#e8eef7}
 .tower-floor-diff{font-size:8.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:rgba(232,238,247,.5);display:block;margin-top:1px}
 .tower-floor-meta{font-size:9.5px;color:rgba(232,238,247,.6);margin-top:3px;line-height:1.4}
+/* [v1.3.2] Premio de un piso todavía bloqueado: signo de interrogación con un
+   brillo que va y viene — sugiere "hay algo, todavía no se sabe qué" sin
+   inventar un número falso (el premio real solo lo conoce el servidor). */
+.tower-floor-prize-mystery{color:var(--gold-text);font-weight:700;animation:towerMysteryGlow 2.2s ease-in-out infinite}
+@keyframes towerMysteryGlow{0%,100%{opacity:.55;text-shadow:none}50%{opacity:1;text-shadow:0 0 8px rgba(251,191,36,.6)}}
 .tower-floor-play{
   font-family:var(--font-body);font-weight:800;font-size:10.5px;color:#1a1200;
   background:var(--btn-gold-grad);border:none;border-radius:9px;padding:6px 12px;cursor:pointer;
@@ -763,7 +798,7 @@ input[type="range"]:disabled{opacity:.35;cursor:default}
   border:1px solid rgba(251,191,36,.4);border-radius:10px;padding:12px;
   margin-bottom:10px;font-weight:800;color:#ffe9a8;font-size:13px;line-height:1.4;width:100%;
 }
-@media(prefers-reduced-motion:reduce){.tower-floor-current .tower-floor-node,.tower-crown-deco span,.tower-path{animation:none}}
+@media(prefers-reduced-motion:reduce){.tower-floor-current .tower-floor-node,.tower-crown-deco span,.tower-path,.tower-floor-prize-mystery{animation:none;opacity:.85}}
 
 /* ---------- Botones de modo (menú Multijugador): pill + chip de ícono ---------- */
 .mode-btn{
@@ -1512,6 +1547,11 @@ body.ingame{background:
   padding:14px;cursor:pointer;transition:border-color var(--motion-fast) var(--motion-ease),transform var(--motion-fast) var(--motion-ease);
 }
 .menu-side-card:hover{border-color:rgba(251,191,36,.4);transform:translateY(-1px)}
+/* v1.3.2: Ruleta/Torre se mudaron de su propia columna a apilarse debajo del
+   Pase de temporada en la columna derecha — versión más chica de la misma
+   tarjeta (sin barra de progreso), para que las 3 entren cómodas sin que la
+   columna quede desproporcionadamente alta. */
+.menu-side-card-compact{padding:10px 14px}
 /* El perfil se mudó al header (.hud-profile-chip) — .menu-side-left quedaba
    vacío como espaciador puramente óptico en desktop (misma anchura que la
    tarjeta de la derecha). v1.3: ahora aloja la tarjeta de Ruleta diaria. En

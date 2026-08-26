@@ -2,6 +2,44 @@
 
 Todos los cambios notables del proyecto se documentan en este archivo.
 
+## [1.2.7] - 2026-08-26 — Ruleta diaria y Torre semanal: rediseño + mejoras de UX
+
+Cierre del trabajo de Ruleta diaria/Torre semanal (el CSS de esta feature se
+había quedado sin deployar por error en el commit anterior — ver detalle en
+`docs/ai/FROM-CLAUDE.md`). Esta versión completa el diseño y suma mejoras
+pedidas al ver la primera versión ya en producción:
+
+- **Ambientación mística compartida**: gemas de colores flotando + chispas
+  doradas subiendo dentro de las tarjetas de Ruleta/Torre, con los MISMOS
+  colores que ya usan las fichas del juego — no colores nuevos.
+- **Ruleta diaria — la animación de giro ahora varía de verdad**: el premio
+  YA era 100% aleatorio del lado servidor (`crypto.randomInt`), pero la
+  animación siempre giraba exactamente 4 vueltas en 1.7s clavado —
+  visualmente idéntica cada vez, lo que daba sensación de estar trucada.
+  Ahora la cantidad de vueltas (5-7) y la duración (1.6-2.3s) varían en
+  cada tirada.
+- **Torre semanal — premio de pisos bloqueados oculto**: un piso todavía no
+  alcanzado mostraba el monto exacto de entrada, arruinando la sorpresa de
+  ir subiendo. Ahora muestra "🎁 ???" con un brillo sutil hasta que lo
+  superás — el servidor sigue siendo la única fuente real del premio
+  otorgado.
+- **Torre semanal — click en cualquier piso centra la vista**: antes solo
+  existía el paneo automático al piso actual; ahora tocar cualquier piso
+  (bloqueado o no) lo centra con scroll suave, sin cambiar qué piso se
+  puede jugar. Se corrigió además una carrera real donde el paneo
+  automático podía "ganarle" al click manual del jugador y devolver la
+  vista al piso actual justo después.
+- **Torre semanal — el premio ahora se "abre" como un regalo**: al superar
+  un piso, antes el premio aparecía directo como una línea de texto; ahora
+  se muestra una caja de regalo que invita a tocarla, y al abrirla revela
+  el monto con el mismo brillo dorado que ya usa el premio de la Ruleta.
+- **Menú reordenado**: Ruleta diaria y Torre semanal se mudaron de su
+  propia columna a apilarse debajo del Pase de temporada, para que la
+  columna derecha del menú quede mejor distribuida.
+- **Dato corregido**: una cuenta de prueba tenía un premio de Torre (piso 1)
+  de una sesión de pruebas anterior que hacía que ese piso apareciera como
+  ya superado sin corresponder — se borró ese registro puntual de Supabase.
+
 ## [1.2.6] - 2026-08-26 — Fase 5: validación de sesión/reconexión + 3 bugs críticos reales
 
 Fase 5 del proyecto de remediación de arquitectura de sesión

@@ -2,7 +2,7 @@
    BURAKO — app completa: menú, tutorial, sonidos, IA con delay
    ================================================================ */
 
-const GAME_VERSION = "1.2.6";
+const GAME_VERSION = "1.2.7";
 const MAX_PLAYERS_ONLINE = 8; // el server acepta hasta 8 en sala (mazo doble si se supera 4)
 const QUICK_CHAT_COOLDOWN_MS = 15000;
 const QUICK_CHAT_OPTIONS = [
@@ -18,6 +18,9 @@ const TEAM_CHAT_OPTIONS = [
   {send:"👍 Dale", show:"👍"}, {send:"🚫 No tengo", show:"🚫"}, {send:"⏳ Esperá", show:"⏳"},
 ];
 const CHANGELOG = [
+  {version:"1.2.7", date:"26/08/2026", items:[
+    "🎰🏰 Ruleta diaria y Torre semanal: rediseño con ambientación mística (gemas y chispas flotando) igual al resto del juego. La ruleta gira distinto cada vez (antes siempre giraba igual, solo cambiaba dónde frenaba). En la Torre, los pisos que todavía no llegaste muestran el premio como sorpresa (🎁 ???) en vez de mostrarlo de entrada, y tocar cualquier piso lo centra en pantalla. Al superar un piso, ahora abrís un regalo para ver el premio en vez de solo leerlo en un renglón. También se reordenó el menú: Ruleta y Torre ahora están debajo del Pase de temporada.",
+  ]},
   {version:"1.2.6", date:"26/08/2026", items:[
     "🔌 Arreglado un bug de sesión: si se cortaba la conexión repetidas veces en una partida o sala larga (más de unos minutos), podías dejar de poder reconectarte solo, aunque tu sesión siguiera siendo válida — a veces incluso te mandaba al login sin haber cerrado sesión. Ya está resuelto: la reconexión automática ahora es confiable durante toda la partida, no solo al principio.",
   ]},
@@ -4121,8 +4124,17 @@ function spinDailyWheelTo(streakDay,coins,onDone){
   if(reduceMotion){ el.style.transition="none"; el.style.transform=`rotate(${restAngle}deg)`; if(onDone) onDone(); return; }
   el.style.transition="none"; el.style.transform="rotate(0deg)";
   void el.offsetWidth; // fuerza el reflow: registra el 0deg ANTES de animar, si no el navegador puede saltarse la transición
-  el.style.transition="transform 1.7s cubic-bezier(.12,.72,.15,1)";
-  el.style.transform=`rotate(${4*360+restAngle}deg)`; // 4 vueltas completas de vuelo + el ángulo real, puramente estético
+  // [v1.3.2] Antes SIEMPRE eran exactamente 4 vueltas en 1.7s clavado — el
+  // premio ya era 100% al azar del lado servidor (crypto.randomInt), pero
+  // con la MISMA velocidad y cantidad de vueltas en cada giro, la animación
+  // se sentía mecánica/idéntica y daba la sensación de estar trucada. Ahora
+  // la cantidad de vueltas extra y la duración varían un poco en cada tirada
+  // (puramente estético — el ángulo final sigue siendo el único que importa,
+  // ya calculado arriba a partir del premio real).
+  const extraSpins=5+Math.floor(Math.random()*3); // 5, 6 o 7 vueltas completas
+  const duration=(1.6+Math.random()*0.7).toFixed(2); // 1.6s-2.3s
+  el.style.transition=`transform ${duration}s cubic-bezier(.12,.72,.15,1)`;
+  el.style.transform=`rotate(${extraSpins*360+restAngle}deg)`;
   if(onDone){
     const handler=()=>{ el.removeEventListener("transitionend",handler); onDone(); };
     el.addEventListener("transitionend",handler);
@@ -4148,6 +4160,27 @@ function dailyRouletteBurst(){
   }
 }
 
+// [v1.3.2] Ambientación mística/espacial compartida por Ruleta y Torre —
+// gemas de colores flotando despacio + chispas doradas subiendo, con los
+// MISMOS colores que ya usan las fichas del juego (--rojo/--azul/--verde/
+// --amarillo/--comodin), no colores nuevos inventados. Se arma como string
+// HTML (no se toca el DOM aparte) porque estas pantallas re-renderizan
+// pisando innerHTML entero — cualquier nodo agregado por fuera de acá se
+// perdería en el próximo render. Puramente decorativo, respeta
+// prefers-reduced-motion (ver burako.css).
+function rtBgFloatHTML(){
+  const colors=["var(--rojo)","var(--azul)","var(--verde)","var(--amarillo)","var(--comodin)"];
+  let gems="";
+  for(let i=0;i<5;i++){
+    const c=colors[i%colors.length], size=(16+Math.random()*12).toFixed(0);
+    gems+=`<span class="rt-bg-gem" style="color:${c};background:${c};width:${size}px;height:${size}px;left:${(Math.random()*90).toFixed(0)}%;top:${(Math.random()*88).toFixed(0)}%;animation-delay:${(Math.random()*6).toFixed(1)}s;animation-duration:${(11+Math.random()*8).toFixed(1)}s"></span>`;
+  }
+  let sparks="";
+  for(let i=0;i<8;i++){
+    sparks+=`<span class="rt-bg-spark" style="left:${(Math.random()*100).toFixed(0)}%;bottom:${(Math.random()*30).toFixed(0)}px;animation-delay:${(Math.random()*5).toFixed(1)}s;animation-duration:${(4+Math.random()*3).toFixed(1)}s"></span>`;
+  }
+  return `<div class="rt-bg-float" aria-hidden="true">${gems}${sparks}</div>`;
+}
 function renderDailyRoulette(app){
   const streakDay=G.dailyStreakDay||1;
   let body;
@@ -4172,6 +4205,7 @@ function renderDailyRoulette(app){
       <button class="btn btn-gold rt-cta" onclick="doDailySpin()">🎰 Girar</button>`;
   }
   app.innerHTML=`<div class="screen-center"><div class="card rt-card ${G._enterCls}">
+    ${rtBgFloatHTML()}
     <div class="rt-topbar">
       <button class="rt-back" onclick="goMenu()" title="Volver al menú">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
@@ -4465,22 +4499,7 @@ function renderMenu(app){
   </div>
   <div class="screen-center" style="position:relative;z-index:1">
     <div class="menu-layout ${G._enterCls?"a-slidein":""}">
-      <div class="menu-side menu-side-left">
-        <div class="menu-side-card" onclick="goDailyRoulette()">
-          <div style="display:flex;align-items:center;justify-content:space-between">
-            <span style="font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:rgba(232,238,247,.5);font-weight:800">🎰 Ruleta diaria</span>
-          </div>
-          <div style="font-size:15px;font-weight:800;color:#ffe9a8;margin:4px 0 2px">Girá una vez al día</div>
-          <div style="font-size:10px;color:rgba(232,238,247,.5)">Racha de 7 días — cuanto más seguido, más paga</div>
-        </div>
-        <div class="menu-side-card" style="margin-top:10px" onclick="goTower()">
-          <div style="display:flex;align-items:center;justify-content:space-between">
-            <span style="font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:rgba(232,238,247,.5);font-weight:800">🏰 Torre semanal</span>
-          </div>
-          <div style="font-size:15px;font-weight:800;color:#ffe9a8;margin:4px 0 2px">10 pisos, IA escalonada</div>
-          <div style="font-size:10px;color:rgba(232,238,247,.5)">Se reinicia cada lunes</div>
-        </div>
-      </div>
+      <div class="menu-side menu-side-left"></div>
       <div class="menu-main">
         ${fan}
         <p class="elegant-sub" style="margin-top:2px">El juego de Burako definitivo <span style="opacity:.6">· v${GAME_VERSION.replace(/\.0$/,"")}</span></p>
@@ -4498,7 +4517,17 @@ function renderMenu(app){
           <button onclick="logout()" style="background:none;border:none;color:#a5926a;font-size:12px;cursor:pointer">🚪 Salir</button>
         </div>
       </div>
-      <div class="menu-side menu-side-right">${menuSeasonHighlightHTML()}</div>
+      <div class="menu-side menu-side-right">
+        ${menuSeasonHighlightHTML()}
+        <div class="menu-side-card menu-side-card-compact" style="margin-top:10px" onclick="goDailyRoulette()">
+          <span style="font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:rgba(232,238,247,.5);font-weight:800">🎰 Ruleta diaria</span>
+          <div style="font-size:10px;color:rgba(232,238,247,.5);margin-top:2px">Girá una vez al día — racha de 7 días</div>
+        </div>
+        <div class="menu-side-card menu-side-card-compact" style="margin-top:8px" onclick="goTower()">
+          <span style="font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:rgba(232,238,247,.5);font-weight:800">🏰 Torre semanal</span>
+          <div style="font-size:10px;color:rgba(232,238,247,.5);margin-top:2px">10 pisos, IA escalonada — se reinicia el lunes</div>
+        </div>
+      </div>
     </div>
   </div>`;
 }
@@ -4626,8 +4655,19 @@ function renderGameover(app){
     const tr=mr.towerResult;
     if(mr.won){
       const prize=tr&&tr.ok?towerFloorPrizeLabel(mr.towerFloor):null;
+      // [v1.3.2] Antes el premio aparecía directo como una línea de texto más
+      // — pedido explícito: que se sienta como abrir un regalo, no como leer
+      // un renglón. El monto YA está confirmado por el servidor en tr/prize;
+      // esto es puramente la presentación (abrir/cerrar), no decide nada.
+      const giftHTML = !prize ? `<p style="font-size:12px;color:rgba(232,238,247,.55);margin-bottom:4px">Piso superado.</p>`
+        : !G._towerGiftOpened
+          ? `<button class="tower-gift-box" onclick="G._towerGiftOpened=true;render();" aria-label="Abrir tu premio">
+               <span class="tower-gift-icon">🎁</span>
+               <span class="tower-gift-hint">Tocá para abrir tu premio</span>
+             </button>`
+          : `<div class="tower-gift-prize a-pop">${prize}</div>`;
       headerHTML = `<div class="win-text a-pop">¡PISO ${mr.towerFloor} SUPERADO! 🏰</div>
-        <p style="font-size:12px;color:rgba(232,238,247,.55);margin-bottom:4px">${prize?"Ganaste "+prize+".":"Piso superado."}</p>
+        ${giftHTML}
         ${tr&&tr.complete?`<p style="font-size:13px;color:#ffe9a8;font-weight:700;margin-bottom:8px">🎉 ¡Completaste los 10 pisos de esta semana!</p>`:""}`;
     } else {
       headerHTML = `<div style="font-size:56px;margin-bottom:6px">🏰</div>
@@ -5943,7 +5983,7 @@ function netConnect(host){
       // Rank update
       if(msg.type==="rankUpdate"){ G.rankUpdate=msg; if(msg.profile) syncProfileFromServer(msg.profile); }
       else if(msg.type==="profile"){ clearClaiming(); syncProfileFromServer(msg.profile); render(); }
-      else if(msg.type==="matchResult"){ G.matchResult=msg; if(msg.update&&msg.update.profile) syncProfileFromServer(msg.update.profile); }
+      else if(msg.type==="matchResult"){ G.matchResult=msg; G._towerGiftOpened=false; if(msg.update&&msg.update.profile) syncProfileFromServer(msg.update.profile); }
       else if(msg.type==="achievementsUnlocked"){
         // La celebración de esquina es solo para quien lo desbloqueó (trae el detalle de recompensa);
         // el anuncio para el historial de todos ya llega vía el toast normal (kind:"achievement").
@@ -7376,14 +7416,36 @@ function towerFloorNodeHTML(floor,status,x,y,side){
   const diff=TOWER_FLOOR_DIFFICULTY_DISPLAY[floor];
   const isTop=floor===10;
   const icon=isTop?"👑":status==="done"?"✔":status==="current"?"▶":"🔒";
-  return `<div class="tower-floor tower-floor-${status}${isTop?" tower-floor-top":""} side-${side}" style="left:${x}%;top:${y}px" data-tower-floor="${floor}">
+  // [v1.3.2] El premio exacto solo se muestra para pisos ya superados o el
+  // actual (algo que el jugador YA ganó o está a punto de disputar) — un
+  // piso todavía bloqueado muestra un signo de interrogación con un brillo
+  // sutil ("misterioso") en vez del monto real, para no arruinar la sorpresa
+  // de ir subiendo. El servidor sigue siendo la única fuente real del premio
+  // otorgado (TOWER_FLOOR_PRIZES en db.js) — esto es solo de presentación.
+  const prizeHTML=status==="locked"
+    ?`<span class="tower-floor-prize-mystery">🎁 ???</span>`
+    :`🎁 ${towerFloorPrizeLabel(floor)}`;
+  return `<div class="tower-floor tower-floor-${status}${isTop?" tower-floor-top":""} side-${side}" style="left:${x}%;top:${y}px" data-tower-floor="${floor}" onclick="scrollToTowerFloor(${floor})">
     <div class="tower-floor-node">${icon}</div>
     <div class="tower-floor-card">
       <div class="tower-floor-title">Piso ${floor}<span class="tower-floor-diff">${TOWER_DIFF_LABEL[diff]||diff}</span></div>
-      <div class="tower-floor-meta">${diff==="claude"?"🧠":"🤖"} ${TOWER_RIVAL_NAME[diff]||"Rival"} · 🎁 ${towerFloorPrizeLabel(floor)}</div>
-      ${status==="current"?`<button class="tower-floor-play" onclick="doTowerStart()" ${G.towerStarting?"disabled":""}>${G.towerStarting?"…":"JUGAR"}</button>`:""}
+      <div class="tower-floor-meta">${diff==="claude"?"🧠":"🤖"} ${TOWER_RIVAL_NAME[diff]||"Rival"} · ${prizeHTML}</div>
+      ${status==="current"?`<button class="tower-floor-play" onclick="event.stopPropagation();doTowerStart()" ${G.towerStarting?"disabled":""}>${G.towerStarting?"…":"JUGAR"}</button>`:""}
     </div>
   </div>`;
+}
+// [v1.3.2] Tocar cualquier piso (bloqueado o no) lo centra en pantalla con un
+// scroll suave — pura navegación, no cambia qué piso se puede jugar (eso lo
+// sigue decidiendo únicamente el servidor en doTowerStart()).
+function scrollToTowerFloor(floor){
+  // Un click manual siempre gana contra el paneo automático al piso actual
+  // (ver renderTower(), que programa ese paneo 500ms después de cada
+  // render) — si no se cancela ese timer, podía "ganarle" al click del
+  // jugador y arrastrar la vista de vuelta al piso actual justo después.
+  clearTimeout(G._towerScrollT);
+  const reduceMotion=window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const el=document.querySelector(`[data-tower-floor="${floor}"]`);
+  if(el) el.scrollIntoView({behavior:reduceMotion?"auto":"smooth", block:"center"});
 }
 // Senda serpenteante (v1.3.1, reemplaza la lista plana de 10 filas): piso 10
 // arriba, piso 1 abajo, en zigzag conectado por una línea animada. Las
@@ -7426,6 +7488,7 @@ function renderTower(app){
     body=towerMapHTML(f=>f<current?"done":f===current?"current":"locked");
   }
   app.innerHTML=`<div class="screen-center"><div class="card rt-card ${G._enterCls}">
+    ${rtBgFloatHTML()}
     <div class="rt-topbar">
       <button class="rt-back" onclick="goMenu()" title="Volver al menú">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
