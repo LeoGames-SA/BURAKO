@@ -2126,7 +2126,21 @@ wss.on("connection", (ws) => {
       if (!existing || !existing.username || existing.username.toLowerCase() !== authUser.toLowerCase()) {
         return send(ws, { type: "error", msg: "No se pudo reconectar a esa sala." });
       }
-      if (existing.connected && existing.ws && existing.ws !== ws) {
+      // [Fase 5 — bug crítico real, solo visible con latencia de red real
+      // (Render), nunca en local] Este guard existe para rechazar un
+      // secuestro real de sesión desde OTRA pestaña/dispositivo mientras la
+      // primera sigue activa. El problema: cuando la MISMA sesión reconecta
+      // (cierra el socket viejo y abre uno nuevo), el evento "close" del
+      // socket viejo tarda un viaje de red real en llegar al servidor —
+      // mientras tanto, `existing.ws` todavía apunta al socket viejo con
+      // `existing.connected` sin actualizar. Si el rejoin del socket NUEVO
+      // llega primero (algo que con latencia real pasa seguido, aunque en
+      // local con round-trips de <1ms el guard nunca alcanzaba a fallar),
+      // se rechazaba una reconexión legítima como si fuera un secuestro.
+      // `readyState===1` es la señal real de "¿el otro socket sigue vivo de
+      // verdad?" — si ya está cerrando/cerrado, no es una sesión rival, es
+      // la propia sesión reconectando.
+      if (existing.connected && existing.ws && existing.ws !== ws && existing.ws.readyState === 1) {
         return send(ws, { type: "error", msg: "Esa sala ya está conectada desde otra pestaña/dispositivo." });
       }
       if (existing._forfeitGraceTimer) { clearTimeout(existing._forfeitGraceTimer); existing._forfeitGraceTimer = null; }
