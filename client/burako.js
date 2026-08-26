@@ -2,7 +2,7 @@
    BURAKO — app completa: menú, tutorial, sonidos, IA con delay
    ================================================================ */
 
-const GAME_VERSION = "1.2.8";
+const GAME_VERSION = "1.2.9";
 const MAX_PLAYERS_ONLINE = 8; // el server acepta hasta 8 en sala (mazo doble si se supera 4)
 const QUICK_CHAT_COOLDOWN_MS = 15000;
 const QUICK_CHAT_OPTIONS = [
@@ -18,6 +18,9 @@ const TEAM_CHAT_OPTIONS = [
   {send:"👍 Dale", show:"👍"}, {send:"🚫 No tengo", show:"🚫"}, {send:"⏳ Esperá", show:"⏳"},
 ];
 const CHANGELOG = [
+  {version:"1.2.9", date:"26/08/2026", items:[
+    "🏰🎁 Torre semanal: ningún premio se pierde más. Si ganás un piso y salís sin abrir el regalo, queda pendiente — un piso pendiente se ve con un ícono de regalo brillante en el mapa, y podés abrirlo cuando quieras (o reclamar todos de una desde la Torre). También rediseñamos la progresión de premios de los 10 pisos: ahora escala de verdad (más monedas y XP cuanto más arriba llegás), con 2 efectos visuales exclusivos de Torre (pisos 9 y 10) y un premio extra grande por completar los 10 pisos en la semana.",
+  ]},
   {version:"1.2.8", date:"26/08/2026", items:[
     "🏠 Menú principal rediseñado: Pase de temporada, Ruleta diaria y Torre semanal ahora son tarjetas grandes con tu progreso real a la vista (nivel y próxima recompensa, racha y estado de la ruleta, piso actual y premio de la Torre) — antes eran accesos chicos, ahora invitan mucho más a entrar. Pase a la izquierda, Ruleta y Torre a la derecha; en el celular se apilan debajo de Jugar.",
   ]},
@@ -969,6 +972,7 @@ const EFFECTS=[
   // (CATALOG.effects en db.js), así que buyItem lo rechaza si alguien intenta
   // comprarlo igual: solo se obtiene superando el piso 10, vía grantRewards.
   {id:"torre_celestial", name:"Torre Celestial 🏰", desc:"Destellos celestiales dorados, exclusivo de la Torre", price:null, sourceOnly:"la Torre semanal (piso 10)"},
+  {id:"torre_relampago", name:"Relámpago de Torre ⚡", desc:"Chispas eléctricas violeta y celeste, exclusivo de la Torre", price:null, sourceOnly:"la Torre semanal (piso 9)"},
 ];
 /* Encola el efecto del jugador para el juego recién bajado; se dispara cuando el DOM
    de ese juego ya existe (ver el final de renderPlaying), así nace DESDE el juego
@@ -984,7 +988,7 @@ const FX_GLOW_COLOR={
   olamesa:"rgba(45,212,191,.75)", pulsoatril:"rgba(251,191,36,.8)", discoluces:"rgba(232,121,249,.75)",
   impacto_rojo:"rgba(239,68,68,.75)", impacto_azul:"rgba(59,130,246,.75)", impacto_verde:"rgba(34,197,94,.75)",
   impacto_violeta:"rgba(139,92,246,.8)", impacto_dorado:"rgba(251,191,36,.85)",
-  torre_celestial:"rgba(253,230,138,.9)",
+  torre_celestial:"rgba(253,230,138,.9)", torre_relampago:"rgba(167,139,250,.85)",
 };
 /* Efecto premium alrededor del juego: aro de luz + chispas naciendo de sus bordes
    (no solo partículas sueltas flotando en el medio de la pantalla). */
@@ -1045,17 +1049,17 @@ function glitchFlash(){
 /* Forma de partícula por efecto — no todas son círculos: cada efecto tiene su propia
    silueta (clip-path) además de su paleta de colores, para que se note la diferencia
    de un vistazo y no solo por el color. */
-const FX_SHAPES={clasico:"circle",explosion:"circle",escarcha:"diamond",rayo:"bolt",confeti:"square",destello:"star",aurora:"streak",plasma:"bolt",arcoiris:"star",glitch:"square",holograma:"diamond",olamesa:"streak",pulsoatril:"star",discoluces:"square",impacto_rojo:"circle",impacto_azul:"diamond",impacto_verde:"star",impacto_violeta:"bolt",impacto_dorado:"star",torre_celestial:"star"};
+const FX_SHAPES={clasico:"circle",explosion:"circle",escarcha:"diamond",rayo:"bolt",confeti:"square",destello:"star",aurora:"streak",plasma:"bolt",arcoiris:"star",glitch:"square",holograma:"diamond",olamesa:"streak",pulsoatril:"star",discoluces:"square",impacto_rojo:"circle",impacto_azul:"diamond",impacto_verde:"star",impacto_violeta:"bolt",impacto_dorado:"star",torre_celestial:"star",torre_relampago:"bolt"};
 const SHAPE_CLIP={
   diamond:"polygon(50% 0%,100% 50%,50% 100%,0% 50%)",
   bolt:"polygon(58% 0%,14% 55%,42% 55%,30% 100%,86% 40%,55% 40%)",
   star:"polygon(50% 0%,63% 34%,100% 38%,72% 61%,82% 98%,50% 78%,18% 98%,28% 61%,0% 38%,37% 34%)",
 };
 function spawnParticles(fx, originEl){
-  const palettes={clasico:["#ffffff"],explosion:["#f97316","#fbbf24","#ef4444"],escarcha:["#7dd3fc","#e0f2fe","#38bdf8"],rayo:["#fde047","#ffffff"],confeti:["#f87171","#60a5fa","#34d399","#fbbf24","#c084fc"],destello:["#fff7d6","#fde68a","#fbbf24","#ffffff"],aurora:["#4ade80","#22d3ee","#a78bfa","#f472b6"],plasma:["#60a5fa","#a78bfa","#ffffff","#38bdf8"],arcoiris:["#f87171","#fb923c","#fbbf24","#4ade80","#38bdf8","#818cf8","#e879f9"],glitch:["#22d3ee","#f472b6","#a3e635","#ffffff"],holograma:["#f0abfc","#93c5fd","#5eead4","#fef08a"],olamesa:["#2dd4bf","#5eead4","#0891b2"],pulsoatril:["#fbbf24","#fde68a","#f59e0b"],discoluces:["#f87171","#fbbf24","#4ade80","#38bdf8","#c084fc"],impacto_rojo:["#ef4444","#f97316","#7f1d1d"],impacto_azul:["#3b82f6","#38bdf8","#1e3a8a"],impacto_verde:["#22c55e","#4ade80","#14532d"],impacto_violeta:["#8b5cf6","#a78bfa","#4c1d95"],impacto_dorado:["#fbbf24","#f59e0b","#fef08a"],torre_celestial:["#fef3c7","#fde68a","#fbbf24","#fff7ed","#f0abfc"]};
+  const palettes={clasico:["#ffffff"],explosion:["#f97316","#fbbf24","#ef4444"],escarcha:["#7dd3fc","#e0f2fe","#38bdf8"],rayo:["#fde047","#ffffff"],confeti:["#f87171","#60a5fa","#34d399","#fbbf24","#c084fc"],destello:["#fff7d6","#fde68a","#fbbf24","#ffffff"],aurora:["#4ade80","#22d3ee","#a78bfa","#f472b6"],plasma:["#60a5fa","#a78bfa","#ffffff","#38bdf8"],arcoiris:["#f87171","#fb923c","#fbbf24","#4ade80","#38bdf8","#818cf8","#e879f9"],glitch:["#22d3ee","#f472b6","#a3e635","#ffffff"],holograma:["#f0abfc","#93c5fd","#5eead4","#fef08a"],olamesa:["#2dd4bf","#5eead4","#0891b2"],pulsoatril:["#fbbf24","#fde68a","#f59e0b"],discoluces:["#f87171","#fbbf24","#4ade80","#38bdf8","#c084fc"],impacto_rojo:["#ef4444","#f97316","#7f1d1d"],impacto_azul:["#3b82f6","#38bdf8","#1e3a8a"],impacto_verde:["#22c55e","#4ade80","#14532d"],impacto_violeta:["#8b5cf6","#a78bfa","#4c1d95"],impacto_dorado:["#fbbf24","#f59e0b","#fef08a"],torre_celestial:["#fef3c7","#fde68a","#fbbf24","#fff7ed","#f0abfc"],torre_relampago:["#a78bfa","#c4b5fd","#38bdf8","#e0e7ff"]};
   const colors=palettes[fx]||palettes.clasico;
   const shape=FX_SHAPES[fx]||"circle";
-  const premium=fx==="destello"||fx==="aurora"||fx==="plasma"||fx==="arcoiris"||fx==="glitch"||fx==="holograma"||fx==="torre_celestial";
+  const premium=fx==="destello"||fx==="aurora"||fx==="plasma"||fx==="arcoiris"||fx==="glitch"||fx==="holograma"||fx==="torre_celestial"||fx==="torre_relampago";
   const n=fx==="clasico"?8:premium?32:20;
   let ox=window.innerWidth/2, oy=window.innerHeight*0.42, spread=1;
   if(originEl){
@@ -4529,8 +4533,10 @@ function menuTowerHeroHTML(){
   const floor=G.towerComplete?10:(G.towerFloor||1);
   const pct=Math.round((Math.min(floor,10)-1)/9*100);
   const prizeLabel=G.towerComplete?"Torre Celestial 🏰":towerFloorPrizeLabel(floor);
+  const pendingCount=(G.towerPending||[]).length;
   return `<div class="menu-hero-card menu-hero-tower" onclick="goTower()">
     <span class="menu-hero-pill menu-hero-pill-violet">⚔ Desafío semanal</span>
+    ${pendingCount?`<span class="menu-hero-badge">🎁 ${pendingCount}</span>`:""}
     <div class="menu-hero-title">Torre semanal</div>
     <div class="menu-hero-sub" style="margin-bottom:10px">Subí pisos, superá desafíos y ganá recompensas épicas</div>
     <div class="menu-hero-tower-icon" aria-hidden="true">🏰</div>
@@ -4725,18 +4731,22 @@ function renderGameover(app){
     // normales) — el premio real, si lo hay, viene en mr.towerResult.
     const tr=mr.towerResult;
     if(mr.won){
-      const prize=tr&&tr.ok?towerFloorPrizeLabel(mr.towerFloor):null;
-      // [v1.3.2] Antes el premio aparecía directo como una línea de texto más
-      // — pedido explícito: que se sienta como abrir un regalo, no como leer
-      // un renglón. El monto YA está confirmado por el servidor en tr/prize;
-      // esto es puramente la presentación (abrir/cerrar), no decide nada.
+      const prize=tr&&tr.ok?formatTowerRewardsReal(tr.rewards,mr.towerFloor):null;
+      // [v1.3.4 — premios pendientes] El premio YA está confirmado y pagado
+      // por el servidor (tr/prize) desde ANTES de que se dibuje este botón —
+      // acá "abrir el regalo" es solo la presentación Y el aviso de "ya lo
+      // vi" (towerAcknowledge) para que no vuelva a aparecer como pendiente
+      // si el jugador vuelve más tarde a la Torre. Si salís de esta pantalla
+      // sin abrirlo, NO se pierde — sigue en G.towerPending / lo puede abrir
+      // después desde la Torre (ver renderTower/openTowerRewardQueue).
       const giftHTML = !prize ? `<p style="font-size:12px;color:rgba(232,238,247,.55);margin-bottom:4px">Piso superado.</p>`
         : !G._towerGiftOpened
-          ? `<button class="tower-gift-box" onclick="G._towerGiftOpened=true;render();" aria-label="Abrir tu premio">
+          ? `<button class="tower-gift-box" onclick="ackTowerGameoverGift()" aria-label="Abrir tu premio">
                <span class="tower-gift-icon">🎁</span>
                <span class="tower-gift-hint">Tocá para abrir tu premio</span>
              </button>`
-          : `<div class="tower-gift-prize a-pop">${prize}</div>`;
+          : `<div class="tower-gift-prize a-pop">${prize}</div>
+             ${tr&&tr.complete?`<div class="tower-gift-prize a-pop" style="font-size:16px;margin-top:6px">🏆 Bonus Torre completa: ${towerCompleteBonusLabel()}</div>`:""}`;
       headerHTML = `<div class="win-text a-pop">¡PISO ${mr.towerFloor} SUPERADO! 🏰</div>
         ${giftHTML}
         ${tr&&tr.complete?`<p style="font-size:13px;color:#ffe9a8;font-weight:700;margin-bottom:8px">🎉 ¡Completaste los 10 pisos de esta semana!</p>`:""}`;
@@ -6019,7 +6029,20 @@ function netConnect(host){
       if(msg.type==="towerStatus"){
         G.towerLoading=false; G.towerWeekId=msg.weekId; G.towerFloor=msg.floor;
         G.towerComplete=!!msg.complete; G.towerClearedFloors=msg.clearedFloors||[];
-        if(G.screen==="tower") render();
+        G.towerPending=msg.pending||[]; // [v1.3.4] premios de piso/completar que el jugador todavía no vio
+        if(G.screen==="tower"||G.screen==="menu") render();
+        return;
+      }
+      // [v1.3.4] Confirmación de que un premio de Torre quedó marcado como
+      // visto — solo saca esa entrada de G.towerPending (la plata/ítem ya
+      // estaba pagada desde antes, esto es puramente el flag de "ya lo vi").
+      if(msg.type==="towerAcknowledged"){
+        G.towerPending=(G.towerPending||[]).filter(p=>{
+          if(p.kind!==msg.kind) return true;
+          if(msg.kind==="complete") return p.weekId!==msg.weekId;
+          return !(p.weekId===msg.weekId&&p.floor===msg.floor);
+        });
+        if(G.screen==="tower"||G.screen==="menu") render();
         return;
       }
       if(msg.type==="towerStarted"){
@@ -7466,10 +7489,30 @@ function doTowerStart(){
 // servidor sigue siendo la única fuente real de qué piso está disponible y
 // qué se otorga.
 const TOWER_FLOOR_PRIZES_DISPLAY={
-  1:{coins:50},2:{coins:60},3:{coins:75},4:{coins:90},5:{coins:120,xp:50},
-  6:{coins:140},7:{coins:170},8:{coins:200,xp:75},9:{coins:250},
-  10:{coins:400,xp:150,item:"Torre Celestial 🏰"},
+  1:{coins:60,xp:20}, 2:{coins:75,xp:25}, 3:{coins:100,xp:30}, 4:{coins:140,xp:45},
+  5:{coins:190,xp:65}, 6:{coins:240,xp:85}, 7:{coins:320,xp:110}, 8:{coins:400,xp:140},
+  9:{coins:500,xp:180,item:"Relámpago de Torre ⚡"},
+  10:{coins:700,xp:250,item:"Torre Celestial 🏰"},
 };
+// Nombre/ícono de "cofre" que se le pone a algunos pisos en la UI — es solo
+// presentación (un salto de monto más vendedor), no una mecánica de loot
+// aparte: el premio real de cada piso sigue siendo siempre el mismo, fijo,
+// ver TOWER_FLOOR_PRIZES_DISPLAY arriba.
+const TOWER_FLOOR_CHEST_LABEL={3:"📦 Cofre Común",5:"🎁 Cofre Raro",7:"💜 Cofre Épico"};
+// Espejo de TOWER_COMPLETE_BONUS en server/db.js — bonus aparte por
+// completar los 10 pisos, además del premio propio del piso 10.
+const TOWER_COMPLETE_BONUS_DISPLAY={coins:500,xp:200};
+function towerCompleteBonusLabel(){ return "🪙 "+TOWER_COMPLETE_BONUS_DISPLAY.coins+" + ⭐ "+TOWER_COMPLETE_BONUS_DISPLAY.xp+" XP"; }
+// [v1.3.4] Abrir el regalo en el gameover confirma las DOS cosas que se
+// ganaron en este mismo instante (el piso Y, si corresponde, el bonus de
+// completar) — ambos ya están pagados, esto solo los marca como vistos.
+function ackTowerGameoverGift(){
+  const mr=G.matchResult; if(!mr) return;
+  G._towerGiftOpened=true;
+  netSend({type:"towerAcknowledge", kind:"floor", weekId:mr.towerWeekId, floor:mr.towerFloor});
+  if(mr.towerResult&&mr.towerResult.complete) netSend({type:"towerAcknowledge", kind:"complete", weekId:mr.towerWeekId});
+  render();
+}
 const TOWER_FLOOR_DIFFICULTY_DISPLAY={1:"easy",2:"easy",3:"normal",4:"normal",5:"hard",6:"hard",7:"hard",8:"expert",9:"expert",10:"claude"};
 const TOWER_DIFF_LABEL={easy:"Fácil",normal:"Normal",hard:"Difícil",expert:"Experto",claude:"Claude"};
 const TOWER_RIVAL_NAME={easy:"Aprendiz",normal:"Retador",hard:"Veterano",expert:"Maestro",claude:"Claude"};
@@ -7481,26 +7524,50 @@ function towerFloorPrizeLabel(floor){
   if(p.item) parts.push(p.item);
   return parts.join(" + ");
 }
+// [v1.3.4] Formatea lo que el servidor REALMENTE otorgó (mr.towerResult.
+// rewards) — puede diferir de towerFloorPrizeLabel si un cosmético exclusivo
+// se convirtió a monedas por ya tenerlo de una semana anterior (ver
+// resolveTowerRewards/TOWER_ITEM_DUPLICATE_COINS en server/db.js). Usar esto
+// en el momento de la revelación evita mostrarle al jugador un ítem que en
+// realidad no recibió esta vez.
+function formatTowerRewardsReal(rewards,floor){
+  if(!rewards||!rewards.length) return towerFloorPrizeLabel(floor);
+  const parts=[];
+  let coins=0, xp=0;
+  rewards.forEach(r=>{
+    if(r.type==="coins") coins+=r.amount;
+    else if(r.type==="xp") xp+=r.amount;
+    else if(r.type==="item"){
+      const item=(EFFECTS||[]).find(e=>e.id===r.itemId);
+      parts.push(item?item.name:r.itemId);
+    }
+  });
+  const out=[];
+  if(coins) out.push("🪙 "+coins);
+  if(xp) out.push("⭐ "+xp+" XP");
+  return out.concat(parts).join(" + ");
+}
 // x/y ya vienen resueltos por towerMapHTML() (x en % de zigzag, y en px
 // absolutos) — esta función solo arma el nodo+tarjeta de un piso.
-function towerFloorNodeHTML(floor,status,x,y,side){
+function towerFloorNodeHTML(floor,status,x,y,side,pending){
   const diff=TOWER_FLOOR_DIFFICULTY_DISPLAY[floor];
   const isTop=floor===10;
-  const icon=isTop?"👑":status==="done"?"✔":status==="current"?"▶":"🔒";
-  // [v1.3.2] El premio exacto solo se muestra para pisos ya superados o el
-  // actual (algo que el jugador YA ganó o está a punto de disputar) — un
-  // piso todavía bloqueado muestra un signo de interrogación con un brillo
-  // sutil ("misterioso") en vez del monto real, para no arruinar la sorpresa
-  // de ir subiendo. El servidor sigue siendo la única fuente real del premio
-  // otorgado (TOWER_FLOOR_PRIZES en db.js) — esto es solo de presentación.
+  // [v1.3.4 — premios pendientes] "pending" es un piso YA superado (el
+  // premio ya está pagado) pero que el jugador todavía no abrió/vio — se
+  // distingue de "done" (superado Y ya visto) con un ícono de regalo
+  // brillante en vez del check, para que sea obvio que hay algo para tocar.
+  const icon=isTop?"👑":pending?"🎁":status==="done"?"✔":status==="current"?"▶":"🔒";
+  const chestLabel=TOWER_FLOOR_CHEST_LABEL[floor];
   const prizeHTML=status==="locked"
     ?`<span class="tower-floor-prize-mystery">🎁 ???</span>`
-    :`🎁 ${towerFloorPrizeLabel(floor)}`;
-  return `<div class="tower-floor tower-floor-${status}${isTop?" tower-floor-top":""} side-${side}" style="left:${x}%;top:${y}px" data-tower-floor="${floor}" onclick="scrollToTowerFloor(${floor})">
+    :`${chestLabel?chestLabel+" · ":""}🎁 ${towerFloorPrizeLabel(floor)}`;
+  const clickAction=pending?`openTowerRewardQueue([{kind:'floor',weekId:G.towerWeekId,floor:${floor}}])`:`scrollToTowerFloor(${floor})`;
+  return `<div class="tower-floor tower-floor-${status}${isTop?" tower-floor-top":""}${pending?" tower-floor-pending":""} side-${side}" style="left:${x}%;top:${y}px" data-tower-floor="${floor}" onclick="${clickAction}">
     <div class="tower-floor-node">${icon}</div>
     <div class="tower-floor-card">
       <div class="tower-floor-title">Piso ${floor}<span class="tower-floor-diff">${TOWER_DIFF_LABEL[diff]||diff}</span></div>
       <div class="tower-floor-meta">${diff==="claude"?"🧠":"🤖"} ${TOWER_RIVAL_NAME[diff]||"Rival"} · ${prizeHTML}</div>
+      ${pending?`<div class="tower-floor-pending-hint">Tocá para reclamar</div>`:""}
       ${status==="current"?`<button class="tower-floor-play" onclick="event.stopPropagation();doTowerStart()" ${G.towerStarting?"disabled":""}>${G.towerStarting?"…":"JUGAR"}</button>`:""}
     </div>
   </div>`;
@@ -7523,6 +7590,45 @@ function scrollToTowerFloor(floor){
 // posiciones X van en % (no px) a propósito — así el path del SVG (mismo
 // sistema de coordenadas 0-100) queda alineado con los nodos sin importar el
 // ancho real de la tarjeta en cada pantalla.
+// [v1.3.4 — premios pendientes] Abre los regalos pendientes de a uno, en el
+// orden que vengan (más viejo primero, ver getPendingTowerRewards). La
+// plata/ítem de cada uno YA está pagada desde que se superó ese piso —
+// "abrir" acá es la animación + avisarle al servidor que ya lo vio
+// (towerAcknowledge), para que dos clicks o un reintento de red nunca
+// puedan volver a pagarlo (idempotente del lado servidor) ni mostrarlo dos
+// veces como pendiente.
+function openTowerRewardQueue(items){
+  if(!items||!items.length) return;
+  G._towerRevealQueue=items.slice();
+  const cur=G._towerRevealQueue[0];
+  netSend({type:"towerAcknowledge", kind:cur.kind, weekId:cur.weekId, floor:cur.floor});
+  render();
+}
+function closeTowerRevealQueue(){
+  if(!G._towerRevealQueue||!G._towerRevealQueue.length) return;
+  G._towerRevealQueue.shift();
+  const next=G._towerRevealQueue[0];
+  if(next) netSend({type:"towerAcknowledge", kind:next.kind, weekId:next.weekId, floor:next.floor});
+  else G._towerRevealQueue=null;
+  render();
+}
+function towerRevealModalHTML(){
+  const item=G._towerRevealQueue&&G._towerRevealQueue[0]; if(!item) return "";
+  const remaining=G._towerRevealQueue.length-1;
+  const label=item.kind==="complete"?"🏆 Torre completa":`🏰 Piso ${item.floor} superado`;
+  const prize=item.kind==="complete"?towerCompleteBonusLabel():towerFloorPrizeLabel(item.floor);
+  return `<div class="pauseovl" onclick="if(event.target===this)closeTowerRevealQueue()">
+    <div class="pausecard a-pop" style="text-align:center">
+      <div style="font-size:46px;margin-bottom:6px">🎁</div>
+      <h2 style="font-family:var(--font-heading);color:#ffe9a8;font-size:18px;margin-bottom:6px">${label}</h2>
+      <div class="tower-gift-prize a-pop">${prize}</div>
+      <button class="btn btn-gold" style="margin-top:14px" onclick="closeTowerRevealQueue()">${remaining>0?"Siguiente ("+remaining+" más) →":"¡Genial!"}</button>
+    </div>
+  </div>`;
+}
+function towerPendingFloorSet(){
+  return new Set((G.towerPending||[]).filter(p=>p.kind==="floor").map(p=>p.floor));
+}
 function towerMapHTML(statusFor){
   const STEP=104, TOP_PAD=40, BOT_PAD=26, XR=66, XL=34;
   const order=[10,9,8,7,6,5,4,3,2,1];
@@ -7536,7 +7642,8 @@ function towerMapHTML(statusFor){
     const prev=pts[i-1], midY=(prev.y+p.y)/2;
     d+=` C ${prev.x} ${midY}, ${p.x} ${midY}, ${p.x} ${p.y}`;
   });
-  const nodes=pts.map(p=>towerFloorNodeHTML(p.floor,statusFor(p.floor),p.x,p.y,p.side)).join("");
+  const pendingFloors=towerPendingFloorSet();
+  const nodes=pts.map(p=>towerFloorNodeHTML(p.floor,statusFor(p.floor),p.x,p.y,p.side,pendingFloors.has(p.floor))).join("");
   return `<div class="tower-map" id="tower-map" style="height:${H}px">
     <svg viewBox="0 0 100 ${H}" preserveAspectRatio="none" aria-hidden="true">
       <defs><linearGradient id="towerPathGrad" x1="0" y1="0" x2="0" y2="1">
@@ -7558,6 +7665,15 @@ function renderTower(app){
     const current=G.towerFloor||1;
     body=towerMapHTML(f=>f<current?"done":f===current?"current":"locked");
   }
+  // [v1.3.4 — premios pendientes] Banner + botón para abrir de a uno todos
+  // los regalos que el jugador todavía no vio — incluye tanto pisos como el
+  // bonus de completar, sin importar de qué semana sean (uno viejo sin
+  // abrir nunca desaparece solo, ver getPendingTowerRewards en db.js).
+  const pending=G.towerPending||[];
+  const pendingBannerHTML=(!G.towerLoading&&pending.length)?`<div class="tower-pending-banner a-pop">
+    <span>🎁 Tenés ${pending.length} recompensa${pending.length===1?"":"s"} por reclamar</span>
+    <button class="btn btn-gold" style="margin-top:8px" onclick='openTowerRewardQueue(${JSON.stringify(pending)})'>Reclamar premios</button>
+  </div>`:"";
   app.innerHTML=`<div class="screen-center"><div class="card rt-card ${G._enterCls}">
     ${rtBgFloatHTML()}
     <div class="rt-topbar">
@@ -7568,10 +7684,12 @@ function renderTower(app){
       <h2 class="rt-title">🏰 Torre semanal</h2>
     </div>
     <div class="rt-body">
+      ${pendingBannerHTML}
       ${G.towerLoading?"":`<div class="tower-crown-deco"><span>👑</span></div><p style="font-size:11px;color:rgba(232,238,247,.55);text-align:center;margin:2px 0 4px;line-height:1.5">Piso 10 arriba, piso 1 abajo. Superá el actual para desbloquear el siguiente.</p>`}
       ${body}
     </div>
-  </div></div>`;
+  </div></div>
+  ${towerRevealModalHTML()}`;
   if(G.towerLoading) return;
   // Panorama breve y después paneo suave al piso actual — con reduced motion,
   // salta directo sin demora ni animación (ver spec de la tarea). El scroll

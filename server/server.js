@@ -2024,7 +2024,24 @@ wss.on("connection", (ws) => {
       if (!authUser) return send(ws, { type: "error", msg: "No estás logueado." });
       const r = await DB.towerStatus(authUser);
       if (!r.ok) return send(ws, { type: "error", msg: r.error || "No se pudo consultar la Torre." });
-      send(ws, { type: "towerStatus", weekId: r.weekId, floor: r.floor, complete: r.complete, clearedFloors: r.clearedFloors });
+      send(ws, { type: "towerStatus", weekId: r.weekId, floor: r.floor, complete: r.complete, clearedFloors: r.clearedFloors, pending: r.pending || [] });
+      return;
+    }
+    // [Torre — premios pendientes] El jugador tocó un regalo (piso ya
+    // superado o el bonus de completar) para abrirlo — la plata/ítem YA se
+    // había otorgado en el momento de superar el piso (grant_rewards es
+    // atómico); esto solo marca que ya lo vio, para que dejen de aparecer
+    // como "pendiente" en la Torre. Idempotente: tocarlo de nuevo no rompe
+    // nada. `kind`/`id` vienen de lo que ya mandó towerStatus en `pending`
+    // (floor+weekId o weekId del bonus), nunca un piso inventado por el
+    // cliente — igual no hay plata en juego acá, solo el flag de visto.
+    if (msg.type === "towerAcknowledge") {
+      if (!authUser) return send(ws, { type: "error", msg: "No estás logueado." });
+      const kind = msg.kind === "complete" ? "complete" : "floor";
+      const id = kind === "complete" ? msg.weekId : (msg.weekId + ":" + msg.floor);
+      const r = await DB.acknowledgeTowerReward(authUser, kind, id);
+      if (!r.ok) return send(ws, { type: "error", msg: r.error || "No se pudo confirmar." });
+      send(ws, { type: "towerAcknowledged", kind, weekId: msg.weekId, floor: msg.floor });
       return;
     }
     if (msg.type === "towerStart") {

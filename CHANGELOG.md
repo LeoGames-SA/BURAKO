@@ -2,6 +2,64 @@
 
 Todos los cambios notables del proyecto se documentan en este archivo.
 
+## [1.2.9] - 2026-08-26 — Torre semanal: premios pendientes + progresión rediseñada
+
+Pedido explícito: los premios de Torre nunca deben poder perderse, y la
+progresión de los 10 pisos tiene que sentirse valiosa y escalar de verdad.
+
+**Premios pendientes (server-authoritative, sobrevive cierre de
+app/dispositivo/reinicio del servidor):**
+- La plata/XP/ítem de un piso YA se paga de forma atómica en el instante en
+  que se supera (esto no cambió — `grant_rewards` ya era idempotente desde
+  la Fase 1 de recompensas). Lo nuevo es una columna `acknowledged` en
+  `reward_grants` (migración `20260826180000_tower_pending_rewards.sql`,
+  default `true` para todo lo ya otorgado antes de esta versión) que rastrea
+  si el jugador ya vio/abrió el regalo con su animación.
+- Un piso superado pero no abierto se ve en el mapa de la Torre con un
+  ícono de regalo brillante ("premio pendiente") en vez del check verde.
+- Banner "🎁 Tenés N recompensas por reclamar" + botón "Reclamar premios"
+  que abre todos los pendientes de a uno, con la misma animación de regalo.
+- Puede haber pendientes de **semanas anteriores** — nunca se pierden ni
+  desaparecen solos al rotar la semana (`getPendingTowerRewards` no filtra
+  por semana actual a propósito).
+- Reclamar dos veces el mismo piso es imposible incluso con reintento de
+  red o doble click: el guard de piso vigente (server-authoritative, ya
+  existía) más el unique constraint de `reward_grants` lo garantizan.
+- Cosmético duplicado (ya lo tenías de una semana anterior): en vez de
+  perderse en silencio, se convierte en monedas (300 para el efecto del
+  piso 9, 400 para el del piso 10) — política nueva, no existía antes.
+
+**Progresión de premios rediseñada (10 pisos)**, calibrada contra la
+economía real (skins 1500-12000 🪙, tapetes 1200-4000, efectos 1200-3500,
+Ruleta diaria 50-400 🪙/día):
+
+| Piso | Premio | Extra |
+|---|---|---|
+| 1 | 60 🪙 + 20 XP | |
+| 2 | 75 🪙 + 25 XP | |
+| 3 | 100 🪙 + 30 XP | 📦 Cofre Común |
+| 4 | 140 🪙 + 45 XP | |
+| 5 | 190 🪙 + 65 XP | 🎁 Cofre Raro |
+| 6 | 240 🪙 + 85 XP | |
+| 7 | 320 🪙 + 110 XP | 💜 Cofre Épico |
+| 8 | 400 🪙 + 140 XP | |
+| 9 | 500 🪙 + 180 XP | ⚡ Relámpago de Torre (efecto exclusivo, nuevo) |
+| 10 | 700 🪙 + 250 XP | 🏰 Torre Celestial (efecto exclusivo, ya existía) |
+| **Completar los 10** | **+500 🪙 + 200 XP** | Bonus aparte, una vez por semana |
+
+Total completando la Torre entera: ~3225 🪙 + 1150 XP + 2 efectos
+exclusivos por semana — un empujón real hacia un cosmético de gama media
+sin regalar los de gama alta ni superar lo que ya se puede ganar jugando
+en una semana normal. "Cofre" es solo nombre/ícono para el salto de monto
+en la UI (pisos 3/5/7), no una mecánica de loot aparte.
+
+Sin cambios de reglas de combate/IA de Torre. Verificado contra Supabase
+real (migración aplicada en vivo): idempotencia, bonus de completar sin
+duplicar, conversión de cosmético duplicado, y persistencia de pendientes
+de semanas viejas — todo confirmado con pruebas directas contra la base
+real antes de deployar. Regresión de sesión/reconexión sin romperse
+(34/34).
+
 ## [1.2.8] - 2026-08-26 — Rediseño del menú principal (referencia: mockup "Nuevo lobby")
 
 Pedido explícito con mockup de referencia adjunto: acercar el menú principal
