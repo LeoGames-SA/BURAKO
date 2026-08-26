@@ -38,6 +38,22 @@ async function main() {
   try {
     const page = await browser.newPage({ viewport: { width: 420, height: 860 } });
     page.on("pageerror", (e) => console.log("PAGEERROR:", e.message));
+    await page.addInitScript(() => {
+      window.__wslog = [];
+      const RealWS = window.WebSocket;
+      window.WebSocket = new Proxy(RealWS, {
+        construct(target, args) {
+          const inst = new target(...args);
+          const id = Math.random().toString(36).slice(2, 8);
+          window.__wslog.push({ t: Date.now(), ev: "ws-new", id });
+          inst.addEventListener("close", (e) => window.__wslog.push({ t: Date.now(), ev: "ws-close", id, code: e.code }));
+          const origSend = inst.send.bind(inst);
+          inst.send = (data) => { try { const m = JSON.parse(data); window.__wslog.push({ t: Date.now(), ev: "send", id, type: m.type }); } catch (e) {} return origSend(data); };
+          inst.addEventListener("message", (ev) => { try { const m = JSON.parse(ev.data); if (m.type !== "pong" && m.type !== "tick") window.__wslog.push({ t: Date.now(), ev: "recv", id, type: m.type, msg: m.msg || null }); } catch (e) {} });
+          return inst;
+        },
+      });
+    });
     const user = ("smk" + crypto.randomBytes(4).toString("hex")).slice(0, 16);
     createdUsernames.push(user);
 
@@ -93,18 +109,14 @@ async function main() {
     await waitUntil(page2, () => Session.isAuthenticated(), 20000);
     await page2.evaluate((c) => { netSend({ type: "join", room: c, name: "SmokeB", skin: "clasica" }); }, roomCode);
     await waitUntil(page2, () => NET.roomCode, 10000);
-    await page.evaluate(() => { window.__msgs = []; NET.ws.addEventListener("message", (ev) => { try { window.__msgs.push(JSON.parse(ev.data)); } catch (e) {} }); });
-    const readyA = await page.evaluate(() => netSend({ type: "setReady", ready: true }));
-    const readyB = await page2.evaluate(() => netSend({ type: "setReady", ready: true }));
+    await page.evaluate(() => netSend({ type: "setReady", ready: true }));
+    await page2.evaluate(() => netSend({ type: "setReady", ready: true }));
     await page.waitForTimeout(500);
-    const stateBeforeStart = await page.evaluate(() => window.__msgs.filter((m) => m.type === "state" || m.type === "error").slice(-1)[0] || null);
-    console.log("   [diag] readyA=" + readyA + " readyB=" + readyB + " últimoState/error antes de start:", JSON.stringify(stateBeforeStart));
-    const startSent = await page.evaluate(() => netSend({ type: "start" }));
-    await page.waitForTimeout(1500);
-    const msgsAfterStart = await page.evaluate(() => window.__msgs.slice(-5));
-    console.log("   [diag] startSent=" + startSent + " últimos mensajes tras start:", JSON.stringify(msgsAfterStart));
+    await page.evaluate(() => netSend({ type: "start" }));
     const started = await waitUntil(page, () => ["sorteo", "playing", "dealing", "netSorteo", "netDealing", "netCountdown"].includes(G.screen), 30000);
     check("6) Iniciar partida real con 2 humanos (Render real)", started, "G.screen=" + (await page.evaluate(() => G.screen)));
+    // Diagnóstico completo solo si falla — el log de WS ya está instrumentado arriba (addInitScript).
+    if (!started) console.log("   [wslog completo]:\n" + JSON.stringify(await page.evaluate(() => window.__wslog), null, 1));
     await page.waitForTimeout(800);
     await page.evaluate(() => netSend({ type: "reveal" }));
     await page2.evaluate(() => netSend({ type: "reveal" }));

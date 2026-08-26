@@ -2,17 +2,19 @@
 
 Todos los cambios notables del proyecto se documentan en este archivo.
 
-## [1.2.6] - 2026-08-26 — Fase 5: validación de sesión/reconexión + 2 bugs críticos reales
+## [1.2.6] - 2026-08-26 — Fase 5: validación de sesión/reconexión + 3 bugs críticos reales
 
 Fase 5 del proyecto de remediación de arquitectura de sesión
 (`docs/ai/AUDIT-SESSION-ARCHITECTURE.md` / `docs/ai/FROM-CLAUDE.md`) — no era
 una fase de features nuevas: el objetivo era validar de punta a punta el
 sistema resultante de las Fases 1-4B (Session Manager, Connection Manager,
 serialización de mensajes, grace period de lobby) con navegador y servidor
-reales, y un soak test de reconexiones repetidas. Encontró y corrigió **2
-bugs críticos reales de sesión**, ninguno visible en las fases anteriores
-porque solo aparecían bajo reconexión sostenida (varios minutos, no un corte
-puntual).
+reales, un soak test de reconexiones repetidas, y un smoke test contra la
+URL real de producción (Render) tras el deploy. Encontró y corrigió **3
+bugs críticos reales de sesión** — dos solo visibles bajo reconexión
+sostenida (varios minutos, no un corte puntual) y uno solo visible contra
+latencia de red real (nunca se reprodujo en local, donde los round-trips
+son sub-milisegundo).
 
 **Bug crítico #1 — un rate-limit de Supabase se confundía con sesión
 vencida.** `db.js: resumeSession()` trataba CUALQUIER error que devolviera
@@ -42,15 +44,37 @@ test: la pista de lobby pasó de 18 fallas en 29 ciclos a 0 fallas tras el
 fix. Corregido refrescando el timestamp guardado en cada rejoin exitoso Y
 en cada mensaje `"state"` recibido durante la partida (`client/burako.js`).
 
+**Bug crítico #3 — el guard anti-secuestro de sesión de `rejoin` rechazaba
+reconexiones legítimas bajo latencia de red real.** `server.js` rechazaba
+un `rejoin` si `existing.ws` apuntaba a "otro" socket — pero cuando la
+MISMA sesión reconecta (cierra el viejo, abre uno nuevo), el aviso de
+cierre del socket viejo tarda un viaje de red real en llegar al servidor.
+Contra Render, el rejoin del socket nuevo llegaba seguido antes de que el
+servidor se enterara de que el viejo ya había muerto, y se lo rechazaba
+como si fuera un segundo dispositivo — la conexión quedaba autenticada
+pero sin sala/jugador server-side, así que `setReady`/`start` se perdían
+en silencio. Nunca se reprodujo en ninguna corrida local (round-trips
+sub-milisegundo); lo encontró el smoke test recién agregado contra la URL
+real de Render. Corregido con un cambio de enfoque: la identidad ya está
+confirmada (playerId + mismo username autenticado) antes del guard — el
+rejoin más reciente siempre gana la butaca; si había otro socket
+realmente activo, se lo avisa y se lo cierra en vez de rechazar al que se
+está reconectando de buena fe.
+
 **Validación**: E2E de punta a punta (34/34, corrido varias veces), soak
 test de reconexiones repetidas a cadencia realista (10+ minutos sin ninguna
-falla en las 3 superficies — menú, lobby, partida — tras los dos fixes),
+falla en las 3 superficies — menú, lobby, partida — tras los fixes),
 regresión completa de Fases 1-4B (Session Manager 11/11, Connection Manager
 21/21, serialización de mensajes 10/10, grace period de lobby 18/18),
-matchmaking 33/33, salas 5/5. Sin excepciones no atrapadas en el servidor
-en ninguna corrida. Android/Capacitor queda explícitamente pendiente (sin
-`adb`/emulador disponible en este entorno) — no se dio por validado
-WebView solo por navegador. Detalle completo en `docs/ai/FROM-CLAUDE.md`.
+matchmaking 33/33, salas 5/5, y smoke test con navegador real contra
+`https://burako-server.onrender.com` en producción (14/14, corrido varias
+veces tras el fix del bug #3: login, cold start, Logros, Perfil, crear
+sala, rejoin de lobby, iniciar partida, reconectar en partida, matchmaking,
+logout/login, sin falsos "iniciá sesión"). Sin excepciones no atrapadas en
+el servidor en ninguna corrida. Android/Capacitor queda explícitamente
+pendiente (sin `adb`/emulador disponible en este entorno) — no se dio por
+validado WebView solo por navegador. Detalle completo en
+`docs/ai/FROM-CLAUDE.md`.
 
 ## [1.2.5] - 2026-08-20 — Matchmaking: bug crítico de sorteo/reparto + composición correcta
 

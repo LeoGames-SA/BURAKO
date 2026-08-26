@@ -7,9 +7,12 @@ corregir cualquier bug crítico confirmado, repetir toda la regresión, y
 llegar a un veredicto binario.
 
 **Veredicto: `READY_FOR_PRODUCTION`** (web/servidor — Android físico queda
-explícitamente pendiente, ver más abajo). Ya hice commit, push y deploy a
-Render, y corrí el smoke test contra la URL real de producción — todo
-detallado abajo.
+explícitamente pendiente, ver más abajo). Hice 2 rondas de commit+push+
+deploy a Render — la primera corrigió 2 bugs críticos encontrados por el
+soak test; el smoke test contra la URL REAL de producción encontró un
+**tercer** bug crítico (solo visible con latencia de red real, nunca en
+local) que exigió una segunda vuelta de fix+deploy+reverificación antes de
+poder confirmar el veredicto final. Todo detallado abajo.
 
 (Fases 0-4B siguen documentadas en el historial de este archivo y en
 `docs/ai/AUDIT-SESSION-ARCHITECTURE.md`.)
@@ -42,10 +45,12 @@ criterio que las Fases 1-4B. Dos scripts nuevos:
 
 ## Bugs críticos encontrados y corregidos
 
-Los dos son de sesión/reconexión, ninguno visible en fases anteriores
-porque solo aparecen bajo reconexión **sostenida** (varios minutos), no en
-un corte puntual — por eso el soak test era necesario y el resto de la
-regresión no los había agarrado.
+Los 3 son de sesión/reconexión, ninguno visible en fases anteriores. Los
+bugs #1 y #2 solo aparecen bajo reconexión **sostenida** (varios minutos),
+no en un corte puntual — por eso el soak test era necesario. El bug #3 solo
+aparece con **latencia de red real** — por eso el smoke test contra Render
+real (no solo contra el servidor local) era necesario, incluso después de
+que toda la regresión y el soak local dieran perfecto.
 
 ### Bug #1 — rate-limit de Supabase confundido con sesión vencida
 
@@ -111,6 +116,48 @@ fallas de 29 ciclos).
 Verificado: la MISMA corrida de soak que antes fallaba 18/29 en lobby a
 partir del minuto 3 pasó a **0 fallas en 23-29 ciclos**, sostenido más allá
 de los 10 minutos de reconexión repetida.
+
+### Bug #3 — el guard anti-secuestro de `rejoin` rechazaba reconexiones legítimas bajo latencia de red real
+
+Encontrado recién al hacer el smoke test contra la URL REAL de Render
+después del primer deploy — **nunca se reprodujo en ninguna corrida local**
+(regresión completa, E2E, ni el soak de 10+ minutos), porque los
+round-trips locales son sub-milisegundo y el guard nunca alcanzaba a
+fallar. `server.js: rejoin` rechazaba la reconexión si `existing.ws`
+apuntaba a un socket distinto del que mandó el `rejoin`
+(`"Esa sala ya está conectada desde otra pestaña/dispositivo"`) — pensado
+para bloquear un secuestro real desde otro dispositivo. El problema: cuando
+la MISMA sesión reconecta (cierra el socket viejo, abre uno nuevo), el
+aviso de cierre del socket viejo tiene que viajar por la red real hasta el
+servidor — y con latencia real, el `rejoin` del socket NUEVO llega antes
+de que el servidor se entere de que el viejo ya murió. El guard lo
+rechazaba como si fuera un secuestro, dejando la conexión nueva
+autenticada pero sin `room`/`player` server-side — cualquier `setReady`/
+`start` posterior se perdía en silencio (el handler genérico
+`if(!room||!player) return;` los ignoraba sin responder nada).
+
+Un primer intento de arreglo (exigir además `existing.ws.readyState===1`)
+**tampoco alcanzó** contra Render real — confirmado con el mismo smoke
+test — porque el `readyState` del lado servidor depende igual de que el
+frame de cierre llegue por red; puede seguir mostrando `OPEN` mucho después
+de que el cliente ya cerró y reconectó.
+
+**Fix real**: cambio de enfoque en vez de intentar adivinar si el otro
+socket "sigue vivo de verdad". La identidad ya está confirmada arriba
+(`playerId` + mismo `username` autenticado por Supabase) antes de este
+guard — no hace falta ninguna señal extra. El `rejoin` más reciente
+**siempre** gana la butaca; si había otro socket realmente activo (dos
+pestañas/dispositivos de verdad), se lo avisa (`"Te conectaste a esta sala
+desde otra pestaña/dispositivo"`) y se lo cierra, en vez de rechazar al que
+se está reconectando de buena fe. Complementado con un chequeo en
+`ws.on("close")` (`if (player.ws !== ws) return;`) para que un aviso de
+cierre atrasado de un socket ya reemplazado por un rejoin más nuevo no
+pise `connected` ni arme un grace timer sobre una sesión ya reconectada.
+
+Verificado contra Render real: 3 cortes+rejoins seguidos sobre la misma
+sala, luego arranque de partida con 2 humanos reales, sin ningún rechazo —
+y el smoke test completo (14 checks) pasó limpio dos veces seguidas tras
+el fix.
 
 ## Hallazgos de metodología (bugs del test, no de la app — documentados para no repetirlos)
 
@@ -186,6 +233,11 @@ de los 10 minutos de reconexión repetida.
 - `test-rooms.mjs` — 5/5 OK.
 - E2E Fase 5 — 34/34 OK.
 - Soak test Fase 5 — ver arriba.
+- Smoke test contra Render real (`test-fase5-smoke-production.mjs`) —
+  14/14 OK, corrido 3 veces tras el fix del bug #3: cold start real, login,
+  Logros, Perfil, crear sala, rejoin de lobby, iniciar partida con 2
+  humanos, reconectar en partida, matchmaking real, logout/login, sin
+  falsos "iniciá sesión".
 
 `test-chat-ui.mjs` no se repitió esta fase — ya estaba registrado en fases
 anteriores como flaky/ambiental (22-23/23), sin relación con sesión/
@@ -207,18 +259,29 @@ reconexión; no se tocó nada de chat en esta fase.
    y distribuir un nuevo APK, aunque el fix es 100% de cliente/servidor
    compartido (mismo `burako.js`).
 
-## Deploy — hecho
+## Deploy — hecho (2 rondas)
 
 Siguiendo el flujo documentado en `docs/ai/PROJECT.md` §14 (Render tiene
 auto-deploy activado en push a `origin main`, sin paso manual de redeploy):
 
+**Ronda 1** (bugs #1 y #2, encontrados por el soak local):
 1. Commit de las Fases 1-5 completas (Session Manager, Connection Manager,
    serialización de mensajes, grace period de lobby, y esta Fase 5).
 2. `GAME_VERSION`/`CACHE_VERSION` → `1.2.6`, `CHANGELOG.md` y Novedades
    in-game actualizados.
-3. Push a `origin main`.
-4. Render deployó automáticamente.
-5. Smoke test contra `wss://burako-server.onrender.com` real (ver abajo).
+3. Push a `origin main` → Render deployó automáticamente.
+4. Smoke test con navegador real contra `https://burako-server.onrender.com`
+   — encontró el **bug #3** (guard de rejoin, ver arriba), algo que ninguna
+   corrida local podía haber agarrado.
+
+**Ronda 2** (bug #3, encontrado por el smoke test contra producción real):
+5. Fix en `server/server.js` (sin cambios de cliente — no hizo falta
+   re-bumpear `GAME_VERSION`/`CACHE_VERSION`, son solo para cache-busting
+   del cliente).
+6. Regresión local completa repetida — todo verde.
+7. Push a `origin main` → Render deployó automáticamente.
+8. Smoke test contra Render real, corrido 3 veces — **14/14 limpio, sin
+   fallas, de forma consistente.**
 
 Fly.io sigue fuera de producción, tal como pediste — no se tocó nada de esa
 investigación pausada.
