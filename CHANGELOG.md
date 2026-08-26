@@ -2,6 +2,41 @@
 
 Todos los cambios notables del proyecto se documentan en este archivo.
 
+## [1.2.8] - 2026-08-26 — Rediseño del menú principal (referencia: mockup "Nuevo lobby")
+
+Pedido explícito con mockup de referencia adjunto: acercar el menú principal
+a ese diseño sin convertirlo en una imagen estática — HTML/CSS/JS real,
+responsive, conectado a los datos reales del juego, sin tocar lógica de
+backend ni reglas de Pase/Ruleta/Torre.
+
+**Qué se hizo:**
+- Grid de 3 columnas en desktop (`--menu-layout` con CSS Grid, breakpoint en
+  920px): Pase de temporada a la izquierda, menú central (JUGAR/PERFIL/
+  TIENDA/NOVEDADES) en el medio, Ruleta diaria + Torre semanal apiladas a
+  la derecha. En mobile colapsa a 1 columna con orden explícito (menú
+  central primero, Ruleta/Torre, Pase al final) — no es el diseño desktop
+  achicado, es un stack pensado para vertical.
+- Las 3 tarjetas pasan de ser accesos chicos/decorativos a tarjetas
+  "hero" con contenido real: Pase muestra nivel, barra de XP y la PRÓXIMA
+  recompensa real de `PASS_LEVELS`; Ruleta muestra la racha real y si ya
+  se reclamó hoy; Torre muestra el piso real (X/10), su barra de progreso
+  y el premio de ese piso. Cero datos simulados.
+- `goMenu()` ahora pide `dailyStatus`/`towerStatus` una vez por sesión de
+  página si todavía no se habían cargado (antes solo se pedían al entrar
+  de lleno a esas pantallas) — así las tarjetas del menú muestran progreso
+  real desde la primera vez que se ve el menú, no un placeholder.
+- Visual: paneles translúcidos con borde dorado (Ruleta) o violeta (Pase/
+  Torre), glow suave, badges de estado, barras de progreso, rueda mini
+  animada con `transform:rotate` (sin librerías 3D) — respeta
+  `prefers-reduced-motion`.
+- Se dejó afuera a propósito la fila inferior de accesos del mockup
+  ("Eventos especiales", "Invitá a tus amigos") — no corresponden a
+  funcionalidades reales existentes hoy; agregarlos habría significado
+  inventar botones sin lógica real detrás.
+
+Probado en desktop (1280px) y mobile (390px) contra servidor local antes
+de deployar; regresión completa de sesión/reconexión sin romperse (34/34).
+
 ## [1.2.7] - 2026-08-26 — Ruleta diaria y Torre semanal: rediseño + mejoras de UX
 
 Cierre del trabajo de Ruleta diaria/Torre semanal (el CSS de esta feature se

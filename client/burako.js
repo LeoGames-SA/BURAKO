@@ -2,7 +2,7 @@
    BURAKO — app completa: menú, tutorial, sonidos, IA con delay
    ================================================================ */
 
-const GAME_VERSION = "1.2.7";
+const GAME_VERSION = "1.2.8";
 const MAX_PLAYERS_ONLINE = 8; // el server acepta hasta 8 en sala (mazo doble si se supera 4)
 const QUICK_CHAT_COOLDOWN_MS = 15000;
 const QUICK_CHAT_OPTIONS = [
@@ -18,6 +18,9 @@ const TEAM_CHAT_OPTIONS = [
   {send:"👍 Dale", show:"👍"}, {send:"🚫 No tengo", show:"🚫"}, {send:"⏳ Esperá", show:"⏳"},
 ];
 const CHANGELOG = [
+  {version:"1.2.8", date:"26/08/2026", items:[
+    "🏠 Menú principal rediseñado: Pase de temporada, Ruleta diaria y Torre semanal ahora son tarjetas grandes con tu progreso real a la vista (nivel y próxima recompensa, racha y estado de la ruleta, piso actual y premio de la Torre) — antes eran accesos chicos, ahora invitan mucho más a entrar. Pase a la izquierda, Ruleta y Torre a la derecha; en el celular se apilan debajo de Jugar.",
+  ]},
   {version:"1.2.7", date:"26/08/2026", items:[
     "🎰🏰 Ruleta diaria y Torre semanal: rediseño con ambientación mística (gemas y chispas flotando) igual al resto del juego. La ruleta gira distinto cada vez (antes siempre giraba igual, solo cambiaba dónde frenaba). En la Torre, los pisos que todavía no llegaste muestran el premio como sorpresa (🎁 ???) en vez de mostrarlo de entrada, y tocar cualquier piso lo centra en pantalla. Al superar un piso, ahora abrís un regalo para ver el premio en vez de solo leerlo en un renglón. También se reordenó el menú: Ruleta y Torre ahora están debajo del Pase de temporada.",
   ]},
@@ -1458,6 +1461,17 @@ function goMenu(){
   G.surrenderedOnline=false; G.iSurrendered=false; G.rankUpdate=null;
   G.rankedOffline=false; G.rankedOfflineResult=null; G.rankedOfflineOpponent=null;
   G.screen="menu"; render();
+  // [v1.3.3 — rediseño de menú] Las tarjetas grandes de Ruleta/Torre en el
+  // menú necesitan el mismo status real que ya se pedía recién al ENTRAR a
+  // esas pantallas (dailyStatus/towerStatus) — acá se pide una sola vez
+  // por sesión de página (no en cada visita al menú, que es muy frecuente)
+  // así la tarjeta nunca muestra un dato viejo/inventado ni satura al
+  // servidor. Silencioso a propósito: si no hay conexión todavía, la
+  // tarjeta simplemente queda en su estado "cargando" hasta que se pueda.
+  if(Session.isAuthenticated()&&NET.ws&&NET.ws.readyState===1){
+    if(!G._menuDailyRequested){ G._menuDailyRequested=true; netSend({type:"dailyStatus"}); }
+    if(!G._menuTowerRequested){ G._menuTowerRequested=true; netSend({type:"towerStatus"}); }
+  }
 }
 function goHelp(){ G.screen="help"; render(); }
 function goChangelog(){ G.screen="changelog"; P.lastSeenVersion=GAME_VERSION; saveP(); render(); }
@@ -4447,21 +4461,89 @@ function withLogoFlip(fn){
   fn();
   Flip.from(state, {duration:.65, ease:"power2.inOut", scale:true, absolute:true});
 }
-/* Destacado de temporada — mismo criterio: dato real (nivel de pase, XP), sin
-   simular progreso, con una sola CTA. Columna derecha en desktop. */
-function menuSeasonHighlightHTML(){
+/* [v1.3.3 — rediseño de menú] Tarjeta grande de Pase de temporada — mismo
+   criterio de siempre (dato real, nunca simulado): nivel, XP, y ahora
+   también la PRÓXIMA recompensa real de PASS_LEVELS (la primera con
+   lv>nivel actual), para que la tarjeta venda "esto es lo que viene" en vez
+   de solo mostrar una barra. Columna izquierda en desktop (antes derecha,
+   compartida con Ruleta/Torre — ahora cada una tiene su propia tarjeta
+   grande, ver menuRuletaHeroHTML/menuTowerHeroHTML). */
+function menuPassCardHTML(){
   const lvl=passLevel();
   const xpInLevel=P.xpInLevel||0, xpForNext=P.xpForNext||xpForNextLevel(lvl);
   const xpPct=Math.min(100,Math.round(xpInLevel/xpForNext*100));
   const claimable=PASS_LEVELS.some(L=>lvl>=L.lv&&!P.passClaimed[L.lv]);
-  return `<div class="menu-side-card" onclick="goPass()">
-    <div style="display:flex;align-items:center;justify-content:space-between">
-      <span style="font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:rgba(232,238,247,.5);font-weight:800">🎫 Pase de temporada</span>
-      ${claimable?'<span class="badge-gold" style="font-size:9px">¡Reclamar!</span>':""}
+  const next=PASS_LEVELS.find(L=>L.lv>lvl);
+  return `<div class="menu-hero-card menu-hero-pass" onclick="goPass()">
+    <span class="menu-hero-pill menu-hero-pill-violet">🎫 Temporada activa</span>
+    <div class="menu-hero-title">Pase de temporada</div>
+    <div class="menu-hero-level-row">
+      <div class="menu-hero-level-badge">${lvl}</div>
+      <div>
+        <div class="menu-hero-level-label">Nivel actual</div>
+        <div class="menu-hero-level-value">${lvl}</div>
+      </div>
     </div>
-    <div style="font-size:19px;font-weight:800;color:#ffe9a8;margin:4px 0 6px">Nivel ${lvl}</div>
-    <div style="height:7px;border-radius:4px;background:rgba(0,0,0,.35);overflow:hidden"><div style="height:100%;width:${xpPct}%;background:var(--btn-gold-grad)"></div></div>
-    <div style="font-size:10px;color:rgba(232,238,247,.5);margin-top:4px">${xpInLevel}/${xpForNext} XP para el próximo nivel</div>
+    <div class="menu-hero-bar"><div class="menu-hero-bar-fill menu-hero-bar-gold" style="width:${xpPct}%"></div></div>
+    <div class="menu-hero-sub">${xpInLevel}/${xpForNext} XP para el próximo nivel</div>
+    ${next?`<div class="menu-hero-reward-box">
+      <span class="menu-hero-reward-icon">🎁</span>
+      <div>
+        <div class="menu-hero-reward-label">Recompensa destacada</div>
+        <div class="menu-hero-reward-value">${esc(next.label)}</div>
+        <div class="menu-hero-reward-sub">Reclamalo al nivel ${next.lv}</div>
+      </div>
+    </div>`:""}
+    <button class="menu-hero-cta menu-hero-cta-violet">${claimable?"¡Reclamar!":"Ver pase"} →</button>
+  </div>`;
+}
+/* [v1.3.3] Tarjeta grande de Ruleta diaria en el menú — usa los MISMOS datos
+   que ya trae dailyStatus (streak, reclamada hoy, tiempo hasta el próximo
+   reset); goMenu() pide ese status si todavía no se cargó esta sesión (ver
+   más abajo), así la tarjeta nunca inventa un estado. El botón lleva a la
+   pantalla real de Ruleta — el giro en sí sigue pasando ahí (misma lógica,
+   solo un acceso más atractivo desde el menú). */
+function menuRuletaHeroHTML(){
+  const loaded=G.dailyStreakDay!=null;
+  const claimedToday=!!G.dailyClaimedToday;
+  return `<div class="menu-hero-card menu-hero-ruleta" onclick="goDailyRoulette()">
+    <span class="menu-hero-pill menu-hero-pill-gold">🎁 ¡Premio diario!</span>
+    <div class="menu-hero-title">Ruleta diaria</div>
+    <div class="menu-hero-sub" style="margin-bottom:10px">Girá cada día y ganá premios increíbles</div>
+    <div class="menu-hero-mini-wheel" aria-hidden="true">
+      <span class="menu-hero-mini-wheel-hub">🪙</span>
+    </div>
+    ${!loaded?`<button class="menu-hero-cta menu-hero-cta-gold" disabled>Cargando…</button>`
+      :claimedToday?`<button class="menu-hero-cta menu-hero-cta-gold" disabled>✔ Ya la giraste hoy</button>
+        <div class="menu-hero-sub" style="margin-top:6px">Se reinicia ${fmtHoursMin(G.dailyMsUntilNext)}</div>`
+      :`<button class="menu-hero-cta menu-hero-cta-gold">Girar ahora</button>
+        <div class="menu-hero-sub" style="margin-top:6px">Racha: día ${G.dailyStreakDay} de 7</div>`}
+  </div>`;
+}
+/* [v1.3.3] Tarjeta grande de Torre semanal en el menú — mismos datos reales
+   de towerStatus (piso actual, completa o no). El botón lleva a la Torre
+   real; ahí es donde de verdad se arranca la partida (goTower()/
+   doTowerStart()), esta tarjeta no duplica esa lógica. */
+function menuTowerHeroHTML(){
+  const loaded=G.towerFloor!=null||G.towerComplete;
+  const floor=G.towerComplete?10:(G.towerFloor||1);
+  const pct=Math.round((Math.min(floor,10)-1)/9*100);
+  const prizeLabel=G.towerComplete?"Torre Celestial 🏰":towerFloorPrizeLabel(floor);
+  return `<div class="menu-hero-card menu-hero-tower" onclick="goTower()">
+    <span class="menu-hero-pill menu-hero-pill-violet">⚔ Desafío semanal</span>
+    <div class="menu-hero-title">Torre semanal</div>
+    <div class="menu-hero-sub" style="margin-bottom:10px">Subí pisos, superá desafíos y ganá recompensas épicas</div>
+    <div class="menu-hero-tower-icon" aria-hidden="true">🏰</div>
+    ${!loaded?`<div class="menu-hero-sub">Consultando tu progreso…</div>`
+      :G.towerComplete?`<div class="menu-hero-sub" style="color:#ffe9a8;font-weight:700">🎉 ¡Completaste los 10 pisos de esta semana!</div>`
+      :`<div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+          <div style="flex:1">
+            <div class="menu-hero-sub">Piso actual <b style="color:#ffe9a8">${floor}/10</b></div>
+            <div class="menu-hero-bar"><div class="menu-hero-bar-fill menu-hero-bar-violet" style="width:${pct}%"></div></div>
+          </div>
+          ${prizeLabel?`<div class="menu-hero-reward-mini">🎁<br>${esc(prizeLabel)}</div>`:""}
+        </div>`}
+    <button class="menu-hero-cta menu-hero-cta-violet">Ir a la Torre</button>
   </div>`;
 }
 function renderMenu(app){
@@ -4499,15 +4581,11 @@ function renderMenu(app){
   </div>
   <div class="screen-center" style="position:relative;z-index:1">
     <div class="menu-layout ${G._enterCls?"a-slidein":""}">
-      <div class="menu-side menu-side-left"></div>
+      <div class="menu-side menu-side-left">${menuPassCardHTML()}</div>
       <div class="menu-main">
         ${fan}
         <p class="elegant-sub" style="margin-top:2px">El juego de Burako definitivo <span style="opacity:.6">· v${GAME_VERSION.replace(/\.0$/,"")}</span></p>
         <button class="big-gold primary" onclick="Sound.init();goPlay()">JUGAR</button>
-        <div class="menu-daily-compact-row">
-          <button class="menu-daily-compact" onclick="goDailyRoulette()">🎰 Ruleta diaria</button>
-          <button class="menu-daily-compact" onclick="goTower()">🏰 Torre semanal</button>
-        </div>
         <button class="big-gold" onclick="goProfile()">PERFIL</button>
         <button class="big-gold" onclick="goShop()">TIENDA</button>
         <button class="big-gold" style="position:relative" onclick="goChangelog()">📣 NOVEDADES${P.lastSeenVersion!==GAME_VERSION?'<span class="news-dot"></span>':''}</button>
@@ -4518,15 +4596,8 @@ function renderMenu(app){
         </div>
       </div>
       <div class="menu-side menu-side-right">
-        ${menuSeasonHighlightHTML()}
-        <div class="menu-side-card menu-side-card-compact" style="margin-top:10px" onclick="goDailyRoulette()">
-          <span style="font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:rgba(232,238,247,.5);font-weight:800">🎰 Ruleta diaria</span>
-          <div style="font-size:10px;color:rgba(232,238,247,.5);margin-top:2px">Girá una vez al día — racha de 7 días</div>
-        </div>
-        <div class="menu-side-card menu-side-card-compact" style="margin-top:8px" onclick="goTower()">
-          <span style="font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:rgba(232,238,247,.5);font-weight:800">🏰 Torre semanal</span>
-          <div style="font-size:10px;color:rgba(232,238,247,.5);margin-top:2px">10 pisos, IA escalonada — se reinicia el lunes</div>
-        </div>
+        ${menuRuletaHeroHTML()}
+        ${menuTowerHeroHTML()}
       </div>
     </div>
   </div>`;

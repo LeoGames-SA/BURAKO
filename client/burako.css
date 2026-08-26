@@ -1540,43 +1540,100 @@ body.ingame{background:
 /* Layout del menú: en desktop usa el espacio vacío a los costados (Fase 11 §3/§A)
    con el mini-perfil y el destacado de temporada como columnas laterales; en
    mobile todo se apila en una sola columna centrada (donde ese espacio no sobra). */
-.menu-layout{display:flex;flex-direction:column;align-items:center;gap:16px;width:100%}
-.menu-side{width:100%;max-width:320px}
-.menu-side-card{
-  background:var(--panel-bg-soft);border:1px solid var(--panel-border);border-radius:var(--radius-lg);
-  padding:14px;cursor:pointer;transition:border-color var(--motion-fast) var(--motion-ease),transform var(--motion-fast) var(--motion-ease);
-}
-.menu-side-card:hover{border-color:rgba(251,191,36,.4);transform:translateY(-1px)}
-/* v1.3.2: Ruleta/Torre se mudaron de su propia columna a apilarse debajo del
-   Pase de temporada en la columna derecha — versión más chica de la misma
-   tarjeta (sin barra de progreso), para que las 3 entren cómodas sin que la
-   columna quede desproporcionadamente alta. */
-.menu-side-card-compact{padding:10px 14px}
-/* El perfil se mudó al header (.hud-profile-chip) — .menu-side-left quedaba
-   vacío como espaciador puramente óptico en desktop (misma anchura que la
-   tarjeta de la derecha). v1.3: ahora aloja la tarjeta de Ruleta diaria. En
-   mobile ese layout de 2 columnas no aplica — se oculta y en su lugar se usa
-   .menu-daily-compact, una fila chica pegada debajo de JUGAR (ver abajo). */
-.menu-side-left{display:none}
+/* [v1.3.3 — rediseño de menú, referencia: mockup "Nuevo lobby" del usuario]
+   Grid de 3 columnas en desktop (Pase | menú central | Ruleta+Torre) — en
+   mobile colapsa a 1 columna, menú central primero (JUGAR siempre visible
+   arriba), tarjetas grandes debajo. Las tarjetas en sí (.menu-hero-card)
+   son las mismas en las dos resoluciones — no hay una versión "compacta"
+   aparte, se apilan y listo (así se ven igual de bien en las dos). */
+.menu-layout{display:grid;grid-template-columns:1fr;gap:18px;width:100%;max-width:420px;margin:0 auto}
+.menu-side{width:100%;min-width:0}
+.menu-side-left{order:3}
+.menu-main{order:1}
+.menu-side-right{order:2;display:flex;flex-direction:column;gap:18px}
 @media(min-width:920px){
-  .menu-layout{flex-direction:row;align-items:center;justify-content:center;gap:32px;max-width:1080px}
-  .menu-side{width:230px;flex-shrink:0}
-  .menu-side-left{display:block;order:1}
+  .menu-layout{
+    grid-template-columns:minmax(260px,340px) minmax(360px,480px) minmax(280px,380px);
+    align-items:center;gap:28px;max-width:1400px;
+  }
+  .menu-side-left{order:1}
   .menu-main{order:2}
   .menu-side-right{order:3}
 }
-/* Acceso compacto a Ruleta/Torre en mobile — visualmente secundario respecto
-   de JUGAR (mismo criterio que el resto del menú), oculto en desktop porque
-   ahí ya se ven las tarjetas completas en .menu-side-left. */
-.menu-daily-compact-row{display:flex;gap:8px;width:100%;margin-top:8px}
-.menu-daily-compact{
-  display:block;flex:1;min-width:0;padding:9px 10px;border-radius:10px;
-  background:rgba(255,255,255,.06);border:1px solid var(--panel-border);
-  color:rgba(232,238,247,.75);font-size:11.5px;font-weight:700;cursor:pointer;
-  transition:border-color var(--motion-fast) var(--motion-ease);
+/* Tarjeta "hero" compartida por Pase/Ruleta/Torre — panel translúcido con
+   borde dorado/violeta según la familia (ver modificadores .menu-hero-pass/
+   -ruleta/-tower), glow suave, y una sola CTA grande al final. Mismo
+   criterio de siempre: SIN datos simulados, cada una arma su contenido a
+   partir de P.*/G.dailyStreakDay/G.towerFloor reales (ver menuPassCardHTML/
+   menuRuletaHeroHTML/menuTowerHeroHTML en burako.js). */
+.menu-hero-card{
+  position:relative;cursor:pointer;padding:18px 18px 16px;border-radius:18px;
+  background:linear-gradient(165deg,rgba(255,255,255,.05),rgba(0,0,0,.28));
+  border:1px solid var(--panel-border);
+  box-shadow:0 10px 30px rgba(0,0,0,.4);
+  transition:transform var(--motion-fast) var(--motion-ease),border-color var(--motion-fast) var(--motion-ease);
+  overflow:hidden;
 }
-.menu-daily-compact:hover{border-color:rgba(251,191,36,.4)}
-@media(min-width:920px){.menu-daily-compact-row{display:none}}
+.menu-hero-card:hover{transform:translateY(-2px)}
+.menu-hero-pass{border-color:rgba(168,85,247,.35);box-shadow:0 10px 30px rgba(0,0,0,.4),0 0 30px rgba(168,85,247,.08)}
+.menu-hero-pass:hover{border-color:rgba(168,85,247,.6)}
+.menu-hero-ruleta{border-color:rgba(251,191,36,.35);box-shadow:0 10px 30px rgba(0,0,0,.4),0 0 30px rgba(251,191,36,.08)}
+.menu-hero-ruleta:hover{border-color:rgba(251,191,36,.6)}
+.menu-hero-tower{border-color:rgba(168,85,247,.35);box-shadow:0 10px 30px rgba(0,0,0,.4),0 0 30px rgba(168,85,247,.08)}
+.menu-hero-tower:hover{border-color:rgba(168,85,247,.6)}
+.menu-hero-pill{
+  display:inline-block;font-size:9.5px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;
+  padding:4px 10px;border-radius:999px;margin-bottom:10px;
+}
+.menu-hero-pill-violet{background:rgba(168,85,247,.18);color:#e9d5ff;border:1px solid rgba(168,85,247,.4)}
+.menu-hero-pill-gold{background:rgba(251,191,36,.16);color:var(--gold-text);border:1px solid rgba(251,191,36,.4)}
+.menu-hero-title{font-family:var(--font-heading);color:#fff;font-size:19px;font-weight:700;margin-bottom:4px}
+.menu-hero-sub{font-size:11.5px;color:rgba(232,238,247,.55);line-height:1.5}
+.menu-hero-level-row{display:flex;align-items:center;gap:12px;margin:12px 0 10px}
+.menu-hero-level-badge{
+  width:52px;height:52px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;
+  font-family:var(--font-heading);font-weight:800;font-size:20px;color:#fff;
+  background:radial-gradient(circle at 35% 30%,#c084fc,var(--comodin));
+  box-shadow:0 0 18px rgba(168,85,247,.5);
+}
+.menu-hero-level-label{font-size:10px;color:rgba(232,238,247,.5);text-transform:uppercase;letter-spacing:.04em}
+.menu-hero-level-value{font-family:var(--font-heading);font-size:22px;font-weight:700;color:#fff}
+.menu-hero-bar{height:8px;border-radius:5px;background:rgba(0,0,0,.4);overflow:hidden}
+.menu-hero-bar-fill{height:100%;border-radius:5px}
+.menu-hero-bar-gold{background:var(--btn-gold-grad)}
+.menu-hero-bar-violet{background:linear-gradient(90deg,#a855f7,#e9d5ff)}
+.menu-hero-reward-box{
+  display:flex;align-items:center;gap:10px;margin-top:12px;padding:10px 12px;border-radius:12px;
+  background:rgba(0,0,0,.25);border:1px solid rgba(168,85,247,.25);
+}
+.menu-hero-reward-icon{font-size:26px;flex-shrink:0}
+.menu-hero-reward-label{font-size:9.5px;color:rgba(232,238,247,.5);text-transform:uppercase;letter-spacing:.04em}
+.menu-hero-reward-value{font-size:13px;font-weight:700;color:#ffe9a8}
+.menu-hero-reward-sub{font-size:10px;color:rgba(232,238,247,.45)}
+.menu-hero-reward-mini{font-size:10px;color:rgba(232,238,247,.6);text-align:center;line-height:1.4;flex-shrink:0}
+.menu-hero-cta{
+  display:block;width:100%;margin-top:14px;padding:12px;border:none;border-radius:12px;cursor:pointer;
+  font-family:var(--font-body);font-weight:800;font-size:13.5px;
+  transition:transform var(--motion-fast) var(--motion-ease);
+}
+.menu-hero-cta:active{transform:scale(.97)}
+.menu-hero-cta[disabled]{opacity:.5;cursor:default}
+.menu-hero-cta-gold{color:#1a1200;background:var(--btn-gold-grad);box-shadow:var(--btn-gold-shadow)}
+.menu-hero-cta-violet{color:#fff;background:linear-gradient(180deg,#a855f7,#6d28d9);box-shadow:0 4px 0 #4c1d95}
+.menu-hero-mini-wheel{
+  width:64px;height:64px;margin:0 auto 10px;border-radius:50%;
+  background:conic-gradient(var(--comodin) 0deg 72deg,var(--azul) 72deg 144deg,var(--verde) 144deg 216deg,var(--amarillo) 216deg 288deg,var(--rojo) 288deg 360deg);
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:0 0 0 3px var(--gold-dark),0 0 18px rgba(251,191,36,.4);
+  animation:menuHeroWheelSpin 16s linear infinite;
+}
+.menu-hero-mini-wheel-hub{
+  width:26px;height:26px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#fde68a,var(--gold-dark));
+  display:flex;align-items:center;justify-content:center;font-size:13px;box-shadow:0 0 0 2px var(--bg-deep)
+}
+@keyframes menuHeroWheelSpin{to{transform:rotate(360deg)}}
+.menu-hero-tower-icon{font-size:40px;text-align:center;margin-bottom:8px;filter:drop-shadow(0 0 14px rgba(168,85,247,.5))}
+@media(prefers-reduced-motion:reduce){.menu-hero-mini-wheel{animation:none}.menu-hero-card:hover{transform:none}}
 /* atriles fantasma en las esquinas */
 .menu-rack-ghost{position:absolute;bottom:-40px;display:flex;gap:5px;opacity:.10;perspective:600px}
 .menu-rack-ghost.left{left:-30px;transform:rotateX(55deg) rotateZ(-18deg)}
