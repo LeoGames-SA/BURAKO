@@ -2,7 +2,7 @@
    BURAKO — app completa: menú, tutorial, sonidos, IA con delay
    ================================================================ */
 
-const GAME_VERSION = "1.2.5";
+const GAME_VERSION = "1.2.6";
 const MAX_PLAYERS_ONLINE = 8; // el server acepta hasta 8 en sala (mazo doble si se supera 4)
 const QUICK_CHAT_COOLDOWN_MS = 15000;
 const QUICK_CHAT_OPTIONS = [
@@ -18,6 +18,9 @@ const TEAM_CHAT_OPTIONS = [
   {send:"👍 Dale", show:"👍"}, {send:"🚫 No tengo", show:"🚫"}, {send:"⏳ Esperá", show:"⏳"},
 ];
 const CHANGELOG = [
+  {version:"1.2.6", date:"26/08/2026", items:[
+    "🔌 Arreglado un bug de sesión: si se cortaba la conexión repetidas veces en una partida o sala larga (más de unos minutos), podías dejar de poder reconectarte solo, aunque tu sesión siguiera siendo válida — a veces incluso te mandaba al login sin haber cerrado sesión. Ya está resuelto: la reconexión automática ahora es confiable durante toda la partida, no solo al principio.",
+  ]},
   {version:"1.2.5", date:"20/08/2026", items:[
     "🐛 Arreglado un bug importante: en algunos casos, entrar a una partida por Matchmaking (Casual/Ranked rápido) dejaba la pantalla del sorteo/reparto sin responder — no se podía tomar la ficha ni recibir las fichas iniciales. Ya está resuelto.",
     "🎲⚡ Matchmaking: ahora las partidas arrancan con 2, 3 o 4 jugadores reales tal cual entran, sin completar de más con IA — la IA solo entra si quedaste solo en la búsqueda, para no dejarte esperando para siempre. Pantalla de búsqueda con estados más claros (jugadores encontrados, \"¡Partida encontrada!\", \"Iniciando…\").",
@@ -667,9 +670,22 @@ const DEFAULT_PROFILE={rankPts:1000,fichas:0,streak:0,wins:0,games:0,skin:"clasi
   name:"Jugador",avatar:"🀄",xp:0,effect:"clasico",ownedFx:["clasico"],passClaimed:{},bonusV11Given:false,
   tapete:"clasico",ownedTapetes:["clasico"],soundfx:"clasico",ownedSoundFx:["clasico"],lastSeenVersion:null,
   trail:"clasica",ownedTrails:["clasica"],
-  ownedAvatars:FREE_AVATARS.slice()};
+  ownedAvatars:FREE_AVATARS.slice(),
+  achievementsCatalog:[]};
 let P=Object.assign({},DEFAULT_PROFILE,Store.get("burako_profile",{}));
 G.historyPanelClosed=Store.get("burako_historyPanelClosed",false);
+// Fase 1 (docs/ai/AUDIT-SESSION-ARCHITECTURE.md) — semilla de arranque en frío:
+// el catálogo de logros vive normalmente en G.serverAchievementsCatalog (solo
+// memoria), así que un arranque en frío con sesión guardada mostraba Logros
+// vacío hasta que algo lo volviera a pedir — y confirmado en vivo (Fase 0),
+// nada en el camino de resumeSessionSilently() lo pedía nunca. Acá se
+// precarga con la última copia conocida (persistida junto al resto de P.*)
+// para que Logros nunca arranque en blanco; ver el handler de "catalog" más
+// abajo, que la mantiene al día, y resumeSessionSilently(), que ahora la
+// vuelve a pedir sola tras cada reconexión exitosa. Esto es SOLO caché de
+// visualización — no reemplaza ni imita a Session, ninguna
+// pantalla debe usar "hay catálogo" como señal de "estoy autenticado".
+if(P.achievementsCatalog&&P.achievementsCatalog.length) G.serverAchievementsCatalog=P.achievementsCatalog;
 // 🎁 Bono de bienvenida (v1.1): 10.000 monedas, una sola vez, con aviso visible en el menú.
 if(!P.bonusV11Given){ P.fichas+=WELCOME_BONUS_COINS; P.bonusV11Given=true; G.pendingWelcomeBonus=WELCOME_BONUS_COINS; }
 function saveP(){ Store.set("burako_profile",P); }
@@ -935,6 +951,18 @@ const EFFECTS=[
   {id:"olamesa",  name:"Ola de Mesa 🌊",  desc:"Una onda de color recorre TODA la mesa",price:2800},
   {id:"pulsoatril",name:"Pulso de Atril 💫",desc:"Tu propio atril destella al jugar",price:2400},
   {id:"discoluces",name:"Luces de Fiesta 🪩",desc:"Barrido de luces de colores sobre la mesa",price:3900},
+  // Impactos de color (v1.3) — chispas contenidas alrededor del juego bajado,
+  // mismo mecanismo que el resto (spawnParticles), sin brillo de mesa extra:
+  // son un escalón intermedio de precio, cada uno con su paleta e identidad.
+  {id:"impacto_rojo",   name:"Brasa Roja 🔴",     desc:"Chispas de ascuas rojas",     price:1400},
+  {id:"impacto_azul",   name:"Ola Azul 🔵",       desc:"Chispas cristalinas azules",  price:1400},
+  {id:"impacto_verde",  name:"Aura Verde 🟢",     desc:"Chispas de aura verde",       price:1400},
+  {id:"impacto_violeta",name:"Pulso Violeta 🟣",  desc:"Chispas de energía violeta",  price:1600},
+  {id:"impacto_dorado", name:"Impacto Dorado 🟡", desc:"Chispas doradas brillantes",  price:2000},
+  // Exclusivo de Torre semanal (v1.3) — NO está en el catálogo del servidor
+  // (CATALOG.effects en db.js), así que buyItem lo rechaza si alguien intenta
+  // comprarlo igual: solo se obtiene superando el piso 10, vía grantRewards.
+  {id:"torre_celestial", name:"Torre Celestial 🏰", desc:"Destellos celestiales dorados, exclusivo de la Torre", price:null, sourceOnly:"la Torre semanal (piso 10)"},
 ];
 /* Encola el efecto del jugador para el juego recién bajado; se dispara cuando el DOM
    de ese juego ya existe (ver el final de renderPlaying), así nace DESDE el juego
@@ -948,6 +976,9 @@ const FX_GLOW_COLOR={
   aurora:"rgba(74,222,128,.75)", plasma:"rgba(96,165,250,.85)",
   arcoiris:"rgba(244,114,182,.8)", glitch:"rgba(34,211,238,.8)", holograma:"rgba(196,181,253,.8)",
   olamesa:"rgba(45,212,191,.75)", pulsoatril:"rgba(251,191,36,.8)", discoluces:"rgba(232,121,249,.75)",
+  impacto_rojo:"rgba(239,68,68,.75)", impacto_azul:"rgba(59,130,246,.75)", impacto_verde:"rgba(34,197,94,.75)",
+  impacto_violeta:"rgba(139,92,246,.8)", impacto_dorado:"rgba(251,191,36,.85)",
+  torre_celestial:"rgba(253,230,138,.9)",
 };
 /* Efecto premium alrededor del juego: aro de luz + chispas naciendo de sus bordes
    (no solo partículas sueltas flotando en el medio de la pantalla). */
@@ -985,17 +1016,22 @@ function discoLightsFX(){
   mesa.appendChild(d);
   setTimeout(()=>d.remove(),1350);
 }
-/* Destello blanco/azul rápido en toda la pantalla, como un relámpago real */
+/* Destello rápido de Rayo/Plasma, CONTENIDO en la mesa (no en toda la
+   pantalla — antes iluminaba #app entero, muy agresivo con partidas largas). */
 function lightningFlash(fx){
-  const app=document.querySelector("#app"); if(!app) return;
+  const app=document.querySelector(".mesa"); if(!app) return;
   const f=document.createElement("div");
   f.className="lightning-flash"+(fx==="plasma"?" plasma":"");
   app.appendChild(f);
   setTimeout(()=>f.remove(),300);
 }
 /* Tirón de pantalla estilo error de señal: bandas RGB desfasadas un instante */
+/* Igual que lightningFlash(): antes corría sobre #app entero (el split RGB
+   cubría toda la pantalla). Ahora corre sobre .mesa — el pequeño translate()
+   de la animación hace que .mesa sea el "containing block" de sus pseudo-
+   elementos position:fixed, así que el overlay queda confinado a la mesa. */
 function glitchFlash(){
-  const app=document.querySelector("#app"); if(!app) return;
+  const app=document.querySelector(".mesa"); if(!app) return;
   app.classList.remove("a-glitch"); void app.offsetWidth; app.classList.add("a-glitch");
   setTimeout(()=>app.classList.remove("a-glitch"),350);
 }
@@ -1003,17 +1039,17 @@ function glitchFlash(){
 /* Forma de partícula por efecto — no todas son círculos: cada efecto tiene su propia
    silueta (clip-path) además de su paleta de colores, para que se note la diferencia
    de un vistazo y no solo por el color. */
-const FX_SHAPES={clasico:"circle",explosion:"circle",escarcha:"diamond",rayo:"bolt",confeti:"square",destello:"star",aurora:"streak",plasma:"bolt",arcoiris:"star",glitch:"square",holograma:"diamond",olamesa:"streak",pulsoatril:"star",discoluces:"square"};
+const FX_SHAPES={clasico:"circle",explosion:"circle",escarcha:"diamond",rayo:"bolt",confeti:"square",destello:"star",aurora:"streak",plasma:"bolt",arcoiris:"star",glitch:"square",holograma:"diamond",olamesa:"streak",pulsoatril:"star",discoluces:"square",impacto_rojo:"circle",impacto_azul:"diamond",impacto_verde:"star",impacto_violeta:"bolt",impacto_dorado:"star",torre_celestial:"star"};
 const SHAPE_CLIP={
   diamond:"polygon(50% 0%,100% 50%,50% 100%,0% 50%)",
   bolt:"polygon(58% 0%,14% 55%,42% 55%,30% 100%,86% 40%,55% 40%)",
   star:"polygon(50% 0%,63% 34%,100% 38%,72% 61%,82% 98%,50% 78%,18% 98%,28% 61%,0% 38%,37% 34%)",
 };
 function spawnParticles(fx, originEl){
-  const palettes={clasico:["#ffffff"],explosion:["#f97316","#fbbf24","#ef4444"],escarcha:["#7dd3fc","#e0f2fe","#38bdf8"],rayo:["#fde047","#ffffff"],confeti:["#f87171","#60a5fa","#34d399","#fbbf24","#c084fc"],destello:["#fff7d6","#fde68a","#fbbf24","#ffffff"],aurora:["#4ade80","#22d3ee","#a78bfa","#f472b6"],plasma:["#60a5fa","#a78bfa","#ffffff","#38bdf8"],arcoiris:["#f87171","#fb923c","#fbbf24","#4ade80","#38bdf8","#818cf8","#e879f9"],glitch:["#22d3ee","#f472b6","#a3e635","#ffffff"],holograma:["#f0abfc","#93c5fd","#5eead4","#fef08a"],olamesa:["#2dd4bf","#5eead4","#0891b2"],pulsoatril:["#fbbf24","#fde68a","#f59e0b"],discoluces:["#f87171","#fbbf24","#4ade80","#38bdf8","#c084fc"]};
+  const palettes={clasico:["#ffffff"],explosion:["#f97316","#fbbf24","#ef4444"],escarcha:["#7dd3fc","#e0f2fe","#38bdf8"],rayo:["#fde047","#ffffff"],confeti:["#f87171","#60a5fa","#34d399","#fbbf24","#c084fc"],destello:["#fff7d6","#fde68a","#fbbf24","#ffffff"],aurora:["#4ade80","#22d3ee","#a78bfa","#f472b6"],plasma:["#60a5fa","#a78bfa","#ffffff","#38bdf8"],arcoiris:["#f87171","#fb923c","#fbbf24","#4ade80","#38bdf8","#818cf8","#e879f9"],glitch:["#22d3ee","#f472b6","#a3e635","#ffffff"],holograma:["#f0abfc","#93c5fd","#5eead4","#fef08a"],olamesa:["#2dd4bf","#5eead4","#0891b2"],pulsoatril:["#fbbf24","#fde68a","#f59e0b"],discoluces:["#f87171","#fbbf24","#4ade80","#38bdf8","#c084fc"],impacto_rojo:["#ef4444","#f97316","#7f1d1d"],impacto_azul:["#3b82f6","#38bdf8","#1e3a8a"],impacto_verde:["#22c55e","#4ade80","#14532d"],impacto_violeta:["#8b5cf6","#a78bfa","#4c1d95"],impacto_dorado:["#fbbf24","#f59e0b","#fef08a"],torre_celestial:["#fef3c7","#fde68a","#fbbf24","#fff7ed","#f0abfc"]};
   const colors=palettes[fx]||palettes.clasico;
   const shape=FX_SHAPES[fx]||"circle";
-  const premium=fx==="destello"||fx==="aurora"||fx==="plasma"||fx==="arcoiris"||fx==="glitch"||fx==="holograma";
+  const premium=fx==="destello"||fx==="aurora"||fx==="plasma"||fx==="arcoiris"||fx==="glitch"||fx==="holograma"||fx==="torre_celestial";
   const n=fx==="clasico"?8:premium?32:20;
   let ox=window.innerWidth/2, oy=window.innerHeight*0.42, spread=1;
   if(originEl){
@@ -1580,7 +1616,7 @@ function claimPass(lv){
   const L=PASS_LEVELS.find(x=>x.lv===lv); if(!L) return;
   if(P.passClaimed[lv]||passLevel()<lv) return;
   G._pendingClaimFx=lv;
-  if(G.online){ markClaiming("s"+lv); netSend({type:"claimPass", level:lv}); Sound.meld(); render(); return; }
+  if(Session.isAuthenticated()){ markClaiming("s"+lv); netSend({type:"claimPass", level:lv}); Sound.meld(); render(); return; }
   P.passClaimed[lv]=true;
   const r=L.reward;
   if(r.fichas) P.fichas+=r.fichas;
@@ -1726,7 +1762,7 @@ function bannerClass(bannerKey){
 function claimGalacticoPass(lv){
   const L=GALACTICO_PASS_LEVELS.find(x=>x.lv===lv); if(!L) return;
   if((P.galacticoClaimed||{})[lv]||galacticoPassLevel()<lv) return;
-  if(!G.online){ setMsg("El Pase Galáctico necesita estar conectado."); render(); return; }
+  if(!Session.isAuthenticated()){ setMsg("El Pase Galáctico necesita estar conectado."); render(); return; }
   G._pendingClaimFx=lv;
   markClaiming("g"+lv);
   netSend({type:"claimGalacticoPass", level:lv}); Sound.meld(); render();
@@ -1766,7 +1802,7 @@ function clearLobbyPending(){
    coherente con que reclamar un nivel individual tampoco espera confirmación
    visual del server hoy (usa G._pendingClaimFx igual). */
 function claimAllGalacticoPass(){
-  if(!G.online){ setMsg("El Pase Galáctico necesita estar conectado."); render(); return; }
+  if(!Session.isAuthenticated()){ setMsg("El Pase Galáctico necesita estar conectado."); render(); return; }
   const lvl=galacticoPassLevel(), claimed=P.galacticoClaimed||{};
   const claimable=GALACTICO_PASS_LEVELS.filter(L=>lvl>=L.lv && !claimed[L.lv]);
   if(!claimable.length) return;
@@ -1782,12 +1818,12 @@ function claimAllGalacticoPass(){
 }
 function equipNameEffect(key){
   if(key!=="none"&&!(P.ownedNameEffects||[]).includes(key)) return;
-  if(!G.online){ setMsg("Necesitás estar conectado."); render(); return; }
+  if(!Session.isAuthenticated()){ setMsg("Necesitás estar conectado."); render(); return; }
   netSend({type:"setActive", kind:"nameeffect", id:key}); Sound.select();
 }
 function equipBanner(key){
   if(key!=="none"&&!(P.ownedBanners||[]).includes(key)) return;
-  if(!G.online){ setMsg("Necesitás estar conectado."); render(); return; }
+  if(!Session.isAuthenticated()){ setMsg("Necesitás estar conectado."); render(); return; }
   netSend({type:"setActive", kind:"banner", id:key}); Sound.select();
 }
 // Fase 11 §6/§11 (pedido explícito): antes esto vivía pegado a "crear/entrar
@@ -1876,7 +1912,7 @@ const TAPETES=[
 ];
 function buyTapete(id){
   const t=TAPETES.find(x=>x.id===id); if(!t) return;
-  if(G.online){
+  if(Session.isAuthenticated()){
     if((P.ownedTapetes||[]).includes(id)) netSend({type:"setActive",kind:"tapete",id});
     else if(P.fichas<t.price){ Sound.error(); setMsg("No te alcanzan las monedas."); render(); }
     else { G._pendingShopFx=id; Sound.meld(); netSend({type:"buyItem",kind:"tapete",id}); }
@@ -1892,7 +1928,7 @@ function goShop(){ G.screen="shop"; render(); }
 function goProfile(tab){ G.screen="profile"; G.profileTab=tab||"perfil"; render(); }
 function buySkin(id){
   const s=SKINS.find(x=>x.id===id); if(!s) return;
-  if(G.online){
+  if(Session.isAuthenticated()){
     if(P.owned.includes(id)) netSend({type:"setActive",kind:"skin",id});
     else if(s.season&&!isSkinInSeason(s)){ Sound.error(); setMsg("Esta skin es de temporada — no está disponible ahora."); render(); }
     else if(P.fichas<s.price){ Sound.error(); setMsg("No te alcanzan las monedas."); render(); }
@@ -1967,13 +2003,25 @@ function renderShop(app){
   };
   const fxRow=(f)=>{
     const owned=(P.ownedFx||[]).includes(f.id), active=P.effect===f.id;
+    // Exclusivo de Torre (v1.3, ej. torre_celestial): no se compra con monedas —
+    // se otorga solo al superar el piso 10. Si no lo tenés, ni preview ni compra;
+    // si ya lo tenés, se equipa igual que cualquier otro efecto.
+    if(f.sourceOnly && !owned){
+      return `<div class="shop-item" data-shop-id="${f.id}" style="--fx-rgb:251,191,36;opacity:.6">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:12px;font-weight:800">${f.name}</div>
+          <div style="font-size:10px;color:rgba(232,238,247,.5)">${f.desc} · 🔒 ${f.sourceOnly}</div>
+        </div>
+        <button class="shop-btn" data-state="locked" disabled title="${f.sourceOnly}">🔒</button>
+      </div>`;
+    }
     return `<div class="shop-item${active?" is-active":""}" data-shop-id="${f.id}" style="--fx-rgb:56,189,248">
       <div style="flex:1;min-width:0">
         <div style="font-size:12px;font-weight:800">${f.name}</div>
-        <div style="font-size:10px;color:rgba(232,238,247,.5)">${f.desc} · ${owned?(active?"En uso":""):"🪙 "+f.price}</div>
+        <div style="font-size:10px;color:rgba(232,238,247,.5)">${f.desc} · ${owned?(active?"En uso":(f.sourceOnly?"✔ Obtenido":"")):"🪙 "+f.price}</div>
       </div>
       <button class="shop-btn-ghost" onclick="previewFx('${f.id}')" title="Vista previa">👁</button>
-      <button class="shop-btn" data-state="${shopBtnState(owned,active,f.price)}" onclick="buyEffect('${f.id}')">${shopBtnLabel(owned,active)}</button>
+      <button class="shop-btn" data-state="${f.sourceOnly?(active?"active":"owned"):shopBtnState(owned,active,f.price)}" onclick="buyEffect('${f.id}')">${f.sourceOnly?(active?"✔":"Usar"):shopBtnLabel(owned,active)}</button>
     </div>`;
   };
   const sfxRow=(f)=>{
@@ -2027,13 +2075,15 @@ function renderShop(app){
 
 function buyEffect(id){
   const f=EFFECTS.find(x=>x.id===id); if(!f) return;
-  if(G.online){
+  if(Session.isAuthenticated()){
     if((P.ownedFx||[]).includes(id)) netSend({type:"setActive",kind:"effect",id});
+    else if(f.sourceOnly){ Sound.error(); setMsg(f.name+" se gana en "+f.sourceOnly+", no se compra."); render(); }
     else if(P.fichas<f.price){ Sound.error(); setMsg("No te alcanzan las monedas."); render(); }
     else { G._pendingShopFx=id; Sound.meld(); netSend({type:"buyItem",kind:"effect",id}); }
     return;
   }
   if(P.ownedFx.includes(id)){ P.effect=id; saveP(); Sound.select(); return render(); }
+  if(f.sourceOnly) return render();
   if(P.fichas<f.price){ Sound.error(); return render(); }
   G._pendingShopFx=id;
   P.fichas-=f.price; P.ownedFx.push(id); P.effect=id; saveP(); Sound.meld(); render();
@@ -2047,7 +2097,7 @@ function previewFx(id){
 }
 function buyTrail(id){
   const f=TRAILS.find(x=>x.id===id); if(!f) return;
-  if(G.online){
+  if(Session.isAuthenticated()){
     if((P.ownedTrails||[]).includes(id)) netSend({type:"setActive",kind:"trail",id});
     else if(f.passOnly){ Sound.error(); setMsg("Esa estela se gana subiendo de nivel en el Pase."); render(); }
     else if(P.fichas<f.price){ Sound.error(); setMsg("No te alcanzan las monedas."); render(); }
@@ -2081,7 +2131,7 @@ function previewTrail(id){
 }
 function buySoundFx(id){
   const f=SOUNDFX.find(x=>x.id===id); if(!f) return;
-  if(G.online){
+  if(Session.isAuthenticated()){
     if((P.ownedSoundFx||[]).includes(id)) netSend({type:"setActive",kind:"soundfx",id});
     else if(P.fichas<f.price){ Sound.error(); setMsg("No te alcanzan las monedas."); render(); }
     else { G._pendingShopFx=id; Sound.meld(); netSend({type:"buyItem",kind:"soundfx",id}); }
@@ -2138,7 +2188,7 @@ function profileTabPerfilHTML(t){
         <b style="color:rgba(232,238,247,.6)">Nivel</b> = progreso por jugar (cualquier partida), desbloquea el Pase de temporada.<br>
         <b style="color:${t.color}">Rango (${t.name})</b> = solo sube o baja jugando partidas <b style="color:#ffe9a8">🏆 Ranked</b>. Son cosas distintas.
       </p>
-      ${G.online?`<div style="margin-bottom:12px">
+      ${Session.isAuthenticated()?`<div style="margin-bottom:12px">
         <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:rgba(232,238,247,.45);margin-bottom:5px">Cambiar avatar</div>
         <div style="display:flex;flex-wrap:wrap;gap:4px">
           ${AVATARS.map(av=>{
@@ -3874,7 +3924,7 @@ function render(){
     // son la mesa en vivo comparten la misma pista de Menú; "lobby" queda sin uso
     // (se deja definida en Music.tracks por si se querés reactivar más adelante).
     const MENU_SCREENS=["intro","auth","onboarding","menu","help","changelog","config","shop","profile",
-      "play","casualIA","iaCasualSetup","team2v2Setup","netConnect","netSorteo","netDealing","netCountdown","lobby","sorteo","dealing"];
+      "play","casualIA","iaCasualSetup","team2v2Setup","netConnect","netSorteo","netDealing","netCountdown","lobby","sorteo","dealing","dailyRoulette","tower"];
     const wantTrack = isGalacticoRoom ? "galactico"
       : (G.screen==="playing") ? "partida"
       : MENU_SCREENS.includes(G.screen) ? "menu"
@@ -3906,6 +3956,8 @@ function render(){
     else if(G.screen==="help") renderHelp(app);
     else if(G.screen==="changelog") renderChangelog(app);
     else if(G.screen==="play") renderPlay(app);
+    else if(G.screen==="dailyRoulette") renderDailyRoulette(app);
+    else if(G.screen==="tower") renderTower(app);
     else if(G.screen==="casualIA") renderCasualIA(app);
     else if(G.screen==="iaCasualSetup") renderIACasualSetup(app);
     else if(G.screen==="team2v2Setup") renderTeam2v2Setup(app);
@@ -3966,11 +4018,173 @@ function renderPlay(app){
       </button>
       <button class="btn btn-ghost" style="margin-top:10px;opacity:.5;cursor:default" disabled title="Todavía no está disponible">🤖 2v2 vs IA · Próximamente</button>
       <button class="btn btn-ghost fx-spark" style="margin-top:10px" onclick="goOnlineConnect()">🌐 Multijugador</button>
+      <div style="text-align:center;font-size:10px;color:rgba(232,238,247,.45);margin-top:4px">Servidor online</div>
       <div id="playmsg" style="text-align:center;font-size:11px;color:#7dd3fc;min-height:16px;margin-top:6px"></div>
     </div>
   </div>`;
 }
 function setMsg2(t){ const el=document.querySelector("#playmsg"); if(el) el.textContent=t; }
+
+/* Pastillas de progreso de racha (1..7) — el día actual resaltado, los ya
+   cumplidos en este ciclo marcados, el resto tenue. Puramente decorativo,
+   el servidor ya mandó el número real (streakDay). */
+function dailyStreakPipsHTML(streakDay){
+  let html="";
+  for(let d=1;d<=7;d++){
+    const state=d<streakDay?"done":d===streakDay?"current":"pending";
+    html+=`<span class="daily-pip daily-pip-${state}">${d}</span>`;
+  }
+  return `<div class="daily-pips" role="img" aria-label="Racha: día ${streakDay} de 7">${html}</div>`;
+}
+
+/* Rueda de Ruleta con 5 segmentos reales (v1.3 — reemplaza el emoji que
+   oscilaba). Espejo del server (server/db.js DAILY_REWARD_RANGES/
+   DAILY_REWARD_SEGMENTS) SOLO para dibujar los 5 montos posibles del día de
+   racha — el premio real y el que se acredita siempre lo decide y confirma
+   el servidor (dailyResult); esto nunca elige ni acredita nada, solo pinta
+   la rueda y calcula en qué ángulo cae el segmento que el servidor ya eligió. */
+const DAILY_WHEEL_RANGES={1:[50,80],2:[60,100],3:[80,120],4:[100,150],5:[130,190],6:[170,240],7:[250,400]};
+const DAILY_WHEEL_COLORS=["#7c3aed","#0369a1","#059669","#b45309","#be123c"];
+function dailySegmentValues(streakDay){
+  const [lo,hi]=DAILY_WHEEL_RANGES[Math.min(Math.max(streakDay,1),7)]||DAILY_WHEEL_RANGES[1];
+  const n=5, step=(hi-lo)/(n-1);
+  return Array.from({length:n},(_,i)=>Math.round(lo+step*i));
+}
+function dailySegmentIndexForCoins(streakDay,coins){
+  const values=dailySegmentValues(streakDay);
+  let idx=values.indexOf(coins);
+  if(idx===-1){
+    // El monto real no coincidió con ninguno de los 5 que dibuja el cliente
+    // (no debería pasar si el server usa la misma tabla) — apuntamos al más
+    // cercano en vez de fallar en silencio o romper el cálculo del ángulo.
+    let best=0,bestDiff=Infinity;
+    values.forEach((v,i)=>{ const d=Math.abs(v-coins); if(d<bestDiff){bestDiff=d;best=i;} });
+    idx=best;
+  }
+  return idx;
+}
+// Ángulo de reposo (0-360) que deja el segmento ganador exactamente bajo el
+// puntero fijo de arriba — conic-gradient y rotate() comparten el mismo
+// sistema de coordenadas (0deg = arriba, sentido horario), así que alcanza
+// con rotar la rueda lo que le falte al centro de ese segmento para llegar a 0.
+function dailyWheelRestAngle(streakDay,coins){
+  const values=dailySegmentValues(streakDay), n=values.length, segAngle=360/n;
+  const idx=dailySegmentIndexForCoins(streakDay,coins);
+  const centerAngle=idx*segAngle+segAngle/2;
+  return (360-centerAngle)%360;
+}
+function dailyWheelHTML(streakDay,opts){
+  opts=opts||{};
+  const values=dailySegmentValues(streakDay);
+  const n=values.length, segAngle=360/n;
+  const stops=values.map((v,i)=>`${DAILY_WHEEL_COLORS[i%DAILY_WHEEL_COLORS.length]} ${(i*segAngle).toFixed(2)}deg ${((i+1)*segAngle).toFixed(2)}deg`).join(",");
+  // 2 spans anidados a propósito: el de AFUERA solo posiciona (rotar +
+  // empujar hacia el borde, geometría ya verificada — el label del premio
+  // ganador cae exactamente donde debe), el de ADENTRO solo corrige la
+  // orientación del texto para que quede legible. Separarlos evita que
+  // ajustar la rotación del texto termine corriendo la posición sin querer
+  // (encontrado en verificación real de navegador: los números salían al
+  // revés con la fórmula de un solo span). v1.3.1: esta geometría NO se tocó
+  // al agregar el aro/marcas/halo decorativos — siguen siendo capas aparte
+  // alrededor de .daily-wheel-wrap, del mismo tamaño (150x150) que antes.
+  const labels=values.map((v,i)=>{
+    const angle=i*segAngle+segAngle/2;
+    return `<span class="daily-wheel-label-pos" style="transform:translate(-50%,-50%) rotate(${angle}deg) translateY(-52px)">
+      <span class="daily-wheel-label" style="transform:translate(-50%,-50%) rotate(${-angle}deg)">${v}</span>
+    </span>`;
+  }).join("");
+  const rot=opts.restAngle!=null?opts.restAngle:0;
+  return `<div class="daily-wheel-zone">
+    <div class="daily-wheel-halo" aria-hidden="true"></div>
+    <div class="daily-wheel-pointer" aria-hidden="true"></div>
+    <div class="daily-wheel-ring" aria-hidden="true"></div>
+    <div class="daily-wheel-ticks" aria-hidden="true"></div>
+    <div class="daily-wheel-wrap">
+      <div class="daily-wheel-circle${opts.waiting?" daily-wheel-waiting":""}" data-daily-wheel style="background:conic-gradient(${stops});transform:rotate(${rot}deg)">
+        <div class="daily-wheel-labels">${labels}</div>
+      </div>
+    </div>
+    <div class="daily-wheel-hub" aria-hidden="true">🪙</div>
+    <div id="daily-burst-host"></div>
+  </div>`;
+}
+// Dispara la animación de frenado UNA sola vez, justo cuando llega dailyResult
+// (ver el handler de mensajes) — el HTML de arriba siempre puede renderizar el
+// ángulo final "en reposo" directo (sin animar), así que un re-render de más
+// nunca deja la rueda visualmente inconsistente con el premio ya confirmado.
+// onDone (opcional) se llama cuando la rueda termina de frenar — se usa para
+// disparar la explosión de partículas justo cuando cae el premio, no antes.
+function spinDailyWheelTo(streakDay,coins,onDone){
+  const el=document.querySelector("[data-daily-wheel]"); if(!el) return;
+  const restAngle=dailyWheelRestAngle(streakDay,coins);
+  const reduceMotion=window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if(reduceMotion){ el.style.transition="none"; el.style.transform=`rotate(${restAngle}deg)`; if(onDone) onDone(); return; }
+  el.style.transition="none"; el.style.transform="rotate(0deg)";
+  void el.offsetWidth; // fuerza el reflow: registra el 0deg ANTES de animar, si no el navegador puede saltarse la transición
+  el.style.transition="transform 1.7s cubic-bezier(.12,.72,.15,1)";
+  el.style.transform=`rotate(${4*360+restAngle}deg)`; // 4 vueltas completas de vuelo + el ángulo real, puramente estético
+  if(onDone){
+    const handler=()=>{ el.removeEventListener("transitionend",handler); onDone(); };
+    el.addEventListener("transitionend",handler);
+  }
+}
+// Explosión de partículas puramente decorativa cuando se confirma el premio
+// (ver dailyResult en el handler de mensajes) — nunca decide ni muestra un
+// monto, solo celebra el que ya vino confirmado por el servidor.
+function dailyRouletteBurst(){
+  const host=document.querySelector("#daily-burst-host"); if(!host) return;
+  if(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const colors=["#fde68a","#fbbf24","#c0392b","#1f5fa8","#1e7d3f","#5a2d82"];
+  for(let i=0;i<16;i++){
+    const p=document.createElement("span");
+    p.className="daily-burst-piece";
+    const ang=(i/16)*360+(Math.random()*14-7);
+    p.style.setProperty("--r",ang+"deg");
+    p.style.setProperty("--d",(64+Math.random()*28)+"px");
+    p.style.background=colors[i%colors.length];
+    p.style.animation=`dailyBurstOut ${(.65+Math.random()*.35).toFixed(2)}s ease-out forwards`;
+    p.style.animationDelay=(Math.random()*.1)+"s";
+    host.appendChild(p);
+  }
+}
+
+function renderDailyRoulette(app){
+  const streakDay=G.dailyStreakDay||1;
+  let body;
+  if(G.dailyLoading){
+    body=`<div class="searching-spinner" aria-hidden="true"></div><p style="font-size:12px;color:rgba(232,238,247,.6);margin-top:10px">Consultando tu ruleta…</p>`;
+  } else if(G.dailySpinning){
+    body=`${dailyWheelHTML(streakDay,{waiting:true})}
+      <button class="btn btn-gold rt-cta" disabled style="margin-top:16px;opacity:.55;cursor:default">Girando…</button>`;
+  } else if(G.dailyResult){
+    const restAngle=dailyWheelRestAngle(G.dailyResult.streakDay,G.dailyResult.coins);
+    body=`${dailyWheelHTML(G.dailyResult.streakDay,{restAngle})}
+      <p class="daily-prize-amount a-pop" style="margin:14px 0 2px">+${G.dailyResult.coins.toLocaleString("es-UY")} monedas</p>
+      <p style="font-size:11px;color:rgba(232,238,247,.6);margin-bottom:12px">Racha: día ${G.dailyResult.streakDay} de 7</p>
+      <p style="font-size:10.5px;color:rgba(232,238,247,.45)">Volvé ${fmtHoursMin(G.dailyMsUntilNext)} por tu próxima tirada.</p>`;
+  } else if(G.dailyClaimedToday){
+    body=`${dailyWheelHTML(streakDay,{})}
+      <div class="daily-claimed-badge" style="margin-top:16px">✔ Ya reclamaste la ruleta de hoy</div>
+      <p style="font-size:10.5px;color:rgba(232,238,247,.5);margin-top:8px">Volvé ${fmtHoursMin(G.dailyMsUntilNext)} por la de mañana.</p>`;
+  } else {
+    body=`${dailyWheelHTML(streakDay,{})}
+      <p style="font-size:12px;color:rgba(232,238,247,.6);margin:10px 0 14px">Girá una vez al día — 7 días seguidos suben el premio.</p>
+      <button class="btn btn-gold rt-cta" onclick="doDailySpin()">🎰 Girar</button>`;
+  }
+  app.innerHTML=`<div class="screen-center"><div class="card rt-card ${G._enterCls}">
+    <div class="rt-topbar">
+      <button class="rt-back" onclick="goMenu()" title="Volver al menú">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+        <span class="rt-back-label">Volver</span>
+      </button>
+      <h2 class="rt-title">🎰 Ruleta diaria</h2>
+    </div>
+    <div class="rt-body">
+      ${dailyStreakPipsHTML(streakDay)}
+      ${body}
+    </div>
+  </div></div>`;
+}
 
 function goCasualIA(){ G.screen="casualIA"; render(); }
 function renderCasualIA(app){
@@ -4251,11 +4465,30 @@ function renderMenu(app){
   </div>
   <div class="screen-center" style="position:relative;z-index:1">
     <div class="menu-layout ${G._enterCls?"a-slidein":""}">
-      <div class="menu-side menu-side-left" aria-hidden="true"></div>
+      <div class="menu-side menu-side-left">
+        <div class="menu-side-card" onclick="goDailyRoulette()">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <span style="font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:rgba(232,238,247,.5);font-weight:800">🎰 Ruleta diaria</span>
+          </div>
+          <div style="font-size:15px;font-weight:800;color:#ffe9a8;margin:4px 0 2px">Girá una vez al día</div>
+          <div style="font-size:10px;color:rgba(232,238,247,.5)">Racha de 7 días — cuanto más seguido, más paga</div>
+        </div>
+        <div class="menu-side-card" style="margin-top:10px" onclick="goTower()">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <span style="font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:rgba(232,238,247,.5);font-weight:800">🏰 Torre semanal</span>
+          </div>
+          <div style="font-size:15px;font-weight:800;color:#ffe9a8;margin:4px 0 2px">10 pisos, IA escalonada</div>
+          <div style="font-size:10px;color:rgba(232,238,247,.5)">Se reinicia cada lunes</div>
+        </div>
+      </div>
       <div class="menu-main">
         ${fan}
         <p class="elegant-sub" style="margin-top:2px">El juego de Burako definitivo <span style="opacity:.6">· v${GAME_VERSION.replace(/\.0$/,"")}</span></p>
         <button class="big-gold primary" onclick="Sound.init();goPlay()">JUGAR</button>
+        <div class="menu-daily-compact-row">
+          <button class="menu-daily-compact" onclick="goDailyRoulette()">🎰 Ruleta diaria</button>
+          <button class="menu-daily-compact" onclick="goTower()">🏰 Torre semanal</button>
+        </div>
         <button class="big-gold" onclick="goProfile()">PERFIL</button>
         <button class="big-gold" onclick="goShop()">TIENDA</button>
         <button class="big-gold" style="position:relative" onclick="goChangelog()">📣 NOVEDADES${P.lastSeenVersion!==GAME_VERSION?'<span class="news-dot"></span>':''}</button>
@@ -4387,7 +4620,21 @@ function renderGameover(app){
 
   // Encabezado según resultado
   let headerHTML = "";
-  if(online){
+  if(online && mr.reason==="tower"){
+    // Torre semanal (v1.3): nunca pasa por mr.update (Torre no da recompensas
+    // normales) — el premio real, si lo hay, viene en mr.towerResult.
+    const tr=mr.towerResult;
+    if(mr.won){
+      const prize=tr&&tr.ok?towerFloorPrizeLabel(mr.towerFloor):null;
+      headerHTML = `<div class="win-text a-pop">¡PISO ${mr.towerFloor} SUPERADO! 🏰</div>
+        <p style="font-size:12px;color:rgba(232,238,247,.55);margin-bottom:4px">${prize?"Ganaste "+prize+".":"Piso superado."}</p>
+        ${tr&&tr.complete?`<p style="font-size:13px;color:#ffe9a8;font-weight:700;margin-bottom:8px">🎉 ¡Completaste los 10 pisos de esta semana!</p>`:""}`;
+    } else {
+      headerHTML = `<div style="font-size:56px;margin-bottom:6px">🏰</div>
+        <h2 style="font-family:var(--font-heading);color:#ffe9a8;font-size:24px;margin-bottom:4px">Piso ${mr.towerFloor} no superado</h2>
+        <p style="font-size:12px;color:rgba(232,238,247,.55);margin-bottom:12px">Ganó ${esc(mr.winnerName||"el rival")}. Podés reintentar cuando quieras — sin límite de intentos.</p>`;
+    }
+  } else if(online){
     if(mr.iSurrendered){
       headerHTML = `<div style="font-size:56px;margin-bottom:6px">💔</div>
         <h2 style="font-family:var(--font-heading);color:#f87171;font-size:26px;margin-bottom:4px">Te rendiste</h2>
@@ -4582,7 +4829,9 @@ function renderGameover(app){
       ${progressHTML}
       ${scoresHTML}
       ${finalHandsHTML}
-      <button class="btn btn-gold" onclick="G.matchResult=null;G.finalRanking=null;G.abandoned=false;G._handledWinnerId=null;${G.online?"leaveRoomToMenu()":G.rankedOffline?"goRankedOffline()":"goSorteo()"}">${G.online?"🏠 Volver al menú":"↻ Revancha"}</button>
+      ${online&&mr.reason==="tower"
+        ?`<button class="btn btn-gold" onclick="G.matchResult=null;G.finalRanking=null;G.abandoned=false;G._handledWinnerId=null;leaveRoomToTower()">🏰 Volver a la Torre</button>`
+        :`<button class="btn btn-gold" onclick="G.matchResult=null;G.finalRanking=null;G.abandoned=false;G._handledWinnerId=null;${G.online?"leaveRoomToMenu()":G.rankedOffline?"goRankedOffline()":"goSorteo()"}">${G.online?"🏠 Volver al menú":"↻ Revancha"}</button>`}
       ${!G.online?`<button class="btn btn-ghost" onclick="G.matchResult=null;G.finalRanking=null;goMenu()">🏠 Menú</button>`:""}
     </div>
   </div>`;
@@ -5152,11 +5401,7 @@ let NET={ws:null, myId:null, roomCode:null};
    hasta ahora vía burako_lan_pass) por un token de sesión — el refresh token
    que ya emite Supabase Auth al loguear (ver server/db.js resumeSession) —
    que el cliente guarda y usa para restaurar identidad sin volver a pedir
-   contraseña. La contraseña queda SOLO para el login/registro inicial.
-   G.auth/G.net son un modelo de estado aditivo (no reemplazan G.online ni
-   G.serverConnected, que siguen significando lo mismo que siempre en el
-   resto del código — incluido "esta partida es local", como en
-   goSorteo()/startTeam2v2()) pensado solo para dirigir esta lógica nueva. */
+   contraseña. La contraseña queda SOLO para el login/registro inicial. */
 const SESSION_TOKEN_KEY="burako_session_token";
 function getSessionToken(){ try{ return localStorage.getItem(SESSION_TOKEN_KEY); }catch(e){ return null; } }
 function saveSessionToken(tok){ try{ if(tok) localStorage.setItem(SESSION_TOKEN_KEY, tok); }catch(e){} }
@@ -5164,8 +5409,196 @@ function clearSessionToken(){ try{ localStorage.removeItem(SESSION_TOKEN_KEY); }
 // Instalaciones de antes de este cambio pueden tener la contraseña guardada
 // en texto plano — se borra en cuanto haya un login/resume exitoso con token.
 function migrateAwayFromStoredPassword(){ try{ localStorage.removeItem("burako_lan_pass"); }catch(e){} }
-G.auth=G.auth||{status:"unauthenticated"};
-G.net=G.net||{status:"offline"};
+
+/* ================================================================
+   SESSION MANAGER (Fase 2 — docs/ai/AUDIT-SESSION-ARCHITECTURE.md /
+   docs/ai/FROM-CLAUDE.md). Única fuente de verdad de "¿el usuario está
+   autenticado?", separada A PROPÓSITO de dos conceptos que antes vivían
+   confundidos en la misma variable (G.online):
+
+   - CONEXIÓN DE RED: sigue siendo NET.ws/NET.ws.readyState — el único lugar
+     correcto para preguntar "¿hay un socket abierto ahora mismo?". Session
+     NO reemplaza esos chequeos, y ninguno de los que ya existían se tocó.
+   - SESIÓN DE JUEGO: G.online sigue significando exactamente lo mismo que
+     antes en todo el código de partida (¿la partida actual es online u
+     offline? — goSorteo()/interceptores de lay-draw-attach-confirm/HUD de
+     juego/etc.), sin cambios. Esa lectura de G.online es legítima y no es
+     un chequeo de autenticación disfrazado.
+
+   Lo que SÍ cambia: los lugares donde G.online se usaba como PROXY de "estoy
+   logueado" (Perfil, Tienda, Ruleta, Torre, Pase Galáctico, logout, la
+   reconexión de segundo plano) ahora preguntan acá — ver auditoría §7 para
+   el listado completo de dónde se duplicaba el concepto de sesión antes de
+   este fix.
+
+   Estados:
+     "unauthenticated" — sin sesión válida (nunca logueado, logout explícito,
+                          o un resumeSession que falló sin haber estado ya
+                          autenticado antes en esta carga de página).
+     "restoring"        — restaurando una sesión guardada, todavía sin
+                          confirmar por el servidor. Solo se ve la PRIMERA
+                          vez que esta carga de página intenta reconocer un
+                          token guardado (arranque en frío) — es justamente
+                          el estado explícito que pedía la Fase 2 en vez de
+                          "fingir que ya está autenticado" mientras se espera
+                          la confirmación real.
+     "authenticated"    — el servidor confirmó la identidad.
+     "expired"          — el servidor RECHAZÓ explícitamente el token
+                          (resumeSession → sessionExpired). Es la única
+                          transición real de "la sesión ya no vale", y la
+                          única que borra el token guardado.
+
+   Regla central: una caída de NET.ws (wifi, background, Render/Fly
+   reiniciando) NUNCA mueve Session fuera de "authenticated" por sí sola. Si
+   ya estábamos autenticados y una reconexión en segundo plano vuelve a
+   confirmar la sesión, Session sigue "authenticated" en silencio durante
+   todo el proceso — "restoring" no reaparece a mitad de sesión ni parpadea
+   la UI en cada reconexión; solo existe antes de la PRIMERA confirmación.
+   Ver resumeSessionSilently() más abajo, que es el único lugar que mueve
+   este estado. */
+const Session=(function(){
+  let state="unauthenticated";
+  return {
+    state(){ return state; },
+    isAuthenticated(){ return state==="authenticated"; },
+    isRestoring(){ return state==="restoring"; },
+    isExpired(){ return state==="expired"; },
+    isUnauthenticated(){ return state==="unauthenticated"; },
+    setAuthenticated(){ state="authenticated"; },
+    setRestoring(){ state="restoring"; },
+    setExpired(){ state="expired"; },
+    setUnauthenticated(){ state="unauthenticated"; },
+  };
+})();
+
+/* ================================================================
+   CONNECTION MANAGER (Fase 3 — docs/ai/AUDIT-SESSION-ARCHITECTURE.md /
+   docs/ai/FROM-CLAUDE.md). Única autoridad del lado cliente para el estado
+   de la conexión WebSocket — unifica lo que antes eran 3 caminos separados
+   (ensureConnected(), resumeReconnect()/attemptMatchReconnect(), y un
+   onclose que fuera de partida no hacía nada) detrás de un solo punto de
+   entrada idempotente: resumeSessionSilently() sigue siendo quien abre el
+   socket Y reautentica, pero ahora TODOS los callers pasan por su mismo
+   mutex (antes solo lo usaban algunos — ensureConnected() se salteaba la
+   reautenticación por completo, hallazgo #4/#7 de la auditoría).
+
+   Estados: "disconnected" | "connecting" | "connected" | "reconnecting".
+   "connecting" = primer intento de conexión de esta carga de página.
+   "reconnecting" = ya hubo una sesión autenticada antes y se está tratando
+   de recuperar (mismo criterio que "restoring" en Session — no es
+   casualidad, ver connectWithRetry()/resumeSessionSilently() más abajo).
+
+   Regla central, pedida explícitamente: el estado de Connection NUNCA toca
+   Session por sí solo. Ni abrir, ni cerrar, ni reintentar una conexión
+   cambia si el usuario está autenticado — SOLO una respuesta explícita del
+   servidor (sessionExpired, adentro de resumeSessionSilently) mueve a
+   Session. Una caída de transporte es, para Session, indistinguible de
+   "todavía no se confirmó de nuevo".
+
+   Reconexión automática fuera de partida: antes, un close fuera de una
+   partida activa no hacía nada — el socket quedaba muerto hasta que algo
+   más (tocar un botón, volver de segundo plano) lo notara. Ahora, si había
+   sesión (autenticada o restaurándose) cuando el socket cae, se programa un
+   reintento con backoff creciente (1s, 3s, 8s, 15s, tope 30s — nunca un
+   loop agresivo) usando UN solo timer (scheduleReconnect protege contra
+   duplicarlo). Adentro de una partida activa, attemptMatchReconnect() sigue
+   siendo el camino especializado (ventana de gracia de 25s del servidor,
+   reintentos rápidos) — no se tocó su lógica de juego. */
+const Connection=(function(){
+  let state="disconnected";
+  let reconnectTimer=null;
+  let reconnectAttempt=0;
+  let heartbeatTimer=null;
+  let pongTimeoutTimer=null;
+
+  function clearHeartbeat(){
+    clearInterval(heartbeatTimer); heartbeatTimer=null;
+    clearTimeout(pongTimeoutTimer); pongTimeoutTimer=null;
+  }
+  function cancelScheduledReconnect(){
+    clearTimeout(reconnectTimer); reconnectTimer=null;
+  }
+
+  return {
+    state(){ return state; },
+    isConnected(){ return state==="connected"; },
+    // [Fase 5 — bug real encontrado en el soak test] "connected" es la
+    // confirmación de que estamos bien, sin importar qué camino nos trajo
+    // hasta acá (el backoff propio de scheduleReconnect, o un resumeReconnect/
+    // attemptMatchReconnect manual que canceló ese timer y reconectó por su
+    // cuenta). Antes, reconnectAttempt SOLO se reseteaba dentro del propio
+    // callback de scheduleReconnect — si un reconecte manual tenía éxito
+    // mientras ya había un intento de fondo contado, ese conteo quedaba
+    // pegado, y la PRÓXIMA vez que scheduleReconnect necesitara reintentar
+    // arrancaba con un backoff más largo del que correspondía (reintentos
+    // rápidos y repetidos podían terminar tardando mucho más de lo esperado).
+    _set(s){ state=s; if(s==="connected") reconnectAttempt=0; },
+    cancelScheduledReconnect,
+    // Apagado completo y deliberado (solo logout real) — a diferencia de
+    // onClosed() (que deja la puerta abierta a reconectar solo), acá cortamos
+    // también cualquier reintento programado: no tiene sentido seguir
+    // reconectando de fondo justo después de que el usuario se deslogueó.
+    disconnect(){ cancelScheduledReconnect(); clearHeartbeat(); state="disconnected"; },
+
+    // Heartbeat real: manda ping cada 20s Y ahora además espera un pong
+    // dentro de 10s (antes el cliente mandaba el ping pero nunca comprobaba
+    // que llegara respuesta — hallazgo #10 de la auditoría: un socket "medio
+    // muerto", TCP half-open, común en redes móviles, podía quedar
+    // reportando readyState===1 para siempre sin que nada lo notara). Si el
+    // pong no llega a tiempo, se cierra el socket a mano — eso dispara el
+    // mismo ws.onclose de siempre, así que la reconexión sigue el único
+    // camino normal en vez de uno paralelo.
+    startHeartbeat(ws){
+      clearHeartbeat();
+      heartbeatTimer=setInterval(()=>{
+        if(!NET.ws||NET.ws!==ws||NET.ws.readyState!==1) return;
+        try{ NET.ws.send(JSON.stringify({type:"ping"})); }catch(e){ return; }
+        clearTimeout(pongTimeoutTimer);
+        pongTimeoutTimer=setTimeout(()=>{
+          if(NET.ws!==ws) return; // ya se reemplazó este socket, no corresponde
+          try{ ws.close(); }catch(e){}
+        },10000);
+      },20000);
+    },
+    notePong(){ clearTimeout(pongTimeoutTimer); pongTimeoutTimer=null; },
+
+    // Se llama SIEMPRE que un socket termina (onclose), sin importar el
+    // motivo — deja todo en un estado limpio antes de que quien llamó
+    // decida si corresponde reintentar (partida activa, sesión guardada, o
+    // nada que reconectar).
+    onClosed(){
+      clearHeartbeat();
+      state="disconnected";
+    },
+
+    // Reconexión automática con backoff, fuera de partida, cuando había
+    // sesión al momento de la caída. Idempotente: si ya hay un reintento
+    // programado, no se agrega un segundo timer.
+    scheduleReconnect(){
+      if(reconnectTimer) return;
+      const BACKOFF_MS=[1000,3000,8000,15000,30000];
+      const delay=BACKOFF_MS[Math.min(reconnectAttempt,BACKOFF_MS.length-1)];
+      state="reconnecting";
+      reconnectTimer=setTimeout(async()=>{
+        reconnectTimer=null;
+        reconnectAttempt++;
+        // [Fase 5 — bug real encontrado en la validación end-to-end] Si había
+        // una sala guardada (lobby o partida), reautenticar la sesión SIN
+        // también mandar "rejoin" dejaba al cliente creyendo que seguía en
+        // la sala (G.screen/NET.roomCode intactos, Session/Connection
+        // "authenticated"/"connected") mientras el servidor no tenía room ni
+        // player para el socket nuevo — cualquier acción de sala se perdía
+        // en silencio, sin ningún error visible. Mismo patrón que ya usa
+        // goIntroEnter() en el arranque en frío con sala activa.
+        const activeRoom=readActiveRoom();
+        const ok=activeRoom ? await tryAutoReconnect(activeRoom) : (await resumeSessionSilently()).ok;
+        if(ok){ reconnectAttempt=0; render(); }
+        else if(Session.isExpired()){ reconnectAttempt=0; } // Session ya quedó "expired" — no tiene sentido seguir reintentando a ciegas
+        else { this.scheduleReconnect(); } // sigue con backoff creciente, sin tope de intentos (solo tope de demora) — no es un loop agresivo
+      },delay);
+    },
+  };
+})();
 
 /* Único punto de entrada para "restaurar sesión con el token guardado".
    Reemplaza los candados sueltos que existían antes por conexión llamadora
@@ -5183,29 +5616,77 @@ function resumeSessionSilently({onStatus, connectOpts}={}){
   if(G._sessionOpInFlight) return G._sessionOpInFlight;
   const token=getSessionToken();
   if(!token) return Promise.resolve({ok:false, reason:"no-token"});
+  // Si YA estábamos autenticados (esto es una re-validación en segundo plano
+  // — volver de background, reconectar tras una partida, etc.) seguimos
+  // "authenticated" en silencio todo el proceso: no hay ninguna razón para
+  // que la UI parpadee a "restoring" en cada reconexión de rutina. Solo la
+  // PRIMERA confirmación de esta carga de página (arranque en frío) pasa
+  // visiblemente por "restoring" — ver el comentario del Session Manager.
+  const wasAlreadyAuthenticated=Session.isAuthenticated();
+  if(!wasAlreadyAuthenticated) Session.setRestoring();
   const op=(async()=>{
-    G.net.status="reconnecting";
     if(!NET.ws||NET.ws.readyState!==1){
-      const ok=await connectWithRetry(defaultHost(), Object.assign({onStatus}, connectOpts));
-      if(!ok){ G.net.status="offline"; return {ok:false, reason:"no-connection"}; }
+      // reconnecting:wasAlreadyAuthenticated — mismo criterio que Session:
+      // si ya había sesión confirmada, esto es Connection "reconnecting"; si
+      // no, es la primera conexión de la página ("connecting"). Ver
+      // connectWithRetry() más abajo, que es quien realmente mueve el
+      // estado de Connection.
+      const ok=await connectWithRetry(defaultHost(), Object.assign({onStatus, reconnecting:wasAlreadyAuthenticated}, connectOpts));
+      if(!ok){
+        // Falla TRANSITORIA (sin red, timeout de conexión) — nunca un
+        // rechazo real de la sesión. Si ya estábamos autenticados, seguimos
+        // así (la caída de WS no es un logout); si esta era la primera
+        // confirmación, no hay nada que confirmar todavía, así que cae a
+        // "unauthenticated" — el token SIGUE guardado (no se toca acá), un
+        // reintento más tarde puede confirmar bien.
+        if(!wasAlreadyAuthenticated) Session.setUnauthenticated();
+        return {ok:false, reason:"no-connection"};
+      }
     }
-    G.net.status="connected"; G.serverConnected=true;
+    G.serverConnected=true;
     return await new Promise((resolve)=>{
       let done=false;
-      const finish=(res)=>{ if(done) return; done=true; delete G._authCb; resolve(res); };
-      setTimeout(()=>finish({ok:false, reason:"timeout"}),8000);
+      // [Fase 5 — bug real encontrado en el soak test] Este timeout de 8s NO
+      // se cancelaba cuando la llamada terminaba bien por otra vía (authOk
+      // llegando a tiempo) — seguía armado igual, y si esta MISMA llamada
+      // había arrancado con wasAlreadyAuthenticated=false (p. ej. una
+      // reconexión de fondo que se disparó en un instante en que Session
+      // todavía no estaba "authenticated"), 8 segundos después igual
+      // ejecutaba Session.setUnauthenticated() — pisando por atrás una
+      // sesión que para entonces ya podía estar perfectamente autenticada
+      // de nuevo por una llamada MÁS NUEVA. Reproducido en vivo con
+      // reconexiones rápidas seguidas. clearTimeout acá adentro de finish()
+      // asegura que, una vez resuelta esta llamada (por la vía que sea), su
+      // propio timeout nunca vuelva a tocar Session después.
+      let timeoutId=null;
+      const finish=(res)=>{ if(done) return; done=true; clearTimeout(timeoutId); delete G._authCb; resolve(res); };
+      timeoutId=setTimeout(()=>{ if(!wasAlreadyAuthenticated) Session.setUnauthenticated(); finish({ok:false, reason:"timeout"}); },8000);
       G._authCb=(msg)=>{
         if(msg.type==="authOk"){
           if(msg.session&&msg.session.refreshToken) saveSessionToken(msg.session.refreshToken);
           migrateAwayFromStoredPassword();
-          G.auth.status="authenticated"; G.online=true; G.serverConnected=true;
+          Session.setAuthenticated(); G.online=true; G.serverConnected=true;
+          Connection.cancelScheduledReconnect(); // ya confirmado — no dejar un timer de fondo viejo armado que reintente de nuevo más tarde sin necesidad
           syncProfileFromServer(msg.profile);
+          // Fase 1 — único punto central que vuelve a pedir el catálogo de
+          // logros tras CUALQUIER resumeSession exitoso (arranque en frío,
+          // volver de segundo plano, reconexión tras partida — todos pasan
+          // por acá). Antes esto solo se pedía en login/registro y nunca se
+          // repetía, así que Logros quedaba con el catálogo vacío/viejo el
+          // resto de la sesión de página tras la primera reconexión. Fire-
+          // and-forget a propósito, igual que el resto de los pedidos de
+          // catálogo — la respuesta la procesa el handler de "catalog" de
+          // arriba, no bloquea esta resolución.
+          try{ NET.ws.send(JSON.stringify({type:"catalog"})); }catch(e){}
           finish({ok:true, profile:msg.profile});
         } else if(msg.type==="sessionExpired"){
+          // Único rechazo EXPLÍCITO del servidor — acá sí corresponde tratar
+          // la sesión como inválida de verdad, sin importar el estado previo.
           clearSessionToken();
-          G.auth.status="sessionExpired";
+          Session.setExpired();
           finish({ok:false, reason:"expired"});
         } else {
+          if(!wasAlreadyAuthenticated) Session.setUnauthenticated();
           finish({ok:false, reason:"error"});
         }
       };
@@ -5250,8 +5731,19 @@ function tryAutoReconnect(activeRoom, opts){
   opts=opts||{};
   return new Promise((resolve)=>{
     resumeSessionSilently({onStatus:opts.onStatus, connectOpts:opts.connectOpts}).then((res)=>{
-      if(!res.ok){ clearActiveRoom(); resolve(false); return; }
-      try{ NET.ws.send(JSON.stringify({type:"catalog"})); }catch(e){}
+      if(!res.ok){
+        // [Fase 5 — bug crítico real encontrado en el soak test] Solo una
+        // expiración DE VERDAD (res.reason==="expired") justifica olvidarse
+        // de la sala — cualquier otro motivo (timeout, sin conexión, o un
+        // fallo transitorio de Supabase como un rate-limit bajo ráfagas de
+        // reconexión) no debe borrar la sala guardada: el próximo intento
+        // automático tiene que poder seguir encontrándola.
+        if(res.reason==="expired") clearActiveRoom();
+        resolve(false);
+        return;
+      }
+      // El pedido de "catalog" ya lo manda resumeSessionSilently() en su
+      // propia rama authOk (Fase 1, único punto central) — no repetirlo acá.
       // Nunca se queda colgado esperando: si en 6s no hubo respuesta (server
       // caído, mensaje perdido, etc.) cae al login manual de siempre. Un intento
       // previo de reconectar automáticamente en OTRO lugar (salir de una sala de
@@ -5264,6 +5756,19 @@ function tryAutoReconnect(activeRoom, opts){
       G._rejoinCb=(rmsg)=>{
         if(rmsg.type==="joined"){
           NET.myId=rmsg.playerId; NET.roomCode=rmsg.code;
+          // [Fase 5 — bug crítico real encontrado en el soak test] Este
+          // camino (rejoin automático) intercepta el "joined" ANTES de que
+          // llegue al handler genérico de más abajo — el único que llama
+          // saveActiveRoom() — así que un rejoin automático exitoso nunca
+          // refrescaba el timestamp guardado. Con ACTIVE_ROOM_TTL_MS de solo
+          // 3 minutos medidos desde la creación original de la sala, CUALQUIER
+          // partida u sala que durara más de 3 minutos (la inmensa mayoría)
+          // perdía la capacidad de auto-reconectar a partir de ese punto —
+          // el cliente ni siquiera intentaba el rejoin, aunque el jugador
+          // hubiera estado reconectando con éxito todo ese tiempo. Ahora se
+          // refresca acá también, así el TTL mide "tiempo desde la última
+          // presencia confirmada", no "tiempo desde el join original".
+          saveActiveRoom(rmsg.code,rmsg.playerId);
           finish(true);
         } else {
           clearActiveRoom();
@@ -5325,7 +5830,13 @@ let _lastAnySendAt=0, _lastAnySendType="";
 // pero cualquier cosa que dependa de estar online (cambiar avatar, comprar,
 // pase, etc.) desaparecía sin que quedara claro por qué. onStatus(text) es
 // opcional, para mostrar en pantalla en qué intento va.
-function connectWithRetry(host,{attempts=4, delays=[0,4000,8000,15000], attemptTimeout=15000, onStatus}={}){
+// reconnecting (Fase 3): etiqueta el estado de Connection durante el intento
+// — "reconnecting" si ya había una sesión confirmada antes (resumeSessionSilently
+// se lo pasa según wasAlreadyAuthenticated), "connecting" si es la primera
+// conexión de esta carga de página. Puramente informativo para quien mire
+// Connection.state() — no cambia el comportamiento del reintento en sí.
+function connectWithRetry(host,{attempts=4, delays=[0,4000,8000,15000], attemptTimeout=15000, onStatus, reconnecting=false}={}){
+  Connection._set(reconnecting?"reconnecting":"connecting");
   return new Promise(async(resolve)=>{
     for(let i=0;i<attempts;i++){
       if(i>0){
@@ -5337,29 +5848,27 @@ function connectWithRetry(host,{attempts=4, delays=[0,4000,8000,15000], attemptT
           netConnect(host),
           new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),attemptTimeout)),
         ]);
+        Connection._set("connected");
         resolve(true); return;
       }catch(e){ /* sigue al próximo intento */ }
     }
+    Connection._set("disconnected");
     resolve(false);
   });
-}
-function startClientHeartbeat(){
-  clearInterval(NET._pingTimer);
-  // Ping a nivel app cada 20s: mantiene viva la conexión del lado del cliente
-  // (mapeo NAT en redes móviles, que si no cierran la conexión en los ratos
-  // inactivos) y complementa el ping del servidor. El navegador/WebView ya
-  // responde solo a los ping DEL servidor, pero desde JS no se pueden mandar
-  // frames de ping propios, así que este va como mensaje normal.
-  NET._pingTimer=setInterval(()=>{
-    if(NET.ws&&NET.ws.readyState===1){ try{ NET.ws.send(JSON.stringify({type:"ping"})); }catch(e){} }
-  },20000);
 }
 function netConnect(host){
   return new Promise((resolve,reject)=>{
     if(NET.ws && NET.ws.readyState<=1){ try{NET.ws.close();}catch(e){} }
     const ws=new WebSocket(wsUrlFor(host));
     NET.ws=ws;
-    ws.onopen=()=>{ startClientHeartbeat(); resolve(); };
+    ws.onopen=()=>{
+      // Guard de "viejo" (Fase 3) que faltaba acá — un intento lento que
+      // recién abre DESPUÉS de que connectWithRetry ya pasó al siguiente
+      // (o de que otra conexión más nueva ya ganó) no debía poder pisar el
+      // heartbeat/estado del socket que realmente está activo ahora.
+      if(ws!==NET.ws) { try{ws.close();}catch(e){} return; }
+      Connection._set("connected"); Connection.startHeartbeat(ws); resolve();
+    };
     ws.onerror=(e)=>{
       if(ws!==NET.ws) return; // viejo
       reject(new Error("No se pudo conectar a "+host));
@@ -5367,7 +5876,7 @@ function netConnect(host){
     ws.onmessage=(ev)=>{
       if(ws!==NET.ws) return; // viejo
       let msg; try{msg=JSON.parse(ev.data);}catch(e){return;}
-      if(msg.type==="pong") return; // respuesta al keepalive, nada que hacer
+      if(msg.type==="pong"){ Connection.notePong(); return; } // confirma que el socket sigue vivo de verdad (Fase 3 — antes se descartaba sin más)
       if(DEBUG_GAME){
         const recvAt=performance.now();
         const rtt=(_lastAnySendAt&&(msg.type==="state"||msg.type==="error"))?(recvAt-_lastAnySendAt).toFixed(1)+"ms desde el último "+_lastAnySendType:"";
@@ -5396,6 +5905,41 @@ function netConnect(host){
         return;
       }
       if(msg.type==="queueLeft"){ return; }
+      if(msg.type==="towerStatus"){
+        G.towerLoading=false; G.towerWeekId=msg.weekId; G.towerFloor=msg.floor;
+        G.towerComplete=!!msg.complete; G.towerClearedFloors=msg.clearedFloors||[];
+        if(G.screen==="tower") render();
+        return;
+      }
+      if(msg.type==="towerStarted"){
+        G.towerStarting=false; // el "joined" que llega justo después ya entra a la sala real
+        return;
+      }
+      if(msg.type==="dailyStatus"){
+        G.dailyLoading=false; G.dailyClaimedToday=!!msg.claimedToday; G.dailyStreakDay=msg.streakDay||1; G.dailyMsUntilNext=msg.msUntilNext||0;
+        if(G.screen==="dailyRoulette") render();
+        return;
+      }
+      if(msg.type==="dailyResult"){
+        G.dailySpinning=false;
+        if(msg.ok){
+          G.dailyClaimedToday=true; G.dailyStreakDay=msg.streakDay||G.dailyStreakDay; G.dailyMsUntilNext=msg.msUntilNext||0;
+          G.dailyResult={streakDay:msg.streakDay,coins:msg.coins};
+          Sound.win();
+          if(G.screen==="dailyRoulette"){
+            render();
+            // Doble rAF: deja que el navegador pinte la rueda en rotate(0) ANTES
+            // de disparar la transición — si no, puede saltarse la animación.
+            requestAnimationFrame(()=>requestAnimationFrame(()=>spinDailyWheelTo(msg.streakDay,msg.coins,dailyRouletteBurst)));
+          }
+        } else {
+          if(msg.alreadyClaimed) G.dailyClaimedToday=true;
+          if(msg.msUntilNext) G.dailyMsUntilNext=msg.msUntilNext;
+          setMsg(msg.msg||"No se pudo reclamar la ruleta.");
+          if(G.screen==="dailyRoulette") render();
+        }
+        return;
+      }
       // Rank update
       if(msg.type==="rankUpdate"){ G.rankUpdate=msg; if(msg.profile) syncProfileFromServer(msg.profile); }
       else if(msg.type==="profile"){ clearClaiming(); syncProfileFromServer(msg.profile); render(); }
@@ -5406,7 +5950,14 @@ function netConnect(host){
         G.pendingAchievements=(G.pendingAchievements||[]).concat(msg.achievements||[]);
         if(G.screen==="playing") renderAchievementToasts();
       }
-      else if(msg.type==="catalog"){ G.serverCatalog=msg.catalog; G.serverAchievementsCatalog=msg.achievements; }
+      else if(msg.type==="catalog"){
+        G.serverCatalog=msg.catalog; G.serverAchievementsCatalog=msg.achievements;
+        // Persistida junto con el resto de P.* (Fase 1) — mismo criterio que
+        // nombre/nivel/monedas: caché de visualización, nunca fuente de
+        // autenticación. Solo se guarda si vino poblada; una respuesta vacía
+        // (no debería pasar, pero por las dudas) no pisa la última copia buena.
+        if(msg.achievements&&msg.achievements.length){ P.achievementsCatalog=msg.achievements; saveP(); }
+      }
       // Profile
       if(msg.type==="profile"){ G.serverProfile=msg.profile; }
       // Game messages
@@ -5436,6 +5987,16 @@ function netConnect(host){
         if(G._deferStateUntil && Date.now()<G._deferStateUntil){ G._deferredState=msg; return; }
         clearLobbyPending();
         resolvePendingAction(false);
+        // [Fase 5 — bug crítico real encontrado en el soak test] Refresca el
+        // timestamp de la sala activa guardada en cada "state" real (no solo
+        // al (re)unirse) — así ACTIVE_ROOM_TTL_MS mide "tiempo desde la
+        // última presencia confirmada", no "tiempo desde el join original".
+        // Sin esto, cualquier partida o sala que durara más que el TTL (3
+        // minutos — la inmensa mayoría de las partidas reales) perdía la
+        // capacidad de auto-reconectar a partir de ese punto: el cliente ni
+        // siquiera intentaba el rejoin en el próximo corte, aunque el
+        // jugador hubiera estado presente y reconectando bien todo ese rato.
+        if(msg.code&&NET.myId) saveActiveRoom(msg.code,NET.myId);
         if(DEBUG_GAME){ const t0=performance.now(); netApplyState(msg); dlog("netApplyState+morph tardó", (performance.now()-t0).toFixed(1)+"ms"); }
         else netApplyState(msg);
       }
@@ -5465,6 +6026,7 @@ function netConnect(host){
       else if(msg.type==="error"){
         clearLobbyPending();
         resolvePendingAction(true);
+        G.towerStarting=false; // si towerStart falló (ej. "ya completaste"), no dejar el botón trabado
         if(G.screen==="playing"){
           G.history=G.history||[];
           G.history.push({time:new Date().toLocaleTimeString('es-UY',{hour:'2-digit',minute:'2-digit',second:'2-digit'}), text:msg.msg, kind:"error"});
@@ -5539,17 +6101,22 @@ function netConnect(host){
     };
     ws.onclose=()=>{
       if(ws!==NET.ws) return; // viejo
-      // Solo reaccionar si estábamos en una partida, no durante auth. Antes
-      // esto solo avisaba "se perdió la conexión" y ahí quedaba — sin ningún
-      // intento de reconectar, así que un wifi que titila un segundo (o la
-      // app pasando a segundo plano un rato) te dejaba viendo la partida
-      // congelada hasta que el servidor te diera por afuera a los 25s
-      // (GRACE_MS) sin que el cliente se enterara ni lo intentara evitar.
-      // inActiveMatch() (no solo "playing") — un corte durante sorteo/reparto
-      // online quedaba sin ningún intento de reconexión ni aviso.
+      Connection.onClosed();
+      // Dos caminos, mutuamente excluyentes (Fase 3):
+      // - En partida activa: attemptMatchReconnect(), el camino especializado
+      //   de siempre (ventana de gracia de 25s del servidor, reintentos
+      //   rápidos) — sin cambios en su lógica de juego.
+      // - Fuera de partida: antes esto no hacía NADA — un wifi que titila
+      //   estando en el menú/Perfil/Tienda dejaba el socket muerto hasta que
+      //   algo más lo notara (tocar un botón, volver de segundo plano). Ahora,
+      //   si había sesión (autenticada o restaurándose) al momento de la
+      //   caída, se programa una reconexión controlada con backoff — un solo
+      //   timer (scheduleReconnect protege contra duplicarlo).
       if(G.online && inActiveMatch()){
         G.online=false;
         attemptMatchReconnect();
+      } else if(Session.isAuthenticated()||Session.isRestoring()){
+        Connection.scheduleReconnect();
       }
     };
   });
@@ -5563,12 +6130,32 @@ async function attemptMatchReconnect(){
   if(G._reconnectingMatch) return;
   const activeRoom=readActiveRoom();
   if(!activeRoom||!getSessionToken()) return;
+  Connection.cancelScheduledReconnect(); // este camino especializado se hace cargo, no hace falta un segundo timer de fondo compitiendo
   G._reconnectingMatch=true;
   setMsg("Se perdió la conexión — reconectando…"); render();
-  const rejoined=await tryAutoReconnect(activeRoom,{
+  // [Fase 5 — bug crítico real encontrado en el soak test] Un solo reintento
+  // corto y acotado: antes, UN fallo TRANSITORIO (p. ej. un rate-limit
+  // puntual de la API de Auth bajo una ráfaga de reconexión — visto en vivo
+  // en el soak test) agotaba el intento sin volver a probar, aunque sobrara
+  // ventana de gracia (25s) y la sesión siguiera siendo perfectamente
+  // válida. tryAutoReconnect() solo borra la sala guardada cuando el motivo
+  // es una expiración DE VERDAD (ver ahí) — si sigue ahí después de un
+  // intento fallido, es que fue transitorio y vale la pena UN reintento más.
+  // A propósito no es una cadena larga de reintentos: cada intento ya trae
+  // su propio backoff interno (connectOpts) y esto solo debe cubrir un
+  // hipo puntual, no pelear indefinidamente contra una caída sostenida —
+  // eso lo sigue manejando el margen de gracia del servidor como límite final.
+  let rejoined=await tryAutoReconnect(activeRoom,{
     connectOpts:{attempts:2, delays:[0,2000], attemptTimeout:5000},
     onStatus:(t)=>{ setMsg(t); render(); },
   });
+  if(!rejoined && readActiveRoom()){
+    await new Promise((r)=>setTimeout(r,2000));
+    rejoined=await tryAutoReconnect(activeRoom,{
+      connectOpts:{attempts:2, delays:[0,2000], attemptTimeout:5000},
+      onStatus:(t)=>{ setMsg(t); render(); },
+    });
+  }
   G._reconnectingMatch=false;
   if(rejoined){
     G.online=true;
@@ -6324,7 +6911,7 @@ function submitAuth(action){
   const finish=(msg)=>{
     delete G._authCb;
     if(msg.type==="authOk"){
-      G.online=true; G.auth.status="authenticated";
+      G.online=true; Session.setAuthenticated();
       syncProfileFromServer(msg.profile);
       if(msg.welcomeBonus) G.pendingWelcomeBonus=msg.welcomeBonus;
       if(msg.alert) G.pendingSanctionAlert=msg.alert;
@@ -6364,7 +6951,7 @@ async function logout(){
   // Logout explícito: el único momento en que la identidad realmente
   // desaparece (a diferencia de volver al menú, terminar una partida, o
   // que se caiga la conexión — esos NUNCA deben tocar la sesión guardada).
-  if(G.online&&NET.ws&&NET.ws.readyState===1){
+  if(Session.isAuthenticated()&&NET.ws&&NET.ws.readyState===1){
     const token=getSessionToken();
     await new Promise((resolve)=>{
       let done=false; const finish=()=>{ if(done) return; done=true; delete G._logoutCb; resolve(); };
@@ -6376,11 +6963,12 @@ async function logout(){
   }
   try{ if(NET.ws) NET.ws.close(); }catch(e){}
   NET.ws=null;
+  Connection.disconnect(); // logout real: apagado completo, no seguir reintentando reconectar solos después de esto
   localStorage.removeItem("burako_lan_pass");
   clearSessionToken();
   clearActiveRoom();
   G.online=false; G.serverConnected=false; G.serverProfile=null;
-  G.auth.status="unauthenticated"; G.net.status="offline";
+  Session.setUnauthenticated();
   G._authNotice=null; G._authPrefillUser=undefined;
   G.screen="intro"; render();
 }
@@ -6473,9 +7061,10 @@ function renderNetConnect(app){
       <h2 style="font-family:var(--font-display);color:#ffe9a8;font-size:20px;margin-bottom:12px">👥 Todos contra todos</h2>
       ${G.message?`<p style="text-align:center;font-size:12px;color:#f87171;font-weight:700;background:rgba(220,38,38,.12);border:1px solid rgba(220,38,38,.3);border-radius:8px;padding:6px 10px;margin:0 0 10px">⚠ ${esc(G.message)}</p>`:""}
       <div style="display:flex;flex-direction:column;gap:8px">
-        <button class="btn btn-gold" onclick="doQueueJoin('casual')" style="background:linear-gradient(180deg,#c084fc,#7e22ce);color:#fff">🎲 Casual rápido</button>
-        <button class="btn btn-gold" onclick="doQueueJoin('ranked')" style="background:linear-gradient(180deg,#fbbf24,#b45309)">⚡ Ranked rápido</button>
-        <p style="font-size:9.5px;color:rgba(232,238,247,.45);margin:-4px 0 4px;text-align:center;line-height:1.3">Busca rivales automáticamente — si no aparecen a tiempo, se completa con IA.</p>
+        <button class="btn btn-gold" onclick="doQueueJoin('casualQuick2')" style="background:linear-gradient(180deg,#38bdf8,#0369a1);color:#fff">⚔️ Duelo rápido (2)</button>
+        <button class="btn btn-gold" onclick="doQueueJoin('casualOpen')" style="background:linear-gradient(180deg,#c084fc,#7e22ce);color:#fff">🎲 Mesa abierta (2-8)</button>
+        <button class="btn btn-gold" onclick="doQueueJoin('ranked')" style="background:linear-gradient(180deg,#fbbf24,#b45309)">⚡ Ranked (2-4)</button>
+        <p style="font-size:9.5px;color:rgba(232,238,247,.45);margin:-4px 0 4px;text-align:center;line-height:1.3">Arranca con los jugadores que haya al vencer el tiempo de espera. Si quedás solo, se agrega 1 IA para no dejarte esperando.</p>
         <button class="btn btn-ghost" onclick="goCreateRoom('ffa')">➕ Crear sala nueva</button>
         <button class="btn btn-ghost" onclick="G.netCategory='ffa';G.netStep='enterCode';render()">🚪 Unirse a una sala</button>
         <button class="btn btn-ghost" onclick="G.netCategory='ffa';doListPublicRooms()">🌍 Salas públicas</button>
@@ -6483,9 +7072,9 @@ function renderNetConnect(app){
     </div></div>`; return;
   }
   if(step==="searching"){
-    const mode=G.searchingMode||"casual";
+    const mode=G.searchingMode||"casualOpen";
     const phase=G.searchingPhase||"searching";
-    const found=Math.min(G.searchingSize||0,4);
+    const modeTitles={casualQuick2:"⚔️ Buscando Duelo rápido…",casualOpen:"🎲 Buscando Mesa abierta…",ranked:"⚡ Buscando partida Ranked…"};
     let title,body,showCancel=true;
     if(phase==="starting"){
       title="✔ ¡Partida encontrada!";
@@ -6495,12 +7084,17 @@ function renderNetConnect(app){
       title="✔ ¡Partida encontrada!";
       body=G.searchingHumanCount===1
         ? `<p style="font-size:13px;color:rgba(232,238,247,.8);margin:10px 0 4px">Completando con IA…</p>`
-        : `<p style="font-size:13px;color:rgba(232,238,247,.8);margin:10px 0 4px">${G.searchingHumanCount} jugadores</p>`;
+        : `<p style="font-size:13px;color:rgba(232,238,247,.8);margin:10px 0 4px">${G.searchingHumanCount} jugadores encontrados</p>`;
       showCancel=false;
     } else {
-      title=mode==="ranked"?"⚡ Buscando partida Ranked…":"🎲 Buscando partida Casual…";
-      body=`<p style="font-size:12px;color:rgba(232,238,247,.7);margin:10px 0 4px">${found}/4 jugadores${G.searchingSeconds?` · ${G.searchingSeconds}s buscando`:""}</p>
-      <p style="font-size:10px;color:rgba(232,238,247,.45);margin-bottom:14px;line-height:1.3">${G.searchingMaxWait?`Como máximo, en ${G.searchingMaxWait}s más se completa con IA si hace falta.`:"Si no aparecen suficientes a tiempo, se completa con IA."}</p>`;
+      title=modeTitles[mode]||"🔎 Buscando partida…";
+      // No mostrar una capacidad tipo "N/4" (puede confundir — Mesa abierta llega a
+      // 8, Duelo rápido arranca ya en 2): solo cuánta gente hay, con singular/plural
+      // correcto, y el tiempo restante estimado antes del fallback con IA.
+      const n=G.searchingSize||0;
+      const foundLabel=n<=0?"Buscando…":n===1?"1 jugador encontrado":`${n} jugadores encontrados`;
+      body=`<p style="font-size:12px;color:rgba(232,238,247,.7);margin:10px 0 4px">${foundLabel}${G.searchingSeconds?` · ${G.searchingSeconds}s buscando`:""}</p>
+      <p style="font-size:10px;color:rgba(232,238,247,.45);margin-bottom:14px;line-height:1.3">${G.searchingMaxWait?`En ${G.searchingMaxWait}s arranca con los que haya (o con 1 IA si quedás solo).`:"Arranca con los jugadores que haya (o con 1 IA si quedás solo)."}</p>`;
     }
     app.innerHTML=`<div class="screen-center"><div class="card ${G._enterCls}" style="text-align:center">
       <h2 style="font-family:var(--font-display);color:#ffe9a8;font-size:18px;margin-bottom:6px">${title}</h2>
@@ -6668,21 +7262,28 @@ async function doNetConnect(){
 // esté realmente abierto — si se cortó (Render se durmió, wifi cortado un
 // instante) netSend() fallaba en silencio y el botón "no hacía nada". Ahora
 // reconecta con reintentos y avisa con un mensaje visible si no puede.
+// Fase 3: ahora pasa SIEMPRE por resumeSessionSilently() en vez de abrir un
+// socket "pelado" con connectWithRetry — antes era el único camino de
+// reconexión que se saltaba la reautenticación (hallazgo #4/#7 de la
+// auditoría): si el socket se había caído fuera de una partida, "Crear
+// sala"/"Unirse"/matchmaking podían terminar mandando mensajes sobre un
+// socket que el servidor nunca vio autenticarse. Como resumeSessionSilently
+// ya tiene su propio mutex compartido (G._sessionOpInFlight), esto además
+// hace que ensureConnected() sea naturalmente idempotente: dos callers
+// concurrentes esperan la MISMA operación en vez de pisarse el socket entre
+// sí (que era justo lo que producía el toast "Reconectando…" repetido).
 async function ensureConnected(){
   if(NET.ws&&NET.ws.readyState===1) return true;
-  // Si ya hay una restauración de sesión en curso (p.ej. resumeReconnect()
-  // disparado en silencio al volver de segundo plano en el lobby), hay que
-  // esperarla en vez de arrancar una segunda en paralelo — dos
-  // connectWithRetry a la vez se pisan el socket entre sí (netConnect cierra
-  // cualquier NET.ws anterior antes de abrir uno nuevo) y ESO era lo que
-  // producía el toast "Reconectando…" repetido estando en el lobby con la
-  // conexión en realidad sana o ya sanándose sola.
-  if(G._sessionOpInFlight){
-    const res=await G._sessionOpInFlight;
-    if(res.ok) return true;
-    if(res.reason==="expired") return false; // resumeSessionSilently ya dejó todo consistente (login de nuevo)
-    // si falló por otra razón (sin conexión, timeout), cae al intento propio de abajo
+  const res=await resumeSessionSilently({onStatus:(t)=>{ setMsg(t); render(); }});
+  if(res.ok) return true;
+  if(res.reason==="expired") return false; // resumeSessionSilently ya dejó todo consistente (login de nuevo)
+  if(res.reason!=="no-token"){
+    setMsg("⚠ No se pudo conectar al servidor. Probá de nuevo en un momento."); render();
+    return false;
   }
+  // Caso límite: nunca hubo sesión guardada (no debería pasar en este punto
+  // del flujo real, ver goOnlineConnect, pero se cubre por las dudas) — cae
+  // a solo asegurar transporte, mismo comportamiento que existía antes.
   setMsg("Reconectando…"); render();
   const ok=await connectWithRetry(defaultHost(),{onStatus:(t)=>{ setMsg(t); render(); }});
   if(!ok){ setMsg("⚠ No se pudo conectar al servidor. Probá de nuevo en un momento."); render(); return false; }
@@ -6711,6 +7312,150 @@ async function doListPublicRooms(){
   G.netStep="publicRooms"; G.publicRooms=G.publicRooms||[]; render();
   if(!(await ensureConnected())) return;
   netSend({type:"listRooms"});
+}
+
+/* ================================================================
+   Ruleta diaria (v1.3) — 100% server-authoritative: el servidor decide fecha
+   (Uruguay), racha y premio; acá solo se pide el estado y se anima el
+   resultado que ya vino confirmado. Sin polling ni timers: se consulta una
+   sola vez al entrar a la pantalla (ver Performance en la spec de la tarea).
+   ================================================================ */
+async function goDailyRoulette(){
+  if(!Session.isAuthenticated()){ goOnlineConnect(); return; } // requiere estar logueado online — mismo flujo que "Multijugador"
+  if(!(await ensureConnected())) return;
+  G.screen="dailyRoulette"; G.dailyLoading=true; G.dailyResult=null; G.dailySpinning=false; render();
+  netSend({type:"dailyStatus"});
+}
+function doDailySpin(){
+  if(G.dailySpinning||G.dailyClaimedToday||G.dailyLoading) return; // bloquea doble click
+  Sound.init(); Sound.select();
+  G.dailySpinning=true; G.dailyResult=null; render();
+  netSend({type:"dailySpin"});
+}
+/* ================================================================
+   Torre semanal (v1.3) — 100% server-authoritative: el servidor decide
+   semana (Uruguay), piso disponible, rival e IA por piso, y resultado. Acá
+   solo se pide el estado (una vez al entrar, y de nuevo al volver de una
+   partida) y se arranca el piso actual — nunca un piso elegido a mano.
+   ================================================================ */
+async function goTower(){
+  if(!Session.isAuthenticated()){ goOnlineConnect(); return; }
+  if(!(await ensureConnected())) return;
+  G.screen="tower"; G.towerLoading=true; render();
+  netSend({type:"towerStatus"});
+}
+function doTowerStart(){
+  if(G.towerStarting||G.towerLoading||G.towerComplete) return; // bloquea doble click
+  Sound.init(); Sound.select();
+  G.towerStarting=true; render();
+  netSend({type:"towerStart", name: G.serverProfile?G.serverProfile.username:P.name, skin: P.skin||"clasica"});
+}
+// Espejo del server (server/db.js TOWER_FLOOR_PRIZES/TOWER_FLOOR_DIFFICULTY) —
+// SOLO para pintar el mapa (premio/dificultad/rival de cada piso). El
+// servidor sigue siendo la única fuente real de qué piso está disponible y
+// qué se otorga.
+const TOWER_FLOOR_PRIZES_DISPLAY={
+  1:{coins:50},2:{coins:60},3:{coins:75},4:{coins:90},5:{coins:120,xp:50},
+  6:{coins:140},7:{coins:170},8:{coins:200,xp:75},9:{coins:250},
+  10:{coins:400,xp:150,item:"Torre Celestial 🏰"},
+};
+const TOWER_FLOOR_DIFFICULTY_DISPLAY={1:"easy",2:"easy",3:"normal",4:"normal",5:"hard",6:"hard",7:"hard",8:"expert",9:"expert",10:"claude"};
+const TOWER_DIFF_LABEL={easy:"Fácil",normal:"Normal",hard:"Difícil",expert:"Experto",claude:"Claude"};
+const TOWER_RIVAL_NAME={easy:"Aprendiz",normal:"Retador",hard:"Veterano",expert:"Maestro",claude:"Claude"};
+function towerFloorPrizeLabel(floor){
+  const p=TOWER_FLOOR_PRIZES_DISPLAY[floor]; if(!p) return "";
+  const parts=[];
+  if(p.coins) parts.push("🪙 "+p.coins);
+  if(p.xp) parts.push("⭐ "+p.xp+" XP");
+  if(p.item) parts.push(p.item);
+  return parts.join(" + ");
+}
+// x/y ya vienen resueltos por towerMapHTML() (x en % de zigzag, y en px
+// absolutos) — esta función solo arma el nodo+tarjeta de un piso.
+function towerFloorNodeHTML(floor,status,x,y,side){
+  const diff=TOWER_FLOOR_DIFFICULTY_DISPLAY[floor];
+  const isTop=floor===10;
+  const icon=isTop?"👑":status==="done"?"✔":status==="current"?"▶":"🔒";
+  return `<div class="tower-floor tower-floor-${status}${isTop?" tower-floor-top":""} side-${side}" style="left:${x}%;top:${y}px" data-tower-floor="${floor}">
+    <div class="tower-floor-node">${icon}</div>
+    <div class="tower-floor-card">
+      <div class="tower-floor-title">Piso ${floor}<span class="tower-floor-diff">${TOWER_DIFF_LABEL[diff]||diff}</span></div>
+      <div class="tower-floor-meta">${diff==="claude"?"🧠":"🤖"} ${TOWER_RIVAL_NAME[diff]||"Rival"} · 🎁 ${towerFloorPrizeLabel(floor)}</div>
+      ${status==="current"?`<button class="tower-floor-play" onclick="doTowerStart()" ${G.towerStarting?"disabled":""}>${G.towerStarting?"…":"JUGAR"}</button>`:""}
+    </div>
+  </div>`;
+}
+// Senda serpenteante (v1.3.1, reemplaza la lista plana de 10 filas): piso 10
+// arriba, piso 1 abajo, en zigzag conectado por una línea animada. Las
+// posiciones X van en % (no px) a propósito — así el path del SVG (mismo
+// sistema de coordenadas 0-100) queda alineado con los nodos sin importar el
+// ancho real de la tarjeta en cada pantalla.
+function towerMapHTML(statusFor){
+  const STEP=104, TOP_PAD=40, BOT_PAD=26, XR=66, XL=34;
+  const order=[10,9,8,7,6,5,4,3,2,1];
+  const H=TOP_PAD+(order.length-1)*STEP+BOT_PAD;
+  const pts=order.map((floor,i)=>({
+    floor, side: i%2===0?"r":"l", x: i%2===0?XR:XL, y: TOP_PAD+i*STEP,
+  }));
+  let d="";
+  pts.forEach((p,i)=>{
+    if(i===0){ d+=`M ${p.x} ${p.y}`; return; }
+    const prev=pts[i-1], midY=(prev.y+p.y)/2;
+    d+=` C ${prev.x} ${midY}, ${p.x} ${midY}, ${p.x} ${p.y}`;
+  });
+  const nodes=pts.map(p=>towerFloorNodeHTML(p.floor,statusFor(p.floor),p.x,p.y,p.side)).join("");
+  return `<div class="tower-map" id="tower-map" style="height:${H}px">
+    <svg viewBox="0 0 100 ${H}" preserveAspectRatio="none" aria-hidden="true">
+      <defs><linearGradient id="towerPathGrad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#a855f7"/><stop offset="55%" stop-color="#fbbf24"/><stop offset="100%" stop-color="#fbbf24"/>
+      </linearGradient></defs>
+      <path class="tower-path" d="${d}" vector-effect="non-scaling-stroke"/>
+    </svg>
+    ${nodes}
+  </div>`;
+}
+function renderTower(app){
+  let body;
+  if(G.towerLoading){
+    body=`<div class="searching-spinner" aria-hidden="true"></div><p style="font-size:12px;color:rgba(232,238,247,.6);margin-top:10px">Consultando tu progreso…</p>`;
+  } else if(G.towerComplete){
+    body=`<div class="tower-complete-banner a-pop">🏆 ¡Completaste los 10 pisos de esta semana!<br><span style="font-size:11px;font-weight:400;color:rgba(232,238,247,.6)">Se reinicia el lunes 00:00.</span></div>
+      ${towerMapHTML(()=>"done")}`;
+  } else {
+    const current=G.towerFloor||1;
+    body=towerMapHTML(f=>f<current?"done":f===current?"current":"locked");
+  }
+  app.innerHTML=`<div class="screen-center"><div class="card rt-card ${G._enterCls}">
+    <div class="rt-topbar">
+      <button class="rt-back" onclick="goMenu()" title="Volver al menú">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+        <span class="rt-back-label">Volver</span>
+      </button>
+      <h2 class="rt-title">🏰 Torre semanal</h2>
+    </div>
+    <div class="rt-body">
+      ${G.towerLoading?"":`<div class="tower-crown-deco"><span>👑</span></div><p style="font-size:11px;color:rgba(232,238,247,.55);text-align:center;margin:2px 0 4px;line-height:1.5">Piso 10 arriba, piso 1 abajo. Superá el actual para desbloquear el siguiente.</p>`}
+      ${body}
+    </div>
+  </div></div>`;
+  if(G.towerLoading) return;
+  // Panorama breve y después paneo suave al piso actual — con reduced motion,
+  // salta directo sin demora ni animación (ver spec de la tarea). El scroll
+  // ahora es de .rt-body (mismo contenedor que Ruleta), no de .tower-map.
+  const reduceMotion=window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const scrollToCurrent=()=>{
+    const cur=document.querySelector(".tower-floor-current");
+    if(!cur) return;
+    cur.scrollIntoView({behavior:reduceMotion?"auto":"smooth", block:"center"});
+  };
+  if(reduceMotion) requestAnimationFrame(scrollToCurrent);
+  else { clearTimeout(G._towerScrollT); G._towerScrollT=setTimeout(scrollToCurrent,500); }
+}
+function fmtHoursMin(ms){
+  if(!ms||ms<=0) return "en cualquier momento";
+  const totalMin=Math.ceil(ms/60000), h=Math.floor(totalMin/60), m=totalMin%60;
+  if(h<=0) return m===1?"1 minuto":m+" minutos";
+  return h+"h"+(m>0?" "+m+"m":"");
 }
 async function doJoinPublicRoom(code){
   if(!(await ensureConnected())) return;
@@ -6889,6 +7634,16 @@ function leaveRoomToMenu(){
   G.chatLog=[]; G.chatOpen=false; G.chatUnread=0;
   G.screen="menu"; render();
 }
+// Mismo mecanismo que leaveRoomToMenu(), pero vuelve al mapa de la Torre en
+// vez de al menú principal — pide el estado fresco (piso actual ya
+// actualizado) en vez de reusar el que tenía antes de jugar ese piso.
+function leaveRoomToTower(){
+  if(NET.ws && NET.ws.readyState===1) netSend({type:"leaveRoom"});
+  clearInterval(G.timerHandle); clearInterval(G.matchTimerHandle); clearInterval(G._teamChatCooldownTick);
+  G.players=[]; NET.roomCode=null; clearActiveRoom();
+  G.chatLog=[]; G.chatOpen=false; G.chatUnread=0;
+  goTower();
+}
 
 
 /* ================================================================
@@ -6963,7 +7718,7 @@ function submitOnboardRegister(){
     clearTimeout(bailTimer);
     delete G._authCb;
     if(msg.type==="authOk"){
-      G.online=true; G.auth.status="authenticated";
+      G.online=true; Session.setAuthenticated();
       syncProfileFromServer(msg.profile);
       if(msg.welcomeBonus) G.pendingWelcomeBonus=msg.welcomeBonus;
       if(msg.session&&msg.session.refreshToken) saveSessionToken(msg.session.refreshToken);
@@ -7024,7 +7779,7 @@ function renderOnboardAvatar(app){
       <div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin:8px 0 6px">
         ${FREE_AVATARS.map(a=>
           `<button style="font-size:24px;width:42px;height:42px;border-radius:10px;background:${(P.avatar===a)?"rgba(251,191,36,.3)":"rgba(255,255,255,.06)"};border:1px solid ${(P.avatar===a)?"#fbbf24":"rgba(255,255,255,.1)"}"
-            onclick="P.avatar='${a}';saveP();if(G.online)netSend({type:'setAvatar',avatar:'${a}'});render()">${a}</button>`).join("")}
+            onclick="P.avatar='${a}';saveP();if(Session.isAuthenticated())netSend({type:'setAvatar',avatar:'${a}'});render()">${a}</button>`).join("")}
       </div>
       <p style="font-size:9.5px;color:rgba(232,238,247,.4);margin:4px 0 20px">Más avatares se ganan subiendo de nivel en el Pase de temporada.</p>
       <button class="btn btn-gold" style="font-size:18px" onclick="finishOnboarding()">¡A jugar!</button>
@@ -7070,7 +7825,12 @@ document.addEventListener("visibilitychange",()=>{
     const socketDead = !NET.ws || NET.ws.readyState!==1;
     if(socketDead && inActiveMatch()){
       attemptMatchReconnect();
-    } else if(socketDead && (G.online||G.serverConnected)){
+    } else if(socketDead && (Session.isAuthenticated()||Session.isRestoring())){
+      // Antes preguntaba G.online||G.serverConnected — pero G.online puede
+      // estar en false por motivos que no tienen nada que ver con la sesión
+      // (p. ej. mid-match offline). Acá lo que importa es "¿creíamos tener
+      // una sesión válida?", que es exactamente lo que sabe Session — no la
+      // conexión de red, que ya está cubierta por socketDead arriba.
       resumeReconnect();
     }
   }
@@ -7080,8 +7840,28 @@ document.addEventListener("visibilitychange",()=>{
 // perfil, sin sacar al usuario de donde estaba. Silencioso salvo que falle.
 async function resumeReconnect(){
   if(G._resumeReconnecting) return;
+  Connection.cancelScheduledReconnect(); // este intento manual se hace cargo, no hace falta un segundo timer de fondo compitiendo
   G._resumeReconnecting=true;
-  const res=await resumeSessionSilently({connectOpts:{attempts:3, delays:[0,2000,5000], attemptTimeout:8000}});
+  const connectOpts={attempts:3, delays:[0,2000,5000], attemptTimeout:8000};
+  // [Fase 5 — mismo bug real que en Connection.scheduleReconnect()] Si había
+  // una sala guardada (lobby o partida no detectada por inActiveMatch()),
+  // reautenticar sin pedir "rejoin" dejaba al cliente creyendo que seguía
+  // en la sala mientras el servidor no tenía room/player para el socket
+  // nuevo. tryAutoReconnect() ya hace las dos cosas (reautentica + rejoin).
+  const activeRoom=readActiveRoom();
+  if(activeRoom){
+    const rejoined=await tryAutoReconnect(activeRoom,{connectOpts});
+    if(rejoined){ render(); }
+    else if(Session.isExpired()){
+      G.authIntent="menu";
+      withLogoFlip(()=>{ G.screen="auth"; G.authMode="login"; G.authStep="login"; render(); });
+    } else {
+      G.serverConnected=(NET.ws&&NET.ws.readyState===1);
+    }
+    G._resumeReconnecting=false;
+    return;
+  }
+  const res=await resumeSessionSilently({connectOpts});
   if(res.ok){
     render();
   } else if(res.reason==="expired"){

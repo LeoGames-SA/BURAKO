@@ -3,7 +3,7 @@
    cliente). El modo online sigue necesitando red para el WebSocket — eso no lo toca este SW.
    IMPORTANTE: subir CACHE_VERSION cada vez que cambie GAME_VERSION en burako.js, si no los
    celulares que ya instalaron la app se quedan con los archivos viejos cacheados. */
-const CACHE_VERSION = "burako-v1.2.5";
+const CACHE_VERSION = "burako-v1.2.6";
 
 const PRECACHE_URLS = [
   "./",

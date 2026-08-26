@@ -113,6 +113,15 @@ const roomSweepTimer = setInterval(() => {
     }
   }
 }, ROOM_SWEEP_INTERVAL_MS);
+
+// [Fase 4B] Mismo margen de gracia (25s) para dos casos que antes eran
+// asimétricos sin motivo: reconectar a una partida YA INICIADA (existía
+// desde antes) y reconectar a una sala EN LOBBY, todavía sin iniciar
+// (nuevo en esta fase — ver ws.on("close") más abajo). Una sola constante
+// compartida en vez de dos "25000" sueltos — mismo criterio, un solo lugar
+// para ajustarlo. Overridable por env var solo para que los tests no
+// tengan que esperar 25s reales cada vez (mismo patrón que ROOM_CLEANUP_MS).
+const RECONNECT_GRACE_MS = Number(process.env.RECONNECT_GRACE_MS) || 25000;
 wss.on("close", () => clearInterval(roomSweepTimer));
 
 function makeRoomCode() {
@@ -611,6 +620,25 @@ async function ensureMatchDbId(room) {
   return room._matchDbId;
 }
 
+/* [Fase 4B] Saca a un jugador de una sala TODAVÍA EN LOBBY (nunca de una ya
+   iniciada — para eso está forfeitPlayer) y limpia la sala si queda vacía.
+   Un solo lugar para "salir de lobby de verdad", usado por abandono
+   explícito (leaveRoom), logout real, y el vencimiento del grace period de
+   una caída transitoria (ver ws.on("close")) — antes esta lógica solo vivía
+   duplicada dentro del handler de "leaveRoom". No hace su propio broadcast
+   a propósito: cada caller ya sabe cuándo corresponde avisar a los demás
+   (leaveRoom y el close síncrono ya tenían su propio broadcast(); el
+   vencimiento del grace, al ser async/diferido, dispara el suyo aparte). */
+function removeLobbyPlayer(room, player) {
+  if (!room || room.started || !player) return;
+  const idx = room.players.indexOf(player);
+  if (idx !== -1) room.players.splice(idx, 1);
+  if (room.players.length === 0) {
+    clearInterval(room.turnTimer);
+    rooms.delete(room.code);
+  }
+}
+
 /* Rinde a un jugador (rendición explícita o desconexión en partida en curso):
    sus fichas vuelven al pozo mezcladas y la partida sigue para el resto. */
 async function forfeitPlayer(room, player, opts) {
@@ -640,7 +668,7 @@ async function forfeitPlayer(room, player, opts) {
     const placeForSurr = room.players.filter(p => p.username).length; // último
     try {
       const matchId = await ensureMatchDbId(room);
-      const selfUpdate = await DB.resolveMatch([{ username: player.username, place: placeForSurr, jokerBreaksUsed: 3 - (room.jokerBreaks[player.id] || 0), opponentsTilesLeft: 0 }], { ranked: !!room.ranked, playersCount: totalHuman, gameMode: room.gameMode, matchId });
+      const selfUpdate = await DB.resolveMatch([{ username: player.username, place: placeForSurr, surrendered: true, jokerBreaksUsed: 3 - (room.jokerBreaks[player.id] || 0), opponentsTilesLeft: 0 }], { ranked: !!room.ranked, playersCount: totalHuman, gameMode: room.gameMode, matchId });
       player._statsResolved = true;
       const su = selfUpdate[0];
       if (matchId && su) {
@@ -662,7 +690,7 @@ async function forfeitPlayer(room, player, opts) {
     const lastStanding = activeNonSurr[0];
     if (lastStanding) {
       room.players.forEach(p => { if (p.ws) send(p.ws, { type: "toast", msg: "¡" + lastStanding.name + " es el último en pie!" }); });
-      await finishMatch(room, lastStanding.id, { surrendererId: player.id });
+      await finishMatch(room, lastStanding.id, { surrendererId: player.id, reason: "lastStandingByForfeit" });
     }
     return;
   }
@@ -759,6 +787,40 @@ async function endGameByPoints(room) {
 async function finishMatch(room, winnerId, opts) {
   opts = opts || {};
   if (!winnerId) return;
+  // Torre semanal (v1.3): SIEMPRE tower, sin importar qué reason haya mandado
+  // el llamador (empate mano vacía, pozo agotado, rendición en cascada...) —
+  // se decide acá, una sola vez, por la PRESENCIA de room.towerFloor (seteado
+  // al crear la sala en towerStart), no repitiendo este chequeo en cada
+  // call-site de finishMatch. Así ningún camino de victoria/derrota existente
+  // necesitó tocarse para que Torre funcione con el mismo motor.
+  const reason = room.towerFloor ? "tower" : (opts.reason || "normal");
+  if (reason === "tower") {
+    clearInterval(room.turnTimer);
+    room.winnerId = winnerId;
+    room.started = false;
+    const winner = room.players.find(p => p.id === winnerId);
+    const humanPlayer = room.players.find(p => p.username);
+    // Solo entrega el premio del piso si ganó el HUMANO — perder (por juego
+    // real, rendición o desconexión) es derrota sin recompensa, sin excepción.
+    let towerResult = null;
+    if (humanPlayer && winner && winner.id === humanPlayer.id) {
+      try { towerResult = await DB.claimTowerFloor(humanPlayer.username, room.towerWeekId, room.towerFloor); }
+      catch (e) { console.error("[finishMatch/tower] DB.claimTowerFloor falló -", e.message); }
+      if (towerResult && towerResult.ok && towerResult.profile) send(humanPlayer.ws, { type: "profile", profile: towerResult.profile });
+    }
+    room.players.forEach((p) => {
+      if (!p.ws) return;
+      send(p.ws, {
+        type: "matchResult", won: p.id === winnerId, place: p.id === winnerId ? 1 : 2,
+        winnerName: winner ? winner.name : null, ranked: false, reason: "tower",
+        towerFloor: room.towerFloor, towerWeekId: room.towerWeekId,
+        towerResult: (p.id === (humanPlayer && humanPlayer.id)) ? towerResult : null,
+        update: null, betResult: null, finalHands: [],
+      });
+    });
+    broadcast(room);
+    return;
+  }
   const matchId = await ensureMatchDbId(room);
   clearInterval(room.turnTimer);
   room.winnerId = winnerId;
@@ -850,11 +912,12 @@ async function finishMatch(room, winnerId, opts) {
       // partida podía consultar una tabla RANK_DELTAS[n] distinta según por cuál
       // camino se resolviera cada jugador.
       playersCount: room.players.filter(p => p.username).length,
-      // Antes esto era !!opts.surrendererId (el mismo problema que el comentario
-      // de arriba en `results`: solo reflejaba el disparador puntual de ESTA
-      // corrida). Se deriva de `results` ya resuelto, que ahora sí refleja el
-      // estado real de cada jugador sin importar qué camino cerró la partida.
-      surrendered: results.some(r => r.surrendered),
+      // Motivo de cierre explícito (ver DB.resolveMatch): "lastStandingByForfeit"
+      // cuando esta llamada viene del cascadeo de forfeitPlayer (todos los demás
+      // se rindieron), "normal" en cualquier otro cierre. La recompensa por
+      // rendición de cada jugador puntual sale de `results[].surrendered`, no de
+      // este `reason` — el reason solo afecta al GANADOR de un cierre en cascada.
+      reason,
       gameMode: room.gameMode,
       matchId,
     });
@@ -1619,9 +1682,16 @@ function useAtraccion(room, player, msg) {
    que ya usan las salas ranked armadas a mano (un bot no tiene username,
    así que resolveMatch/checkAchievements ya lo ignoran para todo lo que
    puntúa: solo ocupa asiento, no rompe nada). */
-const matchQueues = { casual: [], ranked: [] };
+// v1.3: Casual se separó en dos colas con objetivo propio — antes había una
+// sola cola "casual" de 2-4 (FIFO). "Duelo rápido" siempre arranca en 2 en
+// cuanto hay pareja; "Mesa abierta" acumula 2-8 (reusa el mazo doble que
+// startGame() ya aplica solo con room.players.length>4). Ranked no cambió:
+// sigue 2-4 con ventana de MMR progresiva, cola separada de las de Casual.
+const matchQueues = { casualQuick2: [], casualOpen: [], ranked: [] };
 const MATCHMAKING_TICK_MS = Number(process.env.MATCHMAKING_TICK_MS) || 2000;
-const MATCH_TARGET_SIZE = 4; // techo real (nunca se rellena de más — mínimo real es 2, ver formMatchmakingRoom)
+// Techo real por cola (nunca se rellena de más con bots — mínimo real es 2,
+// ver formMatchmakingRoom: solo agrega 1 IA cuando queda exactamente 1 humano).
+const QUEUE_TARGET_SIZE = { casualQuick2: 2, casualOpen: 8, ranked: 4 };
 const MATCH_WAIT_TIMEOUT_MS = Number(process.env.MATCH_WAIT_TIMEOUT_MS) || 30000;
 // Ranked: ventana de MMR que se agranda con el tiempo esperado por el más
 // antiguo de la cola (el "ancla") — arranca angosta (parejas de nivel
@@ -1659,8 +1729,9 @@ function makeMatchmakingBot(usedNames) {
    solamente el fallback para que una persona sola no espere para siempre. */
 async function formMatchmakingRoom(entries, mode) {
   const ranked = mode === "ranked";
+  const roomNames = { casualQuick2: "Duelo rápido automático", casualOpen: "Mesa abierta automática", ranked: "Ranked automático" };
   const room = {
-    code: makeRoomCode(), name: (ranked ? "Ranked" : "Casual") + " automático",
+    code: makeRoomCode(), name: roomNames[mode] || "Casual automático",
     public: false, players: [], started: false, table: [], bag: [], hands: {},
     hasLaidInitial: {}, currentIdx: 0, meldCounter: 0, passStreak: 0,
     ranked, gameMode: ranked ? "ranked" : "casual", chatLog: [],
@@ -1685,7 +1756,7 @@ async function formMatchmakingRoom(entries, mode) {
     // hacían nada, en silencio. Ver el setter `ws._applyRoomPlayer` (armado
     // por conexión en wss.on("connection")).
     if (entry.ws._applyRoomPlayer) entry.ws._applyRoomPlayer(room, player);
-    send(entry.ws, { type: "queueMatched", humanCount: entries.length });
+    send(entry.ws, { type: "queueMatched", humanCount: entries.length, mode });
     send(entry.ws, { type: "joined", code: room.code, playerId: player.id });
     sendChatHistory(entry.ws, room);
   }
@@ -1708,12 +1779,14 @@ function tryMatchQueue(mode) {
   }
   if (!queue.length) return;
 
+  const target = QUEUE_TARGET_SIZE[mode];
   const oldestWaitMs = Date.now() - queue[0].joinedAt;
   const timedOut = oldestWaitMs >= MATCH_WAIT_TIMEOUT_MS;
   const sendWaitingStatus = () => queue.forEach((q) => send(q.ws, {
     type: "queueStatus", mode,
     waitingSeconds: Math.floor((Date.now() - q.joinedAt) / 1000),
-    queueSize: Math.min(queue.length, MATCH_TARGET_SIZE),
+    queueSize: Math.min(queue.length, target),
+    targetSize: target,
     maxWaitSeconds: Math.max(0, Math.ceil((MATCH_WAIT_TIMEOUT_MS - (Date.now() - q.joinedAt)) / 1000)),
   }));
 
@@ -1724,12 +1797,12 @@ function tryMatchQueue(mode) {
     const within = queue.slice(1)
       .filter((q) => Math.abs((q.rankPts || 1000) - (anchor.rankPts || 1000)) <= allowedRange)
       .sort((a, b) => Math.abs((a.rankPts || 1000) - (anchor.rankPts || 1000)) - Math.abs((b.rankPts || 1000) - (anchor.rankPts || 1000)));
-    const candidate = [anchor, ...within].slice(0, MATCH_TARGET_SIZE);
-    if (candidate.length >= MATCH_TARGET_SIZE || timedOut) group = candidate;
+    const candidate = [anchor, ...within].slice(0, target);
+    if (candidate.length >= target || timedOut) group = candidate;
     else { sendWaitingStatus(); return; }
   } else {
-    // Casual: FIFO puro, sin criterio de rango.
-    if (queue.length >= MATCH_TARGET_SIZE) group = queue.slice(0, MATCH_TARGET_SIZE);
+    // Casual (Duelo rápido de 2 o Mesa abierta de 2-8): FIFO puro, sin rango.
+    if (queue.length >= target) group = queue.slice(0, target);
     else if (timedOut) group = queue.slice(0, queue.length);
     else { sendWaitingStatus(); return; }
   }
@@ -1738,8 +1811,23 @@ function tryMatchQueue(mode) {
   formMatchmakingRoom(group, mode).catch((e) => console.error("[matchmaking] formMatchmakingRoom falló -", e.message));
 }
 
-const matchmakingTimer = setInterval(() => { tryMatchQueue("casual"); tryMatchQueue("ranked"); }, MATCHMAKING_TICK_MS);
+const matchmakingTimer = setInterval(() => { tryMatchQueue("casualQuick2"); tryMatchQueue("casualOpen"); tryMatchQueue("ranked"); }, MATCHMAKING_TICK_MS);
 wss.on("close", () => clearInterval(matchmakingTimer));
+
+// [Fase 4A — docs/ai/AUDIT-SESSION-ARCHITECTURE.md hallazgo #2/#5, confirmado
+// en vivo en la Fase 0] Serializa el procesamiento de mensajes de UN MISMO
+// socket, en el orden en que llegaron. Antes, ws.on("message", async ...)
+// no serializaba nada por sí solo: Node arranca un handler async nuevo por
+// cada frame que llega, así que si el primero estaba a mitad de un await
+// (p. ej. resumeSession esperando la respuesta de Supabase), un segundo
+// mensaje que llegara mientras tanto se evaluaba con authUser TODAVÍA null,
+// antes de que el primero terminara de autenticar. Con esta cola, el
+// mensaje N+1 de ESE socket no arranca hasta que el N termine (éxito o
+// error) — la serialización es POR SOCKET (cada conexión tiene la suya, ver
+// más abajo), así que un socket lento nunca bloquea a otros usuarios.
+// makeSerialQueue vive en su propio módulo (serial-queue.js) para poder
+// probarla en aislamiento (server/scripts/test-message-serialization.mjs).
+const { makeSerialQueue } = require("./serial-queue.js");
 
 /* ---------- conexiones WebSocket ---------- */
 wss.on("connection", (ws) => {
@@ -1758,8 +1846,22 @@ wss.on("connection", (ws) => {
   ws._applyRoomPlayer = (r, p) => { room = r; player = p; };
 
   let authUser = null; // username del jugador autenticado en este WS
+  // [Fase 4B] Distingue, en ws.on("close"), un logout REAL de una caída de
+  // red transitoria — ambas cierran el socket, pero solo el logout debe
+  // liberar el asiento de lobby al instante (ver el handler de "logout" más
+  // abajo, que la prende, y ws.on("close")).
+  let explicitLogout = false;
 
-  ws.on("message", async (raw) => {
+  // [Fase 4A] Cola de serialización propia de ESTA conexión — ver
+  // makeSerialQueue() más arriba. El listener real queda sin "async" a
+  // propósito: solo encola, nunca procesa nada directamente, así que Node
+  // no puede arrancar un segundo handler para este socket mientras el
+  // anterior sigue en un await. El cuerpo de abajo es EXACTAMENTE el mismo
+  // de antes (mismo protocolo, mismas respuestas) — no se reindentó a
+  // propósito, para que el diff de esta fase se pueda revisar línea por
+  // línea sin ruido de espacios.
+  const enqueueMessage = makeSerialQueue();
+  ws.on("message", (raw) => { enqueueMessage(async () => {
     let msg;
     try { msg = JSON.parse(raw); } catch (e) { return; }
 
@@ -1787,10 +1889,15 @@ wss.on("connection", (ws) => {
       // mande el cliente acá (no hay username en este mensaje).
       const r = await DB.resumeSession(msg.refreshToken);
       if (r.ok) { authUser = r.username; send(ws, { type: "authOk", profile: r.profile, session: r.session, resumed: true }); }
+      // [Fase 5] Solo un "expired" de verdad (token inválido/ya usado) manda
+      // sessionExpired — un fallo transitorio (rate-limit, red) no debe
+      // desloguear a nadie; ver DB.resumeSession, que ya distingue los dos casos.
+      else if (r.error === "transient") send(ws, { type: "error", msg: "No se pudo confirmar la sesión por un problema transitorio. Reintentando…" });
       else send(ws, { type: "sessionExpired" });
       return;
     }
     if (msg.type === "logout") {
+      explicitLogout = true; // [Fase 4B] el close que sigue a esto debe liberar el asiento de lobby al instante, no reservarlo
       await DB.invalidateSession(msg.refreshToken);
       authUser = null;
       send(ws, { type: "loggedOut" });
@@ -1814,8 +1921,11 @@ wss.on("connection", (ws) => {
     if (msg.type === "queueJoin") {
       if (!authUser) return send(ws, { type: "error", msg: "No estás logueado." });
       if (room) return send(ws, { type: "error", msg: "Salí de la sala actual antes de buscar partida." });
-      const mode = msg.mode === "ranked" ? "ranked" : "casual";
-      removeFromMatchQueues(ws); // por si ya estaba en la otra cola
+      // "casual" es el nombre viejo (clientes 1.2.5 ya instalados, antes de
+      // separar Casual en dos colas) — se mapea a Mesa abierta, el equivalente
+      // más cercano al Casual 2-4 original. No romper a esos clientes.
+      const mode = msg.mode === "ranked" ? "ranked" : msg.mode === "casualQuick2" ? "casualQuick2" : "casualOpen";
+      removeFromMatchQueues(ws); // por si ya estaba en otra cola
       const name = (msg.name || "Jugador").slice(0, 16);
       const prof = await DB.getProfileByName(authUser);
       const entry = {
@@ -1888,6 +1998,76 @@ wss.on("connection", (ws) => {
       if (p) send(ws, { type: "profile", profile: p });
       return;
     }
+    // Ruleta diaria (v1.3) — DB.dailyStatus/claimDailyReward hacen todo el trabajo
+    // (fecha de Uruguay, racha, azar server-side, idempotencia vía reward_grants).
+    if (msg.type === "dailyStatus") {
+      if (!authUser) return send(ws, { type: "error", msg: "No estás logueado." });
+      const r = await DB.dailyStatus(authUser);
+      if (!r.ok) return send(ws, { type: "error", msg: r.error || "No se pudo consultar la ruleta." });
+      send(ws, { type: "dailyStatus", claimedToday: r.claimedToday, streakDay: r.streakDay, msUntilNext: r.msUntilNext });
+      return;
+    }
+    if (msg.type === "dailySpin") {
+      if (!authUser) return send(ws, { type: "error", msg: "No estás logueado." });
+      const r = await DB.claimDailyReward(authUser);
+      if (!r.ok) return send(ws, { type: "dailyResult", ok: false, alreadyClaimed: !!r.alreadyClaimed, msUntilNext: r.msUntilNext || null, msg: r.error || "No se pudo reclamar la ruleta." });
+      send(ws, { type: "dailyResult", ok: true, streakDay: r.streakDay, coins: r.coins, msUntilNext: r.msUntilNext });
+      if (r.profile) send(ws, { type: "profile", profile: r.profile });
+      return;
+    }
+    // Torre semanal (v1.3) — DB.towerStatus/claimTowerFloor hacen todo el
+    // trabajo real (semana de Uruguay, piso actual, idempotencia). Acá solo
+    // arma la sala 1 humano + 1 IA reusando EXACTAMENTE el mismo pipeline que
+    // matchmaking/salas manuales (ws._applyRoomPlayer + startGame()) — no hay
+    // un segundo motor de Burako para Torre.
+    if (msg.type === "towerStatus") {
+      if (!authUser) return send(ws, { type: "error", msg: "No estás logueado." });
+      const r = await DB.towerStatus(authUser);
+      if (!r.ok) return send(ws, { type: "error", msg: r.error || "No se pudo consultar la Torre." });
+      send(ws, { type: "towerStatus", weekId: r.weekId, floor: r.floor, complete: r.complete, clearedFloors: r.clearedFloors });
+      return;
+    }
+    if (msg.type === "towerStart") {
+      if (!authUser) return send(ws, { type: "error", msg: "No estás logueado." });
+      if (room) return send(ws, { type: "error", msg: "Salí de la sala actual antes de entrar a la Torre." });
+      const status = await DB.towerStatus(authUser);
+      if (!status.ok) return send(ws, { type: "error", msg: status.error || "No se pudo iniciar la Torre." });
+      if (status.complete) return send(ws, { type: "error", msg: "Ya superaste los 10 pisos de esta semana. Volvé el lunes." });
+      const floor = status.floor;
+      const prof = await DB.getProfileByName(authUser);
+      // La dificultad SIEMPRE sale de DB.TOWER_FLOOR_DIFFICULTY según el piso
+      // real del servidor — nunca de nada que mande el cliente.
+      const diff = DB.TOWER_FLOOR_DIFFICULTY[floor] || "easy";
+      const towerRoom = {
+        code: makeRoomCode(), name: "Torre — piso " + floor,
+        public: false, players: [], started: false, table: [], bag: [], hands: {},
+        hasLaidInitial: {}, currentIdx: 0, meldCounter: 0, passStreak: 0,
+        ranked: false, gameMode: "casual", chatLog: [],
+        towerFloor: floor, towerWeekId: status.weekId,
+      };
+      rooms.set(towerRoom.code, towerRoom);
+      const humanPlayer = {
+        id: C.nid("p"), ws, name: (msg.name || authUser).slice(0, 16), connected: true,
+        username: authUser, skin: msg.skin || "clasica", team: null, ready: true,
+        avatar: prof ? prof.avatar : undefined, rankPts: prof ? prof.rankPts : undefined, level: prof ? prof.level : undefined,
+        fx: prof && prof.active ? (prof.active.effect || "clasico") : "clasico",
+        trail: prof && prof.active ? (prof.active.trail || "clasica") : "clasica",
+      };
+      towerRoom.players.push(humanPlayer);
+      if (ws._applyRoomPlayer) ws._applyRoomPlayer(towerRoom, humanPlayer);
+      const rivalNames = { easy: "Aprendiz", normal: "Retador", hard: "Veterano", expert: "Maestro", claude: "Claude" };
+      const bot = makeMatchmakingBot([humanPlayer.name]);
+      bot.aiDifficulty = diff;
+      bot.name = "Torre · " + (rivalNames[diff] || "Rival");
+      if (diff === "claude") bot.avatar = "🧠";
+      towerRoom.players.push(bot);
+      send(ws, { type: "towerStarted", code: towerRoom.code, floor, weekId: status.weekId });
+      send(ws, { type: "joined", code: towerRoom.code, playerId: humanPlayer.id });
+      sendChatHistory(ws, towerRoom);
+      broadcast(towerRoom);
+      startGame(towerRoom);
+      return;
+    }
     if (msg.type === "join") {
       const code = (msg.room || "").toUpperCase().trim();
       const name = (msg.name || "Jugador").slice(0, 16);
@@ -1930,9 +2110,14 @@ wss.on("connection", (ws) => {
 
     if (msg.type === "rejoin") {
       // Recuperar el asiento después de un refresh/corte de wifi momentáneo,
-      // en vez de tratar CUALQUIER cierre de conexión como rendición (ver
-      // ws.on("close") más abajo, que ahora da un margen de gracia antes de
-      // forfeitPlayer en vez de aplicarlo al instante).
+      // en vez de tratar CUALQUIER cierre de conexión como abandono. Sirve
+      // para los dos casos que dan un margen de gracia en ws.on("close") más
+      // abajo — partida ya iniciada (forfeitPlayer diferido) y, desde la
+      // Fase 4B, sala todavía en lobby (asiento reservado) — este handler no
+      // necesitó cambios para el caso de lobby: la identidad ya se resuelve
+      // por playerId + authUser (username verificado por el servidor, nunca
+      // por el objeto ws en sí), así que "recuperar cualquier sala donde el
+      // jugador siga en room.players" ya cubría ambos casos.
       if (!authUser) return send(ws, { type: "error", msg: "No estás logueado." });
       const code = (msg.room || "").toUpperCase().trim();
       const targetRoom = rooms.get(code);
@@ -1945,6 +2130,7 @@ wss.on("connection", (ws) => {
         return send(ws, { type: "error", msg: "Esa sala ya está conectada desde otra pestaña/dispositivo." });
       }
       if (existing._forfeitGraceTimer) { clearTimeout(existing._forfeitGraceTimer); existing._forfeitGraceTimer = null; }
+      if (existing._lobbyGraceTimer) { clearTimeout(existing._lobbyGraceTimer); existing._lobbyGraceTimer = null; }
       existing.ws = ws;
       existing.connected = true;
       player = existing;
@@ -1961,13 +2147,8 @@ wss.on("connection", (ws) => {
       // desloguear — a diferencia de cerrar el WS, esto deja al jugador conectado
       // y logueado, listo para volver a la lista de salas al instante.
       if (room && player && !room.started) {
-        const idx = room.players.indexOf(player);
-        if (idx !== -1) room.players.splice(idx, 1);
+        removeLobbyPlayer(room, player);
         broadcast(room);
-        if (room.players.length === 0) {
-          clearInterval(room.turnTimer);
-          rooms.delete(room.code);
-        }
       }
       room = null; player = null;
       send(ws, { type: "leftRoom" });
@@ -2386,29 +2567,52 @@ wss.on("connection", (ws) => {
       });
       return;
     }
-  });
+  }); }); // [Fase 4A] cierra enqueueMessage(async()=>{...}) y el listener "message" que solo encola
 
   ws.on("close", () => {
     removeFromMatchQueues(ws); // si estaba esperando en una cola de matchmaking (nunca llegó a tener room/player), sale sin quedar "fantasma" emparejable
     if (!room || !player) return;
     const closedPlayer = player, closedRoom = room;
     closedPlayer.connected = false;
-    // Si el admin se desconecta antes de empezar, remover y pasar admin al siguiente
     if (!closedRoom.started) {
-      const idx = closedRoom.players.indexOf(closedPlayer);
-      if (idx !== -1) closedRoom.players.splice(idx, 1);
+      if (explicitLogout) {
+        // Logout real: libera el asiento al instante, igual que un
+        // "leaveRoom" explícito — nunca debe quedar reservado esperando un
+        // regreso que no va a pasar (la sesión ya se invalidó del lado
+        // servidor, ver el handler de "logout").
+        removeLobbyPlayer(closedRoom, closedPlayer);
+      } else {
+        // [Fase 4B] Caída TRANSITORIA en lobby (wifi, refresh, background) —
+        // antes esto perdía el asiento al instante, a diferencia de una
+        // partida ya iniciada (rama de abajo), que sí daba un margen de
+        // gracia. Ahora usan el MISMO criterio: se reserva el asiento (no se
+        // saca de room.players todavía, así que ni se duplica ni se libera
+        // para que otro lo ocupe) y, si "rejoin" llega a tiempo (ver el
+        // handler más arriba), ese mismo timer se cancela y no pasa nada.
+        // Si el que se desconectó era el admin (players[0] — ver stateFor,
+        // el admin no es un flag propio sino la posición 0 del array), sigue
+        // siéndolo mientras dure la gracia, porque no se toca su posición;
+        // nadie más puede mandar "start" en su lugar mientras tanto (ver el
+        // handler de "start", que exige room.players[0].id === player.id) —
+        // es la política de host ya establecida, no una nueva.
+        closedPlayer._lobbyGraceTimer = setTimeout(() => {
+          closedPlayer._lobbyGraceTimer = null;
+          if (closedPlayer.connected) return; // ya se reconectó mientras tanto
+          removeLobbyPlayer(closedRoom, closedPlayer);
+          broadcast(closedRoom); // recién ACÁ se libera de verdad — avisar a los demás en ese momento, no antes
+        }, RECONNECT_GRACE_MS);
+      }
     } else if (closedRoom.phase === "playing" && !closedPlayer.isAI) {
       // Margen de gracia antes de tratar el cierre como rendición: un refresh de
       // página o un corte de wifi momentáneo cierra el WS igual que cerrar la
       // pestaña de verdad — sin esto, CUALQUIER micro-corte perdía la partida al
       // instante. Si el jugador manda "rejoin" a tiempo (ver arriba), este timer
       // se cancela y no pasa nada; si no, se aplica la rendición de siempre.
-      const GRACE_MS = 25000;
       closedPlayer._forfeitGraceTimer = setTimeout(() => {
         closedPlayer._forfeitGraceTimer = null;
         if (closedPlayer.connected) return; // ya se reconectó por otro lado mientras tanto
         forfeitPlayer(closedRoom, closedPlayer, { viaClose: true });
-      }, GRACE_MS);
+      }, RECONNECT_GRACE_MS);
     }
     broadcast(room);
     // La limpieza real de la sala (si queda sin humanos conectados) la hace el

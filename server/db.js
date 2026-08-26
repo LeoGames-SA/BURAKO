@@ -148,6 +148,12 @@ const CATALOG = {
     { id: "olamesa",   name: "Ola de Mesa", price: 2800 },
     { id: "pulsoatril",name: "Pulso de Atril", price: 2400 },
     { id: "discoluces",name: "Luces de Fiesta", price: 3900 },
+    // Impactos de color (v1.3) — deben coincidir EXACTO (id y price) con EFFECTS en client/burako.js.
+    { id: "impacto_rojo",    name: "Brasa Roja",     price: 1400 },
+    { id: "impacto_azul",    name: "Ola Azul",       price: 1400 },
+    { id: "impacto_verde",   name: "Aura Verde",     price: 1400 },
+    { id: "impacto_violeta", name: "Pulso Violeta",  price: 1600 },
+    { id: "impacto_dorado",  name: "Impacto Dorado", price: 2000 },
   ],
   soundfx: [
     { id: "clasico",   name: "Clásico",     price: 0 },
@@ -888,12 +894,31 @@ async function login(username, password) {
    volver a pedir contraseña. El username se deriva del usuario verificado
    por Supabase (user_metadata), nunca de lo que mande el cliente. Los
    refresh tokens de Supabase son single-use/rotativos: el "session" que se
-   devuelve acá SIEMPRE reemplaza al anterior del lado del cliente. */
+   devuelve acá SIEMPRE reemplaza al anterior del lado del cliente.
+
+   [Fase 5 — bug crítico real encontrado en el soak test] Antes, CUALQUIER
+   error que devolviera Supabase acá (incluido un simple 429 de rate-limit de
+   la propia API de Auth, visto en vivo bajo ráfagas de reconexión) se
+   trataba igual que un refresh token genuinamente inválido: el llamador
+   (server.js) mandaba "sessionExpired" y el cliente borraba el token y
+   mandaba al usuario al login, aunque su sesión fuera perfectamente válida
+   y el refresh token ni siquiera se hubiera llegado a consumir. Ahora se
+   distingue: solo un status 4xx que NO sea rate-limit (Supabase realmente
+   dijo "este token es inválido/ya usado/no existe") cuenta como expiración
+   de verdad; un 429, un 5xx, o cualquier falla sin status HTTP claro (error
+   de red, timeout) es TRANSITORIO — el refresh token nunca llegó a
+   consumirse, así que el cliente puede reintentar más tarde con el mismo. */
 async function resumeSession(refreshToken) {
   if (!refreshToken) return { ok: false, error: "expired" };
   try {
     const { data, error } = await freshAuthClient().auth.refreshSession({ refresh_token: refreshToken });
-    if (error || !data || !data.session || !data.user) return { ok: false, error: "expired" };
+    if (error) {
+      const status = error.status || 0;
+      const transient = status === 429 || status === 0 || status >= 500;
+      console.error("[auth] resumeSession: Supabase devolvió error -", JSON.stringify({ message: error.message, status: error.status, code: error.code }), transient ? "(transitorio, la sesión sigue siendo válida)" : "(token inválido, sesión vencida de verdad)");
+      return { ok: false, error: transient ? "transient" : "expired" };
+    }
+    if (!data || !data.session || !data.user) return { ok: false, error: "expired" };
     const rawUsername = data.user.user_metadata && data.user.user_metadata.username;
     if (!rawUsername) return { ok: false, error: "expired" };
     const row = await fetchProfileRaw(rawUsername.trim().toLowerCase());
@@ -907,7 +932,7 @@ async function resumeSession(refreshToken) {
     };
   } catch (e) {
     console.error("[auth] resumeSession: error -", e.message);
-    return { ok: false, error: "Servidor no disponible en este momento. Probá de nuevo en unos segundos." };
+    return { ok: false, error: "transient" };
   }
 }
 
@@ -1169,15 +1194,37 @@ async function checkAchievements(profile, ctx) {
 }
 
 /* ---------- Fin de partida: XP, monedas, rankPts, logros ----------
-   results: [{ username, place, jokerBreaksUsed, opponentsTilesLeft }]
-   opts: { ranked, playersCount, surrendered }
+   results: [{ username, place, surrendered, jokerBreaksUsed, opponentsTilesLeft }]
+   opts: { ranked, playersCount, gameMode, matchId, reason }
+   reason: "normal" (default) | "lastStandingByForfeit" (todos los demás se
+   rindieron y este ganó por abandono ajeno, no jugando hasta el final) |
+   "tower" (Torre semanal, no implementado todavía — el motor ya lo soporta).
    Cada jugador se carga/persiste de forma independiente: si Supabase falla
    para uno, no arrastra ni corrompe el resultado de los demás (se reporta el
-   fallo puntual en vez de fingir un update que nunca se guardó). */
+   fallo puntual en vez de fingir un update que nunca se guardó).
+
+   Reglas de recompensa (v1.3, decisión explícita del usuario):
+   - Quien se rinde (`r.surrendered`): la partida cuenta (games/losses/streak),
+     pero CERO XP, CERO monedas, CERO progreso de Pase Galáctico y CERO logros
+     de esta partida. La penalización de MMR en Ranked se sigue aplicando
+     normal (vía `place`, siempre el último) — rendirse no evade esa parte.
+   - Ganador por abandono ajeno (`reason==="lastStandingByForfeit"`): todos los
+     demás se rindieron, no jugó hasta el final contra rivales activos.
+     Recompensa reducida y FIJA: 40 XP, 20 monedas, sin bonos de puesto ni de
+     racha. El MMR de Ranked se resuelve normal (deltas de siempre).
+   - Partida terminada normalmente (nadie se rindió en la posición evaluada):
+     base de participación completa (30 XP / 20 monedas, igual que siempre,
+     incluso perdiendo) + bono de puesto/racha ESCALADO según cuántos humanos
+     arrancaron la partida (`opts.playersCount`, estable desde que la sala
+     arranca — ver server.js) — 2 humanos (o 1+IA) = 40%, 3 = 70%, 4+ = 100%.
+     Evita "farmear" el bono de 1° en duelos 1v1 al mismo ritmo que en mesas
+     completas, sin tocar la base que se gana por participar hasta el final. */
 const RANK_DELTAS = { 2: [50, -50], 3: [50, 10, -50], 4: [50, 30, 10, -50] };
 async function resolveMatch(results, opts) {
   const totalPlayers = opts.playersCount || results.length;
   const deltas = opts.ranked ? (RANK_DELTAS[totalPlayers] || RANK_DELTAS[4]) : null;
+  const reason = opts.reason || "normal";
+  const positionBonusScale = totalPlayers <= 2 ? 0.4 : totalPlayers === 3 ? 0.7 : 1;
 
   const jobs = results.map(async (r, i) => {
     if (!r.username) return null; // bots no tienen perfil
@@ -1225,23 +1272,28 @@ async function resolveMatch(results, opts) {
     // para un futuro llamador que no mande `place`.
     const place = r.place || (i + 1);
     const isWinner = (place === 1);
+    const surrendered = !!r.surrendered;
+    const lastStandingByForfeit = isWinner && reason === "lastStandingByForfeit";
 
-    // === XP ganada (siempre, hasta perdiendo) ===
-    let xpGained = 30;
-    if (isWinner) xpGained += 150;
-    else if (place === 2) xpGained += 80;
-    else if (place === 3) xpGained += 40;
+    // === XP y monedas ===
+    let xpGained, coinsGained;
+    if (surrendered) {
+      xpGained = 0;
+      coinsGained = 0;
+    } else if (lastStandingByForfeit) {
+      xpGained = 40;
+      coinsGained = 20;
+    } else {
+      const placeBonusXp = isWinner ? 150 : place === 2 ? 80 : place === 3 ? 40 : 0;
+      xpGained = 30 + Math.round(placeBonusXp * positionBonusScale);
+      const placeBonusCoins = isWinner ? 80 : place === 2 ? 30 : place === 3 ? 15 : 0;
+      coinsGained = 20 + Math.round(placeBonusCoins * positionBonusScale);
+    }
     if (opts.ranked) xpGained = Math.round(xpGained * 1.5);
     p.xp += xpGained;
     p.stats.totalXpEarned += xpGained;
 
-    // === Monedas ganadas ===
-    let coinsGained = (opts.surrendered && r.surrendered) ? 10 : 20;
-    if (isWinner) coinsGained += 80;
-    else if (place === 2) coinsGained += 30;
-    else if (place === 3) coinsGained += 15;
-
-    // === Stats ===
+    // === Stats (la partida cuenta SIEMPRE, incluso rendida) ===
     p.stats.games++;
     if (opts.ranked) p.stats.rankedGames++;
     if (isWinner) {
@@ -1249,8 +1301,10 @@ async function resolveMatch(results, opts) {
       if (opts.ranked) p.stats.rankedWins++;
       p.stats.streak++;
       if (p.stats.streak > p.stats.bestStreak) p.stats.bestStreak = p.stats.streak;
-      const streakBonus = 25 * Math.min(p.stats.streak, 5);
-      coinsGained += streakBonus;
+      if (!surrendered && !lastStandingByForfeit) {
+        const streakBonus = Math.round(25 * Math.min(p.stats.streak, 5) * positionBonusScale);
+        coinsGained += streakBonus;
+      }
     } else {
       p.stats.losses++;
       p.stats.streak = 0;
@@ -1265,20 +1319,24 @@ async function resolveMatch(results, opts) {
       p.rankPts = Math.max(0, p.rankPts + rankDelta);
     }
 
-    // === Logros ===
-    const ctx = {
-      won: isWinner,
-      place,
-      playersCount: totalPlayers,
-      ranked: opts.ranked,
-      jokerBreaksUsed: r.jokerBreaksUsed || 0,
-      opponentsTilesLeft: r.opponentsTilesLeft || 0,
-    };
-    const newAchievements = await checkAchievements(p, ctx);
+    // === Logros: ninguno para quien se rindió esta partida ===
+    let newAchievements = [];
+    if (!surrendered) {
+      const ctx = {
+        won: isWinner,
+        place,
+        playersCount: totalPlayers,
+        ranked: opts.ranked,
+        jokerBreaksUsed: r.jokerBreaksUsed || 0,
+        opponentsTilesLeft: r.opponentsTilesLeft || 0,
+      };
+      newAchievements = await checkAchievements(p, ctx);
+    }
 
-    // === Pase Galáctico: progreso APARTE, solo si la partida fue de ese modo ===
+    // === Pase Galáctico: progreso APARTE, solo si la partida fue de ese modo
+    // y no se rindió (mismo criterio de cero-recompensa-por-rendición) ===
     let galactico = null;
-    if (opts.gameMode === "galactico") {
+    if (opts.gameMode === "galactico" && !surrendered) {
       const gBefore = galacticoLevelFromXp(p.galactico.xp).level;
       const gGained = 30 + (isWinner ? 50 : 0);
       p.galactico.xp += gGained;
@@ -1318,6 +1376,238 @@ async function resolveMatch(results, opts) {
 
   const settled = await Promise.all(jobs);
   return settled.filter(Boolean);
+}
+
+/* ============================================================
+   RULETA DIARIA (v1.3) — una tirada por día calendario de Uruguay, racha de
+   1 a 7 (se reinicia a 1 si se salta un día; tras el día 7 vuelve a 1).
+
+   Decisión de diseño (desvío deliberado de la especificación original, que
+   pedía una tabla nueva `daily_reward_state`): en vez de esa tabla, la
+   idempotencia Y la racha se derivan enteramente de `reward_grants` — la
+   misma tabla y el mismo RPC `grant_rewards` que YA están desplegados en
+   producción desde la Fase 1 (motor de recompensas). Cada tirada se guarda
+   como una fila con source_type='roulette', source_id=fecha ISO del día
+   (Uruguay) — el unique constraint (profile_id, source_type, source_id) ya
+   impide dos premios el mismo día (doble click, replay, reinicio del
+   server, todo cubierto por el mismo mecanismo ya probado en
+   test-reward-engine.mjs). La racha se calcula contando cuántos días
+   consecutivos ANTERIORES a hoy tienen una fila 'roulette' — sin necesitar
+   guardar el número aparte. Ventaja real: no hace falta aplicar NINGUNA
+   migración nueva para que esto funcione — se puede probar de punta a
+   punta contra Supabase real hoy mismo, en vez de código sin probar a la
+   espera de que alguien corra una migración a mano.
+   ============================================================ */
+const DAILY_TZ = "America/Montevideo";
+// [min,max] de monedas por día de racha (1..7) — fase inicial solo monedas.
+const DAILY_REWARD_RANGES = [[50, 80], [60, 100], [80, 120], [100, 150], [130, 190], [170, 240], [250, 400]];
+// Segmentos discretos dentro de cada rango — nunca un monto continuo/manipulable.
+const DAILY_REWARD_SEGMENTS = 5;
+
+function uruguayDateStr(d) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: DAILY_TZ, year: "numeric", month: "2-digit", day: "2-digit" }).format(d || new Date());
+}
+// Suma/resta días CALENDARIO (no horas) a una fecha "YYYY-MM-DD" — evita
+// arrastrar horas/husos horarios al aritmética de días.
+function addDaysISO(iso, delta) {
+  const [y, m, dd] = iso.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, dd));
+  dt.setUTCDate(dt.getUTCDate() + delta);
+  return dt.toISOString().slice(0, 10);
+}
+// Offset real (minutos) entre la hora de pared de Montevideo y UTC en el
+// instante `d` — vía Intl (no hardcodea -03:00): si IANA algún día vuelve a
+// aplicar horario de verano en América/Montevideo, esto lo sigue resolviendo bien.
+function uruguayOffsetMinutes(d) {
+  const fmt = new Intl.DateTimeFormat("en-US", { timeZone: DAILY_TZ, hour12: false, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const parts = Object.fromEntries(fmt.formatToParts(d).map((p) => [p.type, p.value]));
+  const asIfUTC = Date.UTC(+parts.year, +parts.month - 1, +parts.day, parts.hour === "24" ? 0 : +parts.hour, +parts.minute, +parts.second);
+  return Math.round((asIfUTC - d.getTime()) / 60000);
+}
+function msUntilNextUruguayMidnight(now) {
+  now = now || new Date();
+  const todayStr = uruguayDateStr(now);
+  const tomorrowStr = addDaysISO(todayStr, 1);
+  const offsetMin = uruguayOffsetMinutes(now);
+  const tomorrowMidnightUTC = new Date(Date.parse(tomorrowStr + "T00:00:00Z") - offsetMin * 60000);
+  return Math.max(0, tomorrowMidnightUTC.getTime() - now.getTime());
+}
+function pickDailyCoins(streakDay) {
+  const [lo, hi] = DAILY_REWARD_RANGES[Math.min(Math.max(streakDay, 1), 7) - 1];
+  const step = (hi - lo) / (DAILY_REWARD_SEGMENTS - 1);
+  const idx = crypto.randomInt(0, DAILY_REWARD_SEGMENTS); // azar del SERVIDOR, nunca del cliente
+  return Math.round(lo + step * idx);
+}
+async function getDailyClaimedDates(profileId) {
+  const { data, error } = await supabase
+    .from("reward_grants")
+    .select("source_id")
+    .eq("profile_id", profileId)
+    .eq("source_type", "roulette")
+    .order("source_id", { ascending: false })
+    .limit(400); // de sobra para cualquier racha real (7) + margen amplio
+  if (error) throw new Error("getDailyClaimedDates: " + error.message);
+  return new Set((data || []).map((r) => r.source_id));
+}
+// Cuenta días consecutivos con tirada, empezando AYER hacia atrás (nunca
+// incluye "hoy" — así el resultado es el mismo antes y después de reclamar
+// el día de hoy, y sirve para calcular tanto "próxima racha" como "racha ya
+// asignada hoy" con la misma fórmula: streakDay = (consecutivos % 7) + 1).
+function countConsecutivePriorDays(claimedSet, todayStr) {
+  let count = 0, cursor = addDaysISO(todayStr, -1);
+  for (let i = 0; i < 3650; i++) {
+    if (!claimedSet.has(cursor)) break;
+    count++; cursor = addDaysISO(cursor, -1);
+  }
+  return count;
+}
+
+async function dailyStatus(username) {
+  const row = await fetchProfileRaw(username.trim().toLowerCase());
+  if (!row) return { ok: false, error: "Usuario inexistente." };
+  const claimed = await getDailyClaimedDates(row.id);
+  const today = uruguayDateStr();
+  const claimedToday = claimed.has(today);
+  const streakDay = (countConsecutivePriorDays(claimed, today) % 7) + 1;
+  return { ok: true, claimedToday, streakDay, msUntilNext: msUntilNextUruguayMidnight() };
+}
+
+async function claimDailyReward(username) {
+  const usernameLower = username.trim().toLowerCase();
+  const row = await fetchProfileRaw(usernameLower);
+  if (!row) return { ok: false, error: "Usuario inexistente." };
+  const claimed = await getDailyClaimedDates(row.id);
+  const today = uruguayDateStr();
+  if (claimed.has(today)) return { ok: false, error: "Ya reclamaste la ruleta de hoy.", alreadyClaimed: true, msUntilNext: msUntilNextUruguayMidnight() };
+  const streakDay = (countConsecutivePriorDays(claimed, today) % 7) + 1;
+  const coins = pickDailyCoins(streakDay);
+  let grantResult;
+  try {
+    grantResult = await grantRewards(username, [{ type: "coins", amount: coins }], { type: "roulette", id: today });
+  } catch (e) {
+    return { ok: false, error: "Servidor no disponible en este momento. Probá de nuevo." };
+  }
+  if (!grantResult.ok) return grantResult;
+  if (grantResult.alreadyGranted) {
+    // Carrera real: otra request para el mismo día ganó primero (mismo mecanismo
+    // probado en test-reward-engine.mjs) — no hay premio nuevo que animar.
+    return { ok: false, error: "Ya reclamaste la ruleta de hoy.", alreadyClaimed: true, msUntilNext: msUntilNextUruguayMidnight() };
+  }
+  let profile = null;
+  try {
+    const freshRow = await fetchProfileRaw(usernameLower);
+    if (freshRow) profile = publicProfile(rowToProfileShape(freshRow));
+  } catch (e) {}
+  return { ok: true, streakDay, coins, profile, msUntilNext: msUntilNextUruguayMidnight() };
+}
+
+/* ============================================================
+   TORRE SEMANAL (v1.3) — 10 pisos contra IA escalonada, reinicio semanal
+   (lunes 00:00 Uruguay). MISMA decisión de diseño que Ruleta diaria: SIN
+   tabla `tower_progress` nueva — se evaluó explícitamente (pedido de la
+   tarea) si el progreso se puede derivar de `reward_grants` con
+   source_type='tower', source_id='{weekId}:{floor}', y la respuesta es que
+   SÍ alcanza para validación e idempotencia correctas: el piso actual es
+   "el primero de 1-10 sin una fila para week_id actual", y superar un piso
+   ya superado simplemente no vuelve a otorgar nada (mismo unique constraint
+   de siempre). No se necesitó crear ninguna migración.
+
+   IMPORTANTE (restricción de esta pasada): estas funciones NO se probaron
+   contra Supabase real — la tarea prohibió explícitamente conectarse al
+   proyecto de producción en esta segunda pasada. Sí están cubiertas por
+   tests puros (weekId, computeCurrentFloor, tabla de premios/dificultad) en
+   scripts/test-tower.mjs. La integración real contra Supabase queda
+   pendiente de una corrida futura con autorización explícita o un proyecto
+   de staging separado.
+   ============================================================ */
+const TOWER_FLOOR_DIFFICULTY = { 1: "easy", 2: "easy", 3: "normal", 4: "normal", 5: "hard", 6: "hard", 7: "hard", 8: "expert", 9: "expert", 10: "claude" };
+const TOWER_FLOOR_PRIZES = {
+  1: [{ type: "coins", amount: 50 }],
+  2: [{ type: "coins", amount: 60 }],
+  3: [{ type: "coins", amount: 75 }],
+  4: [{ type: "coins", amount: 90 }],
+  5: [{ type: "coins", amount: 120 }, { type: "xp", amount: 50 }],
+  6: [{ type: "coins", amount: 140 }],
+  7: [{ type: "coins", amount: 170 }],
+  8: [{ type: "coins", amount: 200 }, { type: "xp", amount: 75 }],
+  9: [{ type: "coins", amount: 250 }],
+  10: [{ type: "coins", amount: 400 }, { type: "xp", amount: 150 }, { type: "item", itemType: "effect", itemId: "torre_celestial" }],
+};
+// Semana ancla: fecha (YYYY-MM-DD, Uruguay) del lunes que abre la semana de
+// `d`. Reinicio real a las 00:00 de Uruguay del lunes (uruguayDateStr ya
+// resuelve la zona horaria) — se usa como weekId directamente (comparable
+// como texto/fecha, sin ambigüedad de qué semana es).
+function towerWeekId(d) {
+  const todayStr = uruguayDateStr(d || new Date());
+  const [y, m, dd] = todayStr.split("-").map(Number);
+  const monday = new Date(Date.UTC(y, m - 1, dd));
+  const dow = monday.getUTCDay(); // 0=domingo..6=sábado
+  monday.setUTCDate(monday.getUTCDate() - ((dow + 6) % 7)); // retrocede al lunes de esa semana
+  return monday.toISOString().slice(0, 10);
+}
+// Piso actual = el primero de 1..10 SIN fila de tirada superada. null = Torre
+// completada esta semana (los 10 pisos ya tienen fila).
+function computeCurrentFloor(clearedFloorsSet) {
+  for (let f = 1; f <= 10; f++) if (!clearedFloorsSet.has(f)) return f;
+  return null;
+}
+async function getTowerClearedFloors(profileId, weekId) {
+  const { data, error } = await supabase
+    .from("reward_grants")
+    .select("source_id")
+    .eq("profile_id", profileId)
+    .eq("source_type", "tower")
+    .like("source_id", weekId + ":%");
+  if (error) throw new Error("getTowerClearedFloors: " + error.message);
+  const set = new Set();
+  (data || []).forEach((r) => {
+    const floor = Number(String(r.source_id).split(":")[1]);
+    if (floor >= 1 && floor <= 10) set.add(floor);
+  });
+  return set;
+}
+async function towerStatus(username) {
+  const row = await fetchProfileRaw(username.trim().toLowerCase());
+  if (!row) return { ok: false, error: "Usuario inexistente." };
+  const weekId = towerWeekId();
+  const cleared = await getTowerClearedFloors(row.id, weekId);
+  const floor = computeCurrentFloor(cleared);
+  return { ok: true, weekId, floor, complete: floor === null, clearedFloors: [...cleared].sort((a, b) => a - b) };
+}
+// Se llama SOLO desde server.js (finishMatch) cuando el HUMANO ganó una
+// partida de Torre — nunca a pedido directo del cliente con un piso
+// arbitrario: `weekId`/`floor` vienen de room.towerWeekId/room.towerFloor,
+// capturados al ARRANCAR esa partida (así si la semana rota justo mientras
+// la partida está en curso, el resultado se acredita a la semana en la que
+// arrancó, no a la vigente al terminar — regla explícita y simple).
+async function claimTowerFloor(username, weekId, floor) {
+  if (!(floor >= 1 && floor <= 10)) return { ok: false, error: "Piso inválido." };
+  const usernameLower = username.trim().toLowerCase();
+  const row = await fetchProfileRaw(usernameLower);
+  if (!row) return { ok: false, error: "Usuario inexistente." };
+  const cleared = await getTowerClearedFloors(row.id, weekId);
+  const currentFloor = computeCurrentFloor(cleared);
+  // Server-authoritative: el piso a premiar tiene que ser exactamente el que
+  // ya le tocaba a este jugador esa semana — nunca el que mande el cliente
+  // "porque sí" (protege contra piso inválido/bloqueado/ya superado/manipulado).
+  if (currentFloor !== floor) return { ok: false, error: "Ese piso no está disponible para vos ahora mismo." };
+  const rewards = TOWER_FLOOR_PRIZES[floor];
+  let grantResult;
+  try {
+    grantResult = await grantRewards(username, rewards, { type: "tower", id: weekId + ":" + floor });
+  } catch (e) {
+    return { ok: false, error: "Servidor no disponible en este momento. Probá de nuevo." };
+  }
+  if (!grantResult.ok) return grantResult;
+  if (grantResult.alreadyGranted) return { ok: false, error: "Ese piso ya estaba superado.", alreadyClaimed: true };
+  let profile = null;
+  try {
+    const freshRow = await fetchProfileRaw(usernameLower);
+    if (freshRow) profile = publicProfile(rowToProfileShape(freshRow));
+  } catch (e) {}
+  const nextCleared = new Set(cleared); nextCleared.add(floor);
+  const nextFloor = computeCurrentFloor(nextCleared);
+  return { ok: true, floor, complete: nextFloor === null, nextFloor, profile };
 }
 
 /* ---------- Logros en vivo (durante la partida, no al final) ---------- */
@@ -1366,4 +1656,10 @@ module.exports = {
   leaderboard,
   levelFromXp, tierOf, galacticoLevelFromXp,
   grantRewards, claimGrantSlot, ensureMatchRow, recordMatchParticipants,
+  dailyStatus, claimDailyReward,
+  // Exportadas para tests de lógica pura (sin tocar Supabase) — ver scripts/test-daily-reward.mjs.
+  uruguayDateStr, addDaysISO, countConsecutivePriorDays, pickDailyCoins, msUntilNextUruguayMidnight,
+  towerStatus, claimTowerFloor, TOWER_FLOOR_DIFFICULTY, TOWER_FLOOR_PRIZES,
+  // Exportadas para tests de lógica pura — ver scripts/test-tower.mjs.
+  towerWeekId, computeCurrentFloor,
 };

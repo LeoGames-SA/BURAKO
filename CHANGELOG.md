@@ -2,6 +2,56 @@
 
 Todos los cambios notables del proyecto se documentan en este archivo.
 
+## [1.2.6] - 2026-08-26 — Fase 5: validación de sesión/reconexión + 2 bugs críticos reales
+
+Fase 5 del proyecto de remediación de arquitectura de sesión
+(`docs/ai/AUDIT-SESSION-ARCHITECTURE.md` / `docs/ai/FROM-CLAUDE.md`) — no era
+una fase de features nuevas: el objetivo era validar de punta a punta el
+sistema resultante de las Fases 1-4B (Session Manager, Connection Manager,
+serialización de mensajes, grace period de lobby) con navegador y servidor
+reales, y un soak test de reconexiones repetidas. Encontró y corrigió **2
+bugs críticos reales de sesión**, ninguno visible en las fases anteriores
+porque solo aparecían bajo reconexión sostenida (varios minutos, no un corte
+puntual).
+
+**Bug crítico #1 — un rate-limit de Supabase se confundía con sesión
+vencida.** `db.js: resumeSession()` trataba CUALQUIER error que devolviera
+`supabase.auth.refreshSession()` como un refresh token inválido — incluido
+un `429 "over_request_rate_limit"` (rate-limit propio de la API de Auth,
+visto en vivo bajo el soak test). El servidor mandaba `sessionExpired` al
+cliente en los dos casos por igual, y el cliente borraba el token guardado y
+mandaba al usuario al login — **aunque su sesión fuera perfectamente
+válida** y el refresh token ni siquiera se hubiera llegado a consumir.
+Corregido distinguiendo el status HTTP del error (`429`/`5xx`/sin status →
+transitorio, no borra nada; `4xx` real → expiración de verdad) en
+`db.js`, propagando esa distinción en `server.js` (deja de mandar
+`sessionExpired` para el caso transitorio), y en `client/burako.js`
+(`tryAutoReconnect()` ya no se olvida de la sala guardada ante un fallo
+transitorio; `attemptMatchReconnect()` suma un reintento corto acotado).
+
+**Bug crítico #2 — la sala/partida guardada para auto-reconectar
+"vencía" a los 3 minutos, sin importar que el jugador siguiera
+presente.** `ACTIVE_ROOM_TTL_MS` (3 minutos) se medía desde el join/
+creación ORIGINAL de la sala y nunca se refrescaba en reconexiones
+exitosas posteriores — así que cualquier partida o sala que durara más de
+3 minutos (la inmensa mayoría de las partidas reales) perdía la capacidad
+de auto-reconectar a partir de ese punto: el cliente ni siquiera intentaba
+el `rejoin` en el próximo corte, aunque el jugador hubiera estado
+reconectando con éxito todo ese tiempo. Confirmado en vivo con el soak
+test: la pista de lobby pasó de 18 fallas en 29 ciclos a 0 fallas tras el
+fix. Corregido refrescando el timestamp guardado en cada rejoin exitoso Y
+en cada mensaje `"state"` recibido durante la partida (`client/burako.js`).
+
+**Validación**: E2E de punta a punta (34/34, corrido varias veces), soak
+test de reconexiones repetidas a cadencia realista (10+ minutos sin ninguna
+falla en las 3 superficies — menú, lobby, partida — tras los dos fixes),
+regresión completa de Fases 1-4B (Session Manager 11/11, Connection Manager
+21/21, serialización de mensajes 10/10, grace period de lobby 18/18),
+matchmaking 33/33, salas 5/5. Sin excepciones no atrapadas en el servidor
+en ninguna corrida. Android/Capacitor queda explícitamente pendiente (sin
+`adb`/emulador disponible en este entorno) — no se dio por validado
+WebView solo por navegador. Detalle completo en `docs/ai/FROM-CLAUDE.md`.
+
 ## [1.2.5] - 2026-08-20 — Matchmaking: bug crítico de sorteo/reparto + composición correcta
 
 **Auditoría primero** (pedido explícito: no duplicar lo que ya existía).
