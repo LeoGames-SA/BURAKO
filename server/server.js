@@ -2127,21 +2127,24 @@ wss.on("connection", (ws) => {
         return send(ws, { type: "error", msg: "No se pudo reconectar a esa sala." });
       }
       // [Fase 5 — bug crítico real, solo visible con latencia de red real
-      // (Render), nunca en local] Este guard existe para rechazar un
-      // secuestro real de sesión desde OTRA pestaña/dispositivo mientras la
-      // primera sigue activa. El problema: cuando la MISMA sesión reconecta
-      // (cierra el socket viejo y abre uno nuevo), el evento "close" del
-      // socket viejo tarda un viaje de red real en llegar al servidor —
-      // mientras tanto, `existing.ws` todavía apunta al socket viejo con
-      // `existing.connected` sin actualizar. Si el rejoin del socket NUEVO
-      // llega primero (algo que con latencia real pasa seguido, aunque en
-      // local con round-trips de <1ms el guard nunca alcanzaba a fallar),
-      // se rechazaba una reconexión legítima como si fuera un secuestro.
-      // `readyState===1` es la señal real de "¿el otro socket sigue vivo de
-      // verdad?" — si ya está cerrando/cerrado, no es una sesión rival, es
-      // la propia sesión reconectando.
-      if (existing.connected && existing.ws && existing.ws !== ws && existing.ws.readyState === 1) {
-        return send(ws, { type: "error", msg: "Esa sala ya está conectada desde otra pestaña/dispositivo." });
+      // (Render), nunca en local] Antes, este guard RECHAZABA el rejoin
+      // nuevo si `existing.ws` apuntaba a otro socket — pero cuando la
+      // MISMA sesión reconecta (cierra el viejo, abre uno nuevo), el aviso
+      // de cierre del socket viejo tarda un viaje de red real en llegar al
+      // servidor. Ni `existing.connected` ni `existing.ws.readyState` sirven
+      // como señal confiable de "¿el otro lado sigue vivo de verdad?" —
+      // ambos reflejan lo que el SERVIDOR sabe hasta ahora, no lo que
+      // realmente pasa del otro lado; un intento de arreglarlo chequeando
+      // `readyState===1` seguía fallando igual contra Render real, porque el
+      // frame de cierre en sí viaja con la misma latencia que cualquier
+      // mensaje. La identidad ya está confirmada arriba (playerId + mismo
+      // username autenticado) — no hace falta adivinar si el otro socket
+      // sigue vivo: el rejoin más reciente SIEMPRE gana la butaca, y si
+      // había otro socket real y genuinamente activo (dos pestañas/
+      // dispositivos de verdad), se lo avisa y se lo cierra en vez de
+      // rechazar al que se está reconectando de buena fe.
+      if (existing.ws && existing.ws !== ws) {
+        try { send(existing.ws, { type: "error", msg: "Te conectaste a esta sala desde otra pestaña/dispositivo." }); existing.ws.close(); } catch (e) {}
       }
       if (existing._forfeitGraceTimer) { clearTimeout(existing._forfeitGraceTimer); existing._forfeitGraceTimer = null; }
       if (existing._lobbyGraceTimer) { clearTimeout(existing._lobbyGraceTimer); existing._lobbyGraceTimer = null; }
@@ -2586,6 +2589,13 @@ wss.on("connection", (ws) => {
   ws.on("close", () => {
     removeFromMatchQueues(ws); // si estaba esperando en una cola de matchmaking (nunca llegó a tener room/player), sale sin quedar "fantasma" emparejable
     if (!room || !player) return;
+    // [Fase 5] Si ya hubo un rejoin más nuevo para este jugador, `player.ws`
+    // (mismo objeto compartido) ya no es ESTE socket — este close es el
+    // aviso, atrasado por la red, de una conexión que el jugador ya
+    // abandonó. Seguir de largo pisaría `connected`/armaría un grace timer
+    // sobre una sesión que ya está perfectamente reconectada; no corresponde
+    // hacer nada acá.
+    if (player.ws !== ws) return;
     const closedPlayer = player, closedRoom = room;
     closedPlayer.connected = false;
     if (!closedRoom.started) {
