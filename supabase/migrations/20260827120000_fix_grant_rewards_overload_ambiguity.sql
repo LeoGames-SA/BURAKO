@@ -1,0 +1,17 @@
+-- FIX CRÍTICO — la migración anterior (20260826180000) usó
+-- "create or replace function grant_rewards(...)" agregando un 5to
+-- parámetro (p_acknowledged). Postgres NO reemplaza una función cuando
+-- cambia la firma de parámetros — crea una SEGUNDA función sobrecargada,
+-- dejando DOS grant_rewards (una de 4 parámetros, otra de 5 con default).
+-- Resultado real en producción: CUALQUIER llamada que no pase
+-- p_acknowledged explícito (match, achievement, pass, ranked, Ruleta
+-- diaria — absolutamente todo excepto los grants de Torre, que sí lo
+-- pasan) rompía con "Could not choose the best candidate function" —
+-- PostgREST no puede decidir entre las dos firmas candidatas cuando el
+-- 5to parámetro tiene default. Confirmado en vivo: la Ruleta diaria dejó
+-- de poder reclamarse desde que se aplicó la migración anterior.
+--
+-- Fix: borrar explícitamente la función vieja de 4 parámetros — queda
+-- una sola función grant_rewards (la de 5, con default), sin ambigüedad
+-- posible para ningún llamador.
+drop function if exists public.grant_rewards(uuid, text, text, jsonb);
