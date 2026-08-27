@@ -2,6 +2,30 @@
 
 Todos los cambios notables del proyecto se documentan en este archivo.
 
+## [1.2.10] - 2026-08-27 — Fix: tarjeta de Ruleta diaria quedaba pegada en "ya reclamada"
+
+Bug real reportado por el usuario ("no puedo reclamar la ruleta de día 2"),
+confirmado contra Supabase real: el servidor ya tenía el día 2 disponible
+para girar (`dailyStatus` devolvía `claimedToday:false, streakDay:2`) — el
+problema era 100% del cliente.
+
+**Causa raíz**: `goMenu()` (agregado en el rediseño del menú, v1.2.8) pedía
+`dailyStatus`/`towerStatus` UNA sola vez por sesión de página "para
+siempre", para no saturar al servidor en visitas seguidas al menú. Si
+alguien dejaba la pestaña abierta de un día para el otro (algo normal), la
+tarjeta de Ruleta quedaba mostrando "✔ Ya la giraste hoy" con el dato de
+AYER, sin volver a pedirlo nunca más — aunque el servidor ya tuviera el
+día nuevo listo. Agravante: el botón de esa tarjeta usaba el atributo
+nativo `disabled`, que en algunos navegadores no deja pasar el click hacia
+el contenedor — quien tocaba esa tarjeta ni siquiera llegaba a la pantalla
+real de Ruleta (que sí pedía el estado fresco siempre).
+
+**Fix**: `goMenu()` ahora refresca esos dos status si pasaron 5+ minutos
+desde el último pedido (en vez de nunca más); y el botón "ya reclamada" del
+menú ya no usa `disabled` nativo — siempre lleva a la pantalla real de
+Ruleta al tocarlo, que confirma el estado correcto del día sin importar lo
+que mostrara el menú. Regresión de sesión/reconexión sin romperse (34/34).
+
 ## [1.2.9] - 2026-08-26 — Torre semanal: premios pendientes + progresión rediseñada
 
 Pedido explícito: los premios de Torre nunca deben poder perderse, y la

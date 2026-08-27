@@ -2,7 +2,7 @@
    BURAKO — app completa: menú, tutorial, sonidos, IA con delay
    ================================================================ */
 
-const GAME_VERSION = "1.2.9";
+const GAME_VERSION = "1.2.10";
 const MAX_PLAYERS_ONLINE = 8; // el server acepta hasta 8 en sala (mazo doble si se supera 4)
 const QUICK_CHAT_COOLDOWN_MS = 15000;
 const QUICK_CHAT_OPTIONS = [
@@ -18,6 +18,9 @@ const TEAM_CHAT_OPTIONS = [
   {send:"👍 Dale", show:"👍"}, {send:"🚫 No tengo", show:"🚫"}, {send:"⏳ Esperá", show:"⏳"},
 ];
 const CHANGELOG = [
+  {version:"1.2.10", date:"27/08/2026", items:[
+    "🎰 Arreglado: si dejabas la app abierta de un día para el otro, la tarjeta de Ruleta diaria en el menú podía quedarse mostrando \"ya la giraste hoy\" con el dato de ayer, sin dejarte entrar a girar la de hoy. Ya se refresca sola y, aunque llegara a pasar, ahora tocarla siempre te lleva a la Ruleta real (con el estado correcto del día).",
+  ]},
   {version:"1.2.9", date:"26/08/2026", items:[
     "🏰🎁 Torre semanal: ningún premio se pierde más. Si ganás un piso y salís sin abrir el regalo, queda pendiente — un piso pendiente se ve con un ícono de regalo brillante en el mapa, y podés abrirlo cuando quieras (o reclamar todos de una desde la Torre). También rediseñamos la progresión de premios de los 10 pisos: ahora escala de verdad (más monedas y XP cuanto más arriba llegás), con 2 efectos visuales exclusivos de Torre (pisos 9 y 10) y un premio extra grande por completar los 10 pisos en la semana.",
   ]},
@@ -1465,16 +1468,24 @@ function goMenu(){
   G.surrenderedOnline=false; G.iSurrendered=false; G.rankUpdate=null;
   G.rankedOffline=false; G.rankedOfflineResult=null; G.rankedOfflineOpponent=null;
   G.screen="menu"; render();
-  // [v1.3.3 — rediseño de menú] Las tarjetas grandes de Ruleta/Torre en el
-  // menú necesitan el mismo status real que ya se pedía recién al ENTRAR a
-  // esas pantallas (dailyStatus/towerStatus) — acá se pide una sola vez
-  // por sesión de página (no en cada visita al menú, que es muy frecuente)
-  // así la tarjeta nunca muestra un dato viejo/inventado ni satura al
-  // servidor. Silencioso a propósito: si no hay conexión todavía, la
-  // tarjeta simplemente queda en su estado "cargando" hasta que se pueda.
+  // [v1.3.3 — rediseño de menú, bug real corregido en v1.3.5] Las tarjetas
+  // grandes de Ruleta/Torre en el menú necesitan el mismo status real que ya
+  // se pedía recién al ENTRAR a esas pantallas (dailyStatus/towerStatus).
+  // La primera versión de esto lo pedía UNA sola vez por sesión de página
+  // "para siempre" — pero si alguien dejaba la pestaña abierta de un día
+  // para el otro (algo muy normal), la tarjeta de Ruleta se quedaba
+  // mostrando "ya la giraste hoy" con el dato de AYER, sin refrescarse
+  // nunca más, aunque el servidor ya tuviera el día nuevo listo para girar
+  // (reportado en vivo: "no puedo reclamar la ruleta de día 2" con el
+  // servidor confirmando que sí estaba disponible). Ahora se refresca cada
+  // vez que pasaron 5+ minutos desde el último pedido — sigue sin saturar
+  // al servidor en visitas seguidas al menú, pero nunca queda pegado en el
+  // dato de un día que ya terminó.
+  const MENU_STATUS_REFRESH_MS=5*60*1000;
   if(Session.isAuthenticated()&&NET.ws&&NET.ws.readyState===1){
-    if(!G._menuDailyRequested){ G._menuDailyRequested=true; netSend({type:"dailyStatus"}); }
-    if(!G._menuTowerRequested){ G._menuTowerRequested=true; netSend({type:"towerStatus"}); }
+    const now=Date.now();
+    if(!G._menuDailyRequestedAt||now-G._menuDailyRequestedAt>MENU_STATUS_REFRESH_MS){ G._menuDailyRequestedAt=now; netSend({type:"dailyStatus"}); }
+    if(!G._menuTowerRequestedAt||now-G._menuTowerRequestedAt>MENU_STATUS_REFRESH_MS){ G._menuTowerRequestedAt=now; netSend({type:"towerStatus"}); }
   }
 }
 function goHelp(){ G.screen="help"; render(); }
@@ -4517,8 +4528,8 @@ function menuRuletaHeroHTML(){
     <div class="menu-hero-mini-wheel" aria-hidden="true">
       <span class="menu-hero-mini-wheel-hub">🪙</span>
     </div>
-    ${!loaded?`<button class="menu-hero-cta menu-hero-cta-gold" disabled>Cargando…</button>`
-      :claimedToday?`<button class="menu-hero-cta menu-hero-cta-gold" disabled>✔ Ya la giraste hoy</button>
+    ${!loaded?`<button class="menu-hero-cta menu-hero-cta-gold menu-hero-cta-inert" onclick="event.stopPropagation()">Cargando…</button>`
+      :claimedToday?`<button class="menu-hero-cta menu-hero-cta-gold menu-hero-cta-inert" onclick="event.stopPropagation();goDailyRoulette()">✔ Ya la giraste hoy</button>
         <div class="menu-hero-sub" style="margin-top:6px">Se reinicia ${fmtHoursMin(G.dailyMsUntilNext)}</div>`
       :`<button class="menu-hero-cta menu-hero-cta-gold">Girar ahora</button>
         <div class="menu-hero-sub" style="margin-top:6px">Racha: día ${G.dailyStreakDay} de 7</div>`}

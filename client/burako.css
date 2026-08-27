@@ -1639,7 +1639,7 @@ body.ingame{background:
   transition:transform var(--motion-fast) var(--motion-ease);
 }
 .menu-hero-cta:active{transform:scale(.97)}
-.menu-hero-cta[disabled]{opacity:.5;cursor:default}
+.menu-hero-cta[disabled],.menu-hero-cta-inert{opacity:.5;cursor:default}
 .menu-hero-cta-gold{color:#1a1200;background:var(--btn-gold-grad);box-shadow:var(--btn-gold-shadow)}
 .menu-hero-cta-violet{color:#fff;background:linear-gradient(180deg,#a855f7,#6d28d9);box-shadow:0 4px 0 #4c1d95}
 .menu-hero-mini-wheel{
