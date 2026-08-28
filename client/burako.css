@@ -856,12 +856,18 @@ input[type="range"]:disabled{opacity:.35;cursor:default}
   border:1px solid rgba(251,191,36,.4);color:var(--gold-text);font-weight:700;font-size:13px;
 }
 @media(prefers-reduced-motion:reduce){.tower-floor-current .tower-floor-node,.tower-crown-deco span,.tower-path,.tower-floor-prize-mystery,.tower-floor-pending .tower-floor-node,.tower-floor-pending-hint{animation:none;opacity:.85}}
-/* Badge de recompensas pendientes en la tarjeta del menú (esquina superior). */
+/* Badge de recompensas pendientes en la tarjeta del menú (esquina superior)
+   — más grande y con un pequeño salto de entrada + rebote ocasional ("el
+   regalo que salta"), a pedido del usuario. */
 .menu-hero-badge{
   position:absolute;top:14px;right:14px;background:linear-gradient(180deg,#fde68a,var(--gold-dark));
-  color:#1a1200;font-size:11px;font-weight:800;padding:4px 9px;border-radius:999px;
-  box-shadow:0 0 12px rgba(251,191,36,.5);
+  color:#1a1200;font-size:14px;font-weight:800;padding:7px 12px;border-radius:999px;
+  box-shadow:0 0 14px rgba(251,191,36,.6),0 3px 8px rgba(0,0,0,.35);
+  animation:menuHeroBadgeIn .45s cubic-bezier(.34,1.56,.64,1) both,menuHeroBadgeBounce 2.6s ease-in-out 1.2s infinite;
 }
+@keyframes menuHeroBadgeIn{0%{transform:scale(0)}70%{transform:scale(1.15)}100%{transform:scale(1)}}
+@keyframes menuHeroBadgeBounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+@media(prefers-reduced-motion:reduce){.menu-hero-badge{animation:none}}
 
 /* ---------- Botones de modo (menú Multijugador): pill + chip de ícono ---------- */
 .mode-btn{
@@ -1680,11 +1686,22 @@ body.ingame{background:
   /* flex-start (no center): que el logo BURAKO arranque a la misma altura que
      el borde de arriba del Pase de temporada, en vez de quedar centrado en
      todo el alto de la fila (que con Ruleta+Torre estirando la fila termina
-     mucho más abajo que las otras dos tarjetas). Se probó subirlo con
-     margin-top negativo (varias rondas) pero el usuario pidió volver atrás:
-     lo quiere como estaba antes, a la misma altura que Pase/Ruleta/Torre. */
-  .menu-main{order:2;display:flex;flex-direction:column;justify-content:flex-start}
+     mucho más abajo que las otras dos tarjetas). */
+  /* margin-top negativo: el bloque central (logo+botones) queda un poco más
+     arriba que Pase/Ruleta/Torre a propósito (a pedido del usuario) — antes
+     arrancaba a la misma altura que las tarjetas laterales por el
+     justify-content:flex-start compartido, y quedaba el título "clavado"
+     muy abajo con poco aire arriba. */
+  .menu-main{order:2;display:flex;flex-direction:column;justify-content:flex-start;margin-top:-70px}
   .menu-side-right{order:3}
+}
+/* En viewports con más alto real (1080p/1440p, no laptops de 768px de alto)
+   el título puede subir todavía más sin arriesgarse a pisar el header —
+   coordenadas exactas confirmadas por el usuario con el editor de layout
+   interactivo (ver conversación): centro casi perfectamente centrado en X,
+   y bastante más arriba que Pase/Ruleta/Torre en Y. */
+@media(min-width:920px) and (min-height:850px){
+  .menu-main{margin-top:-104px}
 }
 /* Tarjeta "hero" compartida por Pase/Ruleta/Torre — panel translúcido con
    borde dorado/violeta según la familia (ver modificadores .menu-hero-pass/
@@ -1868,7 +1885,7 @@ body.ingame{background:
   pointer-events:none;
 }
 .tower-hero-tower-img{
-  position:absolute;left:0;bottom:6%;z-index:1;width:41%;height:auto;
+  position:absolute;left:0;bottom:2%;z-index:1;width:41%;height:auto;
   object-fit:contain;pointer-events:none;user-select:none;
   filter:drop-shadow(0 0 12px rgba(151,54,255,.35)) drop-shadow(0 14px 16px rgba(0,0,0,.5)) brightness(.94);
   animation:towerHeroFloat 5s ease-in-out infinite;
@@ -1939,7 +1956,7 @@ body.ingame{background:
   max-width:68px;line-height:1.25;
 }
 .tower-enter-button{
-  display:block;flex:1.6;min-width:0;padding:0;border:0;
+  display:block;flex:2;min-width:0;padding:0;border:0;
   background:transparent;cursor:pointer;position:relative;z-index:4;
   transition:transform .18s ease,filter .18s ease;
 }
@@ -1990,7 +2007,7 @@ body.ingame{background:
   width:82%;height:auto;z-index:5;pointer-events:none;user-select:none;
   filter:drop-shadow(0 4px 10px rgba(0,0,0,.5));
 }
-.menu-hero-pass .menu-hero-badge{z-index:6;top:8px;right:8px}
+.menu-hero-pass .menu-hero-badge{z-index:6;top:92px;right:14px}
 /* display:flex + margin-top:auto en el botón (más abajo): cuando la
    tarjeta crece para igualar el alto de Ruleta+Torre (ver align-items en
    .menu-layout), el espacio de más se vuelve aire antes del botón en vez
@@ -2056,6 +2073,9 @@ body.ingame{background:
 @media(max-width:400px){
   .fan{transform:scale(.82);transform-origin:top center;margin-bottom:-22px}
 }
+@media(min-width:920px){
+  .fan{margin-top:0}
+}
 /* Escritorios grandes (≥1500px): .fan tiene la geometría de cada ficha
    resuelta en JS con translateX en px fijos (ver fanLogoHTML()), así que
    agrandar el conjunto sin tocar esa lógica es un transform:scale() sobre
@@ -2084,6 +2104,13 @@ body.ingame{background:
     linear-gradient(165deg, var(--ivory1) 0%, var(--ivory2) 45%, var(--ivory3) 100%);
   transform:var(--final-t);
   animation:fanIn .8s var(--motion-ease) backwards}
+/* Ver _fanAnimatedOnce en fanLogoHTML() — apaga el "vuelo" de entrada en los
+   re-renders posteriores al primer pintado (portada→conectando→login son 3
+   render() con innerHTML de cero cada uno, si no el logo se ve volar a su
+   lugar 2-3 veces seguidas al arrancar la app). El transform final queda
+   igual (es una propiedad aparte de la animation), así que las fichas
+   simplemente aparecen ya en su posición correcta, sin animación. */
+.fan-instant .tile{animation:none}
 @keyframes fanIn{
   0%{opacity:0;transform:translateX(-50%) translateY(50px) scale(.5) rotate(0deg)}
   55%{opacity:1}
@@ -2100,7 +2127,7 @@ body.ingame{background:
    el arte — encima van capas puramente visuales (.gmb-glow/.gmb-shine) y,
    en Novedades, el badge real (.notification-badge).
    ============================================================ */
-.game-menu-btns{display:flex;flex-direction:column;gap:14px;width:100%;align-items:center;margin-top:2px;perspective:800px}
+.game-menu-btns{display:flex;flex-direction:column;gap:14px;width:100%;align-items:center;margin-top:22px;perspective:800px}
 .game-menu-btn{
   position:relative;display:block;width:min(clamp(240px,19vw,370px),86vw);padding:0;border:0;
   background:transparent;cursor:pointer;flex-shrink:0;
@@ -2248,6 +2275,11 @@ body.ingame{background:
 .pcard-rank-pts{position:absolute;bottom:18%;left:50%;transform:translateX(-50%);font-size:3.2cqw;font-weight:800;
   color:#ffe9a8;text-shadow:0 1px 2px rgba(0,0,0,.9);white-space:nowrap}
 .elegant-sub{text-align:center;color:#8a7d5f;font-size:13px;font-style:italic;margin-bottom:8px}
+/* El subtítulo del menú ("El juego de Burako definitivo") pasa a dorado con
+   un brillo suave — a pedido del usuario, se veía muy apagado en gris.
+   Escopeado a .menu-main para no tocar el mismo subtítulo reusado en
+   onboarding/portada (esos siguen con el estilo original). */
+.menu-main .elegant-sub{color:var(--gold-text);text-shadow:0 0 10px rgba(251,191,36,.3),0 1px 2px rgba(0,0,0,.5)}
 
 /* ---------- TAPETES DE MESA ---------- */
 /* Luz ambiente que se mueve despacio sobre el fieltro — un solo mecanismo compartido,

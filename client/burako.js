@@ -2,7 +2,7 @@
    BURAKO — app completa: menú, tutorial, sonidos, IA con delay
    ================================================================ */
 
-const GAME_VERSION = "1.2.16";
+const GAME_VERSION = "1.2.17";
 const MAX_PLAYERS_ONLINE = 8; // el server acepta hasta 8 en sala (mazo doble si se supera 4)
 const QUICK_CHAT_COOLDOWN_MS = 15000;
 const QUICK_CHAT_OPTIONS = [
@@ -18,6 +18,11 @@ const TEAM_CHAT_OPTIONS = [
   {send:"👍 Dale", show:"👍"}, {send:"🚫 No tengo", show:"🚫"}, {send:"⏳ Esperá", show:"⏳"},
 ];
 const CHANGELOG = [
+  {version:"1.2.17", date:"28/08/2026", items:[
+    "🀄 Arreglado: al abrir la app, el logo BURAKO podía \"volar a su lugar\" dos veces seguidas (una al conectar, otra al llegar al login) — ahora esa animación de entrada se ve una sola vez.",
+    "🎨 El subtítulo \"El juego de Burako definitivo\" del menú pasa a dorado (antes gris apagado). El aviso de recompensa pendiente en Pase/Torre es más grande y salta un poco al aparecer.",
+    "🗼 En la tarjeta de Torre semanal, el botón \"Ir a la Torre\" pasó a la izquierda (y es más grande) y el cofre de recompensa a la derecha; la torre bajó un poco para calzar mejor con el borde de la tarjeta.",
+  ]},
   {version:"1.2.16", date:"28/08/2026", items:[
     "🏠 Reacomodado el menú: el título BURAKO y los botones quedan un poco más arriba que Pase/Ruleta/Torre y perfectamente centrados en la pantalla (antes se corrían un poco hacia la izquierda). La tarjeta de Pase de temporada también tiene el escudo de nivel y el cofre de recompensa más grandes, usando todo el alto de la tarjeta en vez de dejar un hueco vacío abajo.",
   ]},
@@ -4508,7 +4513,20 @@ function startTeam2v2(){
    sutil de "mano de cartas" en vez del único mecanismo de separación — con esto
    las 6 quedan siempre completamente legibles. Compartido entre portada (intro)
    y menú principal para que el logo sea reconocible antes de leer nada más. */
+// Bug real reportado: al arrancar la app, el logo BURAKO "volaba a su lugar"
+// dos veces (portada → conectando → login son 3 render() distintos, cada
+// uno con innerHTML= de cero, así que el .fan viejo se destruye y el nuevo
+// siempre trae la animación fanIn desde 0% — Flip (ver withLogoFlip) anima
+// la POSICIÓN del contenedor entre pantallas, pero no evita que cada ficha
+// vuelva a jugar su propio fanIn por separado). Con este flag, la entrada
+// "de verdad" (fade+scale+vuelo) solo se ve la primera vez que se pinta el
+// logo en toda la sesión de la pestaña — de ahí en más, .fan-instant apaga
+// esa animación por CSS y las fichas aparecen directo en su posición final
+// (Flip se sigue encargando de que el movimiento entre pantallas sea suave).
+let _fanAnimatedOnce=false;
 function fanLogoHTML(){
+  const skipEntrance=_fanAnimatedOnce;
+  _fanAnimatedOnce=true;
   const word=[["B",""],["U",""],["R",""],["A",""],["K",""],["O",""]];
   const cols=["rojo","azul","verde","amarillo","rojo","azul"];
   const n=word.length;
@@ -4539,7 +4557,7 @@ function fanLogoHTML(){
   // entre un render y el siguiente — el DOM viejo se destruye entero
   // (innerHTML) y se crea uno nuevo, así que sin este id Flip no tendría cómo
   // saber que el .fan de portada y el de login son "el mismo elemento".
-  return `<div class="fan" data-flip-id="logo-fan">${fan}</div>`;
+  return `<div class="fan${skipEntrance?" fan-instant":""}" data-flip-id="logo-fan">${fan}</div>`;
 }
 // Continuidad portada→login→registro (Fase 11 §2, pedido dos veces): antes
 // cada pantalla se reconstruía de cero y el logo "desaparecía y aparecía"
@@ -4726,10 +4744,10 @@ function menuTowerHeroHTML(){
       <div class="tower-hero-bottom-row">
         ${loaded&&prizeLabel?towerHeroRewardLabelHTML():""}
         <div class="tower-hero-bottom-inner">
-          ${loaded?towerHeroChestMiniHTML(prizeLabel):""}
           <button class="tower-enter-button" onclick="event.stopPropagation();goTower()" aria-label="Ir a la Torre">
             <img src="./img/tower/boton-ir-a-la-torre.png" alt="Ir a la Torre">
           </button>
+          ${loaded?towerHeroChestMiniHTML(prizeLabel):""}
         </div>
       </div>
     </div>
