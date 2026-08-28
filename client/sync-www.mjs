@@ -16,7 +16,7 @@ copyFileSync(path.join(ROOT, "burako.html"), path.join(WWW, "index.html"));
 for (const f of ["burako.css", "burako.js", "burako-core.js", "manifest.webmanifest", "sw.js"]) {
   copyFileSync(path.join(ROOT, f), path.join(WWW, f));
 }
-for (const d of ["fonts", "audio", "vendor", "icons"]) {
+for (const d of ["fonts", "audio", "vendor", "icons", "img"]) {
   cpSync(path.join(ROOT, d), path.join(WWW, d), { recursive: true });
 }
 

@@ -384,7 +384,20 @@ body.galactico-mode .ptitle{color:rgba(216,180,254,.85)}
 @media (prefers-reduced-motion:reduce){.a-deal,.a-flip,.a-pop,.a-glow,.a-slidein,.a-blink{animation:none}}
 
 /* ---------- MENU ---------- */
-.screen-center{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:20px;overflow-y:auto}
+.screen-center{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:safe center;gap:18px;padding:20px;overflow-y:auto}
+/* En el menú, en viewports bajos (1366x768 etc.) el centrado vertical dejaba
+   tan poco margen arriba que el Pase de temporada (primera columna en
+   desktop) y su banner terminaban metiéndose debajo de .elegant-hud (el
+   header es mayormente transparente fuera de sus propias tarjetas, así que
+   "debajo" en z-index igual se veía — el nombre se asomaba al lado del
+   escudo). Reservar el alto real del header como padding-top hace que el
+   centrado pase a calcularse en el espacio que sobra DEBAJO de él, nunca
+   invadiéndolo — .elegant-hud mide ~115px en todo el rango desktop (el
+   ancho del player-card ya toca su techo de clamp desde ~800px de viewport,
+   así que su alto es prácticamente constante ahí). */
+@media(min-width:920px){
+  .screen-center{padding-top:140px}
+}
 .card{background:rgba(20,14,4,.55);backdrop-filter:blur(6px);border:1px solid rgba(184,150,63,.35);border-radius:18px;padding:26px;max-width:400px;width:100%;position:relative;
   box-shadow:0 10px 40px rgba(0,0,0,.5),inset 0 1px 0 rgba(232,197,90,.08),0 0 26px rgba(184,150,63,.08)}
 .card h2{color:#ffe9a8;text-shadow:0 0 10px rgba(232,197,90,.2)}
@@ -625,76 +638,105 @@ input[type="range"]:disabled{opacity:.35;cursor:default}
   animation:dailyPipPulse 1.8s ease-in-out infinite;
 }
 @keyframes dailyPipPulse{0%,100%{box-shadow:0 0 8px rgba(251,191,36,.4)}50%{box-shadow:0 0 16px rgba(251,191,36,.8)}}
-/* Rueda de 5 segmentos (v1.3) — el ángulo final SIEMPRE lo calcula
-   spinDailyWheelTo()/dailyWheelRestAngle() a partir del premio que confirmó
-   el servidor (ver burako.js), nunca al azar del cliente. v1.3.1 agregó el
-   aro metálico/marcas/halo/puntero-gema/brillo del centro como capas
-   puramente decorativas ALREDEDOR de .daily-wheel-circle, sin tocar su
-   tamaño (150x150) ni la fórmula de rotate()/translateY() de las etiquetas
-   — esa geometría ya se verificó a mano contra navegador real (texto
-   legible en las 5 posiciones) y no había que arriesgarla por estética. */
-.daily-wheel-zone{position:relative;width:190px;height:190px;margin:2px auto 6px}
-.daily-wheel-halo{
-  position:absolute;inset:-14px;border-radius:50%;pointer-events:none;
-  background:radial-gradient(circle,rgba(251,191,36,.28),transparent 70%);
-  animation:dailyHaloPulse 3s ease-in-out infinite;filter:blur(2px);
+/* [rediseño con assets — client/img/ruleta/] La rueda vieja de 5 gajos en
+   CSS puro (conic-gradient) se reemplaza por la imagen real (8 gajos, con
+   la B de Burako al centro) girando de verdad vía transform:rotate() —
+   ver spinDailyWheelTo()/dailyWheelRestAngle() en burako.js, que siguen
+   siendo las únicas dueñas del ángulo (el premio real lo decide y confirma
+   el servidor, esto solo lo dibuja). .rt-card-daily ensancha SOLO esta
+   pantalla (Torre comparte .rt-card y no se toca su ancho). */
+.rt-card-daily{width:min(720px,94vw)}
+.rt-body-daily{padding:14px;align-items:stretch}
+.daily-wheel-panel{
+  position:relative;border-radius:16px;overflow:hidden;min-height:290px;
+  border:2px solid rgba(255,224,153,.4);
+  box-shadow:0 10px 30px rgba(0,0,0,.5),0 0 26px rgba(251,191,36,.10);
+  background:#0a1330;
 }
-@keyframes dailyHaloPulse{0%,100%{opacity:.55;transform:scale(1)}50%{opacity:1;transform:scale(1.06)}}
-.daily-wheel-pointer{
-  position:absolute;top:-4px;left:50%;transform:translateX(-50%);z-index:4;
-  width:18px;height:21px;pointer-events:none;
+.daily-wheel-bg{position:absolute;inset:0;z-index:0;width:100%;height:100%;object-fit:cover;pointer-events:none;user-select:none}
+.daily-wheel-overlay{position:absolute;inset:0;z-index:1;pointer-events:none;background:linear-gradient(100deg,rgba(4,9,26,.4) 0%,rgba(4,9,26,.08) 55%,rgba(4,9,26,.28) 100%)}
+.daily-wheel-banner{position:absolute;top:-10px;left:18px;width:46%;max-width:230px;min-width:150px;height:auto;z-index:5;pointer-events:none;user-select:none;filter:drop-shadow(0 4px 10px rgba(0,0,0,.5))}
+.daily-wheel-content{position:relative;z-index:2;display:flex;align-items:center;gap:18px;padding:58px 22px 14px}
+.daily-wheel-left{flex:1;min-width:0;text-align:left}
+.daily-wheel-heading{font-family:var(--font-heading);color:#fff;font-size:19px;font-weight:700;text-shadow:0 2px 8px rgba(0,0,0,.6)}
+.daily-wheel-tagline{font-size:11.5px;color:rgba(232,238,247,.6);margin:4px 0 12px;max-width:230px;line-height:1.4}
+.daily-wheel-left .daily-pips{justify-content:flex-start;margin:0 0 16px}
+.daily-wheel-coins-wrap{display:inline-block;cursor:pointer;transition:transform .15s ease}
+.daily-wheel-coins-wrap:hover{transform:translateY(-2px) scale(1.03)}
+.daily-wheel-coins-wrap:active{transform:scale(.95)}
+.daily-wheel-coins{
+  display:block;width:112px;height:auto;object-fit:contain;
+  filter:drop-shadow(0 8px 16px rgba(0,0,0,.4)) drop-shadow(0 0 14px rgba(251,191,36,.16));
+  animation:dailyCoinsFloat 5s ease-in-out infinite;
+}
+@keyframes dailyCoinsFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+.daily-wheel-coins-poke{animation:dailyCoinsPoke .42s ease}
+@keyframes dailyCoinsPoke{0%{transform:scale(1)}30%{transform:scale(.94)}65%{transform:scale(1.07)}100%{transform:scale(1)}}
+.daily-wheel-right{flex-shrink:0;width:42%;max-width:210px;display:flex;justify-content:center}
+.daily-wheel-parallax{position:relative;width:100%;aspect-ratio:1}
+.daily-wheel-hoverwrap{position:relative;width:100%;height:100%;transition:transform .18s ease,filter .18s ease}
+.daily-wheel-hoverwrap:hover{transform:scale(1.015);filter:brightness(1.05) drop-shadow(0 0 14px rgba(255,194,41,.35))}
+.daily-wheel-nohover,.daily-wheel-nohover:hover{transform:none;filter:none;pointer-events:none}
+/* Indicador FIJO — separado de la imagen a propósito para que nunca gire
+   con la rueda (la B del centro y el diamante de arriba son parte del PNG
+   y sí giran; este triángulo de acá es puramente CSS). */
+.daily-wheel-pointer-fixed{
+  position:absolute;top:-7px;left:50%;transform:translateX(-50%);z-index:3;
+  width:20px;height:23px;pointer-events:none;
   background:linear-gradient(155deg,#fde68a,var(--gold-dark));
-  clip-path:polygon(50% 100%, 0 25%, 20% 0, 80% 0, 100% 25%);
+  clip-path:polygon(50% 100%, 0 20%, 20% 0, 80% 0, 100% 20%);
   filter:drop-shadow(0 3px 6px rgba(0,0,0,.55)) drop-shadow(0 0 8px rgba(251,191,36,.6));
-  animation:dailyPointerGlow 1.6s ease-in-out infinite;
+  transition:transform .1s ease;
 }
-@keyframes dailyPointerGlow{0%,100%{filter:drop-shadow(0 3px 6px rgba(0,0,0,.55)) drop-shadow(0 0 6px rgba(251,191,36,.45))}50%{filter:drop-shadow(0 3px 6px rgba(0,0,0,.55)) drop-shadow(0 0 13px rgba(251,191,36,.85))}}
-.daily-wheel-ring{
-  position:absolute;inset:6px;border-radius:50%;z-index:1;pointer-events:none;
-  background:conic-gradient(from 0deg,#fde68a,var(--gold-dark),#fde68a,var(--gold-dark),#fde68a,var(--gold-dark),#fde68a,var(--gold-dark),#fde68a);
-  box-shadow:0 14px 40px rgba(0,0,0,.55);
+.daily-wheel-pointer-hit{animation:dailyPointerHit .13s ease}
+@keyframes dailyPointerHit{0%{transform:translateX(-50%) rotate(0deg)}45%{transform:translateX(-50%) rotate(-9deg)}100%{transform:translateX(-50%) rotate(0deg)}}
+.daily-wheel-image{
+  position:relative;z-index:2;display:block;width:100%;height:100%;object-fit:contain;
+  pointer-events:none;user-select:none;filter:drop-shadow(0 10px 20px rgba(0,0,0,.5));
+  transform-origin:50% 50%;
 }
-.daily-wheel-ticks{
-  position:absolute;inset:12px;border-radius:50%;z-index:1;pointer-events:none;
-  background:repeating-conic-gradient(rgba(255,255,255,.55) 0 1.4deg,transparent 1.4deg 15deg);
+/* Vida en reposo MUY sutil — solo en idle/bloqueada. Durante el giro/resultado
+   la rotación la maneja JS a mano (GSAP/inline style); si esta animación de
+   CSS siguiera activa ahí, competiría por la misma propiedad transform y el
+   giro real se vería a los tumbos. */
+.daily-wheel-image-idle{animation:dailyWheelIdle 6s ease-in-out infinite}
+@keyframes dailyWheelIdle{0%,100%{transform:rotate(-.6deg) scale(1)}50%{transform:rotate(.6deg) scale(1.004)}}
+.daily-wheel-winglow{
+  position:absolute;inset:-10%;z-index:1;border-radius:50%;pointer-events:none;
+  background:radial-gradient(circle,rgba(255,214,102,.55),transparent 70%);
+  opacity:0;
 }
-.daily-wheel-wrap{position:absolute;inset:20px;width:150px;height:150px}
-.daily-wheel-circle{
-  position:relative;width:100%;height:100%;border-radius:50%;z-index:2;
-  box-shadow:inset 0 0 22px rgba(0,0,0,.4),inset 0 2px 5px rgba(255,255,255,.15);
+.daily-wheel-winglow-active{animation:dailyWinGlow .8s ease-out}
+@keyframes dailyWinGlow{0%{opacity:0;transform:scale(.7)}35%{opacity:1;transform:scale(1.12)}100%{opacity:0;transform:scale(1.3)}}
+.daily-wheel-bottom{position:relative;z-index:4;display:flex;flex-direction:column;align-items:center;gap:8px;padding:4px 20px 20px}
+.daily-wheel-spin-btn{
+  display:block;width:min(280px,80%);padding:0;border:0;background:transparent;cursor:pointer;
+  transition:transform .18s ease,filter .18s ease;
 }
-.daily-wheel-circle::after{
-  content:"";position:absolute;inset:0;border-radius:50%;pointer-events:none;
-  background:radial-gradient(circle at 32% 24%,rgba(255,255,255,.32),transparent 45%);
-  mix-blend-mode:overlay;
+.daily-wheel-spin-btn img{display:block;width:100%;height:auto;pointer-events:none;user-select:none}
+.daily-wheel-spin-btn:hover{transform:translateY(-2px) scale(1.025);filter:brightness(1.08) drop-shadow(0 0 12px rgba(255,194,41,.5))}
+.daily-wheel-spin-btn:active{transform:scale(.97)}
+.daily-wheel-spin-btn-off{filter:saturate(.5) brightness(.75);cursor:default;opacity:.75}
+.daily-wheel-spin-btn-off:hover{transform:none;filter:saturate(.5) brightness(.75)}
+.daily-wheel-status{font-family:var(--font-heading);font-size:12.5px;color:var(--gold-text);font-weight:700}
+.daily-wheel-countdown{font-size:11.5px;color:rgba(232,238,247,.6)}
+.daily-wheel-countdown-ghost{color:rgba(232,238,247,.4)}
+@media(max-width:620px){
+  .daily-wheel-content{flex-direction:column;text-align:center;padding:64px 18px 8px}
+  .daily-wheel-left{text-align:center}
+  .daily-wheel-tagline{max-width:none;margin-left:auto;margin-right:auto}
+  .daily-wheel-left .daily-pips{justify-content:center}
+  .daily-wheel-right{width:62%;max-width:230px;margin-top:6px}
+  .daily-wheel-banner{left:50%;transform:translateX(-50%)}
 }
-.daily-wheel-labels{position:absolute;inset:0;pointer-events:none}
-/* Posiciona (rotar + empujar hacia el borde) — ver el comentario en burako.js
-   sobre por qué está separado del span que corrige la orientación del texto. */
-.daily-wheel-label-pos{position:absolute;top:50%;left:50%;width:0;height:0}
-.daily-wheel-label{
-  position:absolute;top:0;left:0;width:0;height:0;
-  display:flex;align-items:center;justify-content:center;
-  font-family:var(--font-heading);font-size:12px;font-weight:800;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.75);
+@media(prefers-reduced-motion:reduce){
+  .daily-wheel-image-idle,.daily-wheel-coins,.daily-wheel-pointer-hit,.daily-wheel-winglow-active{animation:none}
+  .daily-wheel-hoverwrap:hover{transform:none;filter:none}
 }
-.daily-wheel-hub{
-  position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
-  width:34px;height:34px;border-radius:50%;background:var(--btn-gold-grad);
-  display:flex;align-items:center;justify-content:center;font-size:16px;overflow:hidden;
-  box-shadow:0 0 10px rgba(0,0,0,.45),0 0 16px rgba(251,191,36,.35);z-index:3;
-}
-.daily-wheel-hub::after{
-  content:"";position:absolute;top:-50%;left:-150%;width:60%;height:200%;
-  background:linear-gradient(90deg,transparent,rgba(255,255,255,.75),transparent);
-  transform:rotate(20deg);animation:dailyHubShine 2.6s ease-in-out infinite;
-}
-@keyframes dailyHubShine{0%{left:-150%}55%,100%{left:160%}}
-.daily-wheel-waiting{animation:dailyWheelPulse .8s ease-in-out infinite}
-@keyframes dailyWheelPulse{0%,100%{box-shadow:inset 0 0 22px rgba(0,0,0,.4)}50%{box-shadow:inset 0 0 22px rgba(0,0,0,.4),0 0 24px rgba(251,191,36,.65)}}
 /* Partículas de la explosión al confirmarse el premio (dailyRouletteBurst en
    burako.js) — puramente decorativas, se generan y se descartan en el DOM,
    nunca afectan el monto (eso ya está confirmado por el servidor). */
-#daily-burst-host{position:absolute;inset:0;pointer-events:none;z-index:5}
+#daily-burst-host{position:absolute;inset:0;pointer-events:none;z-index:6}
 .daily-burst-piece{position:absolute;top:50%;left:50%;width:7px;height:7px;border-radius:2px;pointer-events:none;opacity:0}
 @keyframes dailyBurstOut{
   0%{opacity:1;transform:translate(-50%,-50%) rotate(var(--r)) translateY(0) scale(1)}
@@ -712,7 +754,6 @@ input[type="range"]:disabled{opacity:.35;cursor:default}
   box-shadow:0 0 18px rgba(34,197,94,.12);
 }
 @media(prefers-reduced-motion:reduce){
-  .daily-wheel-halo,.daily-wheel-pointer,.daily-wheel-hub::after,.daily-wheel-waiting,
   .daily-pip-current,.daily-prize-amount{animation:none}
 }
 
@@ -1569,17 +1610,80 @@ body.ingame{background:
    son las mismas en las dos resoluciones — no hay una versión "compacta"
    aparte, se apilan y listo (así se ven igual de bien en las dos). */
 .menu-layout{display:grid;grid-template-columns:1fr;gap:18px;width:100%;max-width:420px;margin:0 auto}
+/* Fila de "próximamente" debajo del menú — mismo ancho que .menu-layout para
+   quedar alineada con las 3 columnas de arriba. Ninguno de los 3 abre nada
+   real (ver menuComingSoonRowHTML en burako.js): son 3 chips angostos con
+   ícono+texto+badge, no 3 botones grandes — a propósito, para no competir
+   visualmente con JUGAR/Pase/Ruleta/Torre que son el foco real de la
+   pantalla. */
+.menu-soon-row{
+  display:flex;gap:10px;width:100%;max-width:420px;margin:14px auto 0;flex-wrap:wrap;
+}
+.menu-soon-item{
+  display:flex;align-items:center;gap:10px;flex:1;min-width:150px;
+  padding:10px 12px;border-radius:12px;text-align:left;cursor:pointer;
+  background:rgba(0,0,0,.22);border:1px solid var(--panel-border);
+  transition:border-color var(--motion-fast) var(--motion-ease),transform var(--motion-fast) var(--motion-ease);
+}
+.menu-soon-item:hover{border-color:rgba(251,191,36,.4);transform:translateY(-1px)}
+.menu-soon-item:active{transform:scale(.98)}
+.menu-soon-icon{font-size:20px;flex-shrink:0;filter:sepia(1) saturate(4) hue-rotate(-10deg) brightness(.85)}
+.menu-soon-text{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1}
+.menu-soon-title{font-size:12px;font-weight:800;color:#e8eef7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.menu-soon-sub{font-size:10.5px;color:rgba(232,238,247,.5);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.menu-soon-badge{
+  flex-shrink:0;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;
+  padding:4px 8px;border-radius:999px;color:var(--gold-text);
+  background:rgba(251,191,36,.14);border:1px solid rgba(251,191,36,.35);
+}
+@media(min-width:920px){
+  .menu-soon-row{max-width:1560px;gap:clamp(14px,1vw,22px);margin-top:18px}
+  .menu-soon-item{padding:14px 18px}
+  .menu-soon-icon{font-size:24px}
+  .menu-soon-title{font-size:13.5px}
+  .menu-soon-sub{font-size:11.5px}
+}
+@media(max-width:620px){
+  .menu-soon-badge{display:none}
+  .menu-soon-item{min-width:0}
+}
 .menu-side{width:100%;min-width:0}
 .menu-side-left{order:3}
 .menu-main{order:1}
-.menu-side-right{order:2;display:flex;flex-direction:column;gap:18px}
+.menu-side-right{order:2;display:flex;flex-direction:column;gap:14px;justify-content:space-between}
 @media(min-width:920px){
   .menu-layout{
-    grid-template-columns:minmax(260px,340px) minmax(360px,480px) minmax(280px,380px);
-    align-items:center;gap:28px;max-width:1400px;
+    /* Fluido de verdad (clamp con vw), no un zoom global: cada columna crece
+       con el viewport hasta un techo propio, así 1920×1080 aprovecha la
+       pantalla (poco antes esto tenía un techo fijo — minmax(...,340/480/380)
+       — que dejaba el menú entero pegado a ~1256px sin importar qué tan
+       grande fuera el monitor, de ahí todo el aire muerto alrededor) y un
+       ultrawide/4K no se estira sin límite (el techo de cada clamp() actúa
+       de max-width real). En 1366px+ el mínimo de cada clamp ya cede lugar
+       antes de tocar el breakpoint mobile de 920px. */
+    /* [v1.3.6 — editor de layout interactivo, coordenadas dadas por el
+       usuario sobre una base 1920x1080] Pase y Ruleta/Torre pasan a tener el
+       MISMO techo (antes 425 vs 475 — asimétrico, así que el centro nunca
+       quedaba exactamente centrado en la pantalla aunque el grid en sí sí
+       lo estuviera) y el centro se angosta (600→520) — así los 3 bloques
+       quedan más juntos y el título/botones caen justo en el medio real del
+       viewport, no en el medio del hueco que dejan las columnas laterales. */
+    grid-template-columns:clamp(270px,22vw,423px) clamp(320px,27vw,520px) clamp(270px,22vw,423px);
+    /* stretch (no center): las 3 columnas pasan a ocupar el mismo alto de
+       fila (el de la más alta, hoy Ruleta+Torre) — así el Pase puede
+       estirarse para que su borde de arriba quede a la altura de Ruleta y
+       el de abajo a la altura de Torre, en vez de quedar centrado y
+       "flotando" con hueco arriba y abajo del lado de Ruleta/Torre. */
+    align-items:stretch;justify-content:center;gap:clamp(12px,.85vw,18px);max-width:1450px;
   }
   .menu-side-left{order:1}
-  .menu-main{order:2}
+  /* flex-start (no center): que el logo BURAKO arranque a la misma altura que
+     el borde de arriba del Pase de temporada, en vez de quedar centrado en
+     todo el alto de la fila (que con Ruleta+Torre estirando la fila termina
+     mucho más abajo que las otras dos tarjetas). Se probó subirlo con
+     margin-top negativo (varias rondas) pero el usuario pidió volver atrás:
+     lo quiere como estaba antes, a la misma altura que Pase/Ruleta/Torre. */
+  .menu-main{order:2;display:flex;flex-direction:column;justify-content:flex-start}
   .menu-side-right{order:3}
 }
 /* Tarjeta "hero" compartida por Pase/Ruleta/Torre — panel translúcido con
@@ -1611,6 +1715,11 @@ body.ingame{background:
 .menu-hero-pill-gold{background:rgba(251,191,36,.16);color:var(--gold-text);border:1px solid rgba(251,191,36,.4)}
 .menu-hero-title{font-family:var(--font-heading);color:#fff;font-size:19px;font-weight:700;margin-bottom:4px}
 .menu-hero-sub{font-size:11.5px;color:rgba(232,238,247,.55);line-height:1.5}
+@media(min-width:920px){
+  .menu-hero-card{padding:22px 22px 20px}
+  .menu-hero-title{font-size:21px}
+  .menu-hero-sub{font-size:12.5px}
+}
 .menu-hero-level-row{display:flex;align-items:center;gap:12px;margin:12px 0 10px}
 .menu-hero-level-badge{
   width:52px;height:52px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;
@@ -1620,18 +1729,25 @@ body.ingame{background:
 }
 .menu-hero-level-label{font-size:10px;color:rgba(232,238,247,.5);text-transform:uppercase;letter-spacing:.04em}
 .menu-hero-level-value{font-family:var(--font-heading);font-size:22px;font-weight:700;color:#fff}
-.menu-hero-bar{height:8px;border-radius:5px;background:rgba(0,0,0,.4);overflow:hidden}
-.menu-hero-bar-fill{height:100%;border-radius:5px}
+.menu-hero-bar{height:10px;border-radius:5px;background:rgba(0,0,0,.4);overflow:hidden}
+/* Nivel/recompensa del Pase más grandes — a pedido del usuario, para que el
+   bloque use todo el alto real de la tarjeta (ver justify-content:space-
+   between en .season-pass-content). Escopeado a .menu-hero-pass para no
+   tocar la barra de piso de Torre, que comparte .menu-hero-bar. */
+.menu-hero-pass .menu-hero-level-label{font-size:12px}
+.menu-hero-pass .menu-hero-level-value{font-size:30px}
+.menu-hero-pass .menu-hero-bar{height:13px}
+.menu-hero-bar-fill{height:100%;border-radius:5px;transition:width .6s var(--motion-ease)}
 .menu-hero-bar-gold{background:var(--btn-gold-grad)}
 .menu-hero-bar-violet{background:linear-gradient(90deg,#a855f7,#e9d5ff)}
 .menu-hero-reward-box{
-  display:flex;align-items:center;gap:10px;margin-top:12px;padding:10px 12px;border-radius:12px;
+  display:flex;align-items:center;gap:16px;margin-top:12px;padding:16px 18px;border-radius:12px;
   background:rgba(0,0,0,.25);border:1px solid rgba(168,85,247,.25);
 }
-.menu-hero-reward-icon{font-size:26px;flex-shrink:0}
-.menu-hero-reward-label{font-size:9.5px;color:rgba(232,238,247,.5);text-transform:uppercase;letter-spacing:.04em}
-.menu-hero-reward-value{font-size:13px;font-weight:700;color:#ffe9a8}
-.menu-hero-reward-sub{font-size:10px;color:rgba(232,238,247,.45)}
+.menu-hero-reward-icon{font-size:30px;flex-shrink:0}
+.menu-hero-reward-label{font-size:11px;color:rgba(232,238,247,.5);text-transform:uppercase;letter-spacing:.04em}
+.menu-hero-reward-value{font-size:18px;font-weight:700;color:#ffe9a8}
+.menu-hero-reward-sub{font-size:12.5px;color:rgba(232,238,247,.45)}
 .menu-hero-reward-mini{font-size:10px;color:rgba(232,238,247,.6);text-align:center;line-height:1.4;flex-shrink:0}
 .menu-hero-cta{
   display:block;width:100%;margin-top:14px;padding:12px;border:none;border-radius:12px;cursor:pointer;
@@ -1654,8 +1770,282 @@ body.ingame{background:
   display:flex;align-items:center;justify-content:center;font-size:13px;box-shadow:0 0 0 2px var(--bg-deep)
 }
 @keyframes menuHeroWheelSpin{to{transform:rotate(360deg)}}
-.menu-hero-tower-icon{font-size:40px;text-align:center;margin-bottom:8px;filter:drop-shadow(0 0 14px rgba(168,85,247,.5))}
-@media(prefers-reduced-motion:reduce){.menu-hero-mini-wheel{animation:none}.menu-hero-card:hover{transform:none}}
+/* [Ruleta diaria — tarjeta chica del menú, composición con assets] Mismos
+   archivos que la pantalla completa de girar (client/img/ruleta/) — acá la
+   rueda es puramente decorativa (balanceo sutil, nunca gira "de verdad" ni
+   decide nada); el giro real con el premio real sigue pasando en la
+   pantalla dedicada. Mismo criterio que Torre: fondo propio recortado sin
+   su marco (ya lo trae limpio, ver client/img/ruleta/fondo.png) + border
+   de CSS real, sin depender de la regla ".menu-hero-card" compartida (rota
+   por el comentario con el cierre pegado, ver nota en el bloque de Torre). */
+.menu-hero-card.menu-hero-ruleta{
+  position:relative;overflow:hidden;border-radius:18px;cursor:pointer;
+  transition:transform var(--motion-fast) var(--motion-ease);
+  background:#0a1330;
+  border:2px solid rgba(255,224,153,.4);
+  box-shadow:0 10px 30px rgba(0,0,0,.5),0 0 26px rgba(251,191,36,.10);
+  padding:0;min-height:260px;
+}
+.menu-hero-card.menu-hero-ruleta:hover{border-color:rgba(255,224,153,.65)}
+.ruleta-hero-bg{position:absolute;inset:0;z-index:0;width:100%;height:100%;object-fit:cover;pointer-events:none;user-select:none}
+.ruleta-hero-overlay{position:absolute;inset:0;z-index:1;pointer-events:none;background:linear-gradient(100deg,rgba(4,9,26,.42) 0%,rgba(4,9,26,.08) 55%,rgba(4,9,26,.26) 100%)}
+.ruleta-hero-banner{position:absolute;top:-8px;left:14px;width:58%;max-width:230px;min-width:130px;height:auto;z-index:4;pointer-events:none;user-select:none;filter:drop-shadow(0 4px 10px rgba(0,0,0,.5))}
+.ruleta-hero-content{position:relative;z-index:2;padding:44px 16px 16px;display:flex;flex-direction:column;gap:12px;height:100%}
+.menu-hero-ruleta .menu-hero-title{text-shadow:0 2px 8px rgba(0,0,0,.6)}
+.ruleta-hero-tagline{margin:4px 0 8px}
+.ruleta-hero-status{margin-bottom:0}
+/* [rediseño — más presencia] Antes la rueda era un ícono chiquito (58px fijos)
+   flotando al lado del botón; ahora vive en su propia columna a la derecha,
+   con las monedas superpuestas abajo a la izquierda (mismo criterio visual
+   que la referencia), y crece de verdad con clamp() al agrandarse la
+   tarjeta — no queda pegada a un tamaño fijo como antes. */
+.ruleta-hero-main{display:flex;align-items:center;gap:12px;flex:1}
+.ruleta-hero-left{flex:1;min-width:0}
+.ruleta-hero-right{position:relative;flex-shrink:0;width:clamp(64px,9vw,132px)}
+.ruleta-hero-wheel{
+  display:block;width:100%;height:auto;object-fit:contain;
+  filter:drop-shadow(0 4px 10px rgba(0,0,0,.4));
+  animation:ruletaHeroSway 6s ease-in-out infinite;
+}
+.ruleta-hero-coins{
+  position:absolute;left:-14%;bottom:-12%;width:54%;height:auto;z-index:1;
+  filter:drop-shadow(0 3px 8px rgba(0,0,0,.5));pointer-events:none;user-select:none;
+}
+@keyframes ruletaHeroSway{0%,100%{transform:rotate(-3deg)}50%{transform:rotate(3deg)}}
+.ruleta-hero-button{
+  display:block;width:100%;padding:0;border:0;background:transparent;cursor:pointer;
+  transition:transform .18s ease,filter .18s ease;
+}
+.ruleta-hero-button img{display:block;width:100%;height:auto;pointer-events:none;user-select:none}
+.ruleta-hero-button:hover{transform:translateY(-2px) scale(1.03);filter:brightness(1.08) drop-shadow(0 0 12px rgba(255,194,41,.5))}
+.ruleta-hero-button:active{transform:scale(.97)}
+.ruleta-hero-button-off{filter:saturate(.5) brightness(.8);opacity:.85}
+.ruleta-hero-button-off:hover{transform:none;filter:saturate(.5) brightness(.8)}
+@media(prefers-reduced-motion:reduce){.ruleta-hero-wheel{animation:none}}
+/* [Torre semanal — composición con assets] La tarjeta de Torre deja de usar
+   el fondo/borde compartidos de .menu-hero-card (queda transparente, sin
+   doble marco con el marco dorado que ya trae fondo.png) y pasa a armarse
+   en capas: fondo (z0) < overlay (z1) < torre (z2) < badge/contenido (z3-4)
+   < botón (z5). Ancho/alto de la tarjeta no cambian — solo la piel.
+   NOTA: la regla compartida .menu-hero-card (arriba) nunca aplica su
+   position/overflow/border-radius — el comentario que la precede tiene el
+   cierre de comentario pegado dentro del texto (después de "P."), así que
+   ese bloque de comentario termina ahí mismo sin querer, y todo lo que
+   sigue hasta la siguiente llave de apertura pasa a leerse como selector
+   basura, tirando abajo esa regla entera (afecta también a Pase/Ruleta,
+   no solo a Torre). No se toca esa regla compartida a propósito (no tocar
+   Pase/Ruleta) — esta tarjeta declara sus propias position/overflow/
+   border-radius para no depender de esa regla rota. */
+.menu-hero-card.menu-hero-tower{
+  position:relative;overflow:hidden;border-radius:18px;cursor:pointer;
+  transition:transform var(--motion-fast) var(--motion-ease);
+  background:#1b1042; /* se ve un instante mientras carga fondo.png */
+  border:2px solid rgba(255,224,153,.4);
+  box-shadow:0 10px 30px rgba(0,0,0,.5),0 0 30px rgba(168,85,247,.12),inset 0 0 24px rgba(0,0,0,.35);
+  padding:0;min-height:272px;
+}
+.menu-hero-card.menu-hero-tower:hover{border-color:rgba(255,224,153,.65)}
+.tower-hero-bg{
+  /* fondo.png ahora es SOLO el paisaje, recortado en el archivo para
+     excluir por completo el marco dorado original (que traía márgenes
+     transparentes desparejos y no calzaba igual en todas las alturas que
+     puede tomar la tarjeta según el estado — eso causaba la franja/líneas
+     doradas sueltas que desentonaban). El marco de la tarjeta ahora es un
+     border de verdad (arriba), así siempre calza perfecto sin importar el
+     tamaño. */
+  position:absolute;inset:0;z-index:0;width:100%;height:100%;
+  object-fit:cover;pointer-events:none;user-select:none;
+  animation:towerHeroBgDrift 16s ease-in-out infinite alternate;
+}
+/* La torre y su sombra de suelo van POR DEBAJO del overlay atmosférico
+   (antes iba al revés) para que la misma neblina/tono violeta que oscurece
+   el fondo caiga también sobre la torre — si no, la torre queda muy
+   saturada/nítida contra un fondo apagado y se ve pegada encima en vez de
+   parte de la escena. */
+.tower-hero-ground{
+  position:absolute;left:0;bottom:0;z-index:1;width:50%;height:22%;
+  background:radial-gradient(ellipse at 40% 100%,rgba(8,4,25,.7),rgba(8,4,25,0) 72%);
+  pointer-events:none;
+}
+.tower-hero-tower-img{
+  position:absolute;left:0;bottom:6%;z-index:1;width:41%;height:auto;
+  object-fit:contain;pointer-events:none;user-select:none;
+  filter:drop-shadow(0 0 12px rgba(151,54,255,.35)) drop-shadow(0 14px 16px rgba(0,0,0,.5)) brightness(.94);
+  animation:towerHeroFloat 5s ease-in-out infinite;
+}
+.tower-hero-overlay{
+  position:absolute;inset:0;z-index:2;pointer-events:none;
+  background:linear-gradient(100deg,rgba(5,3,30,.42) 0%,rgba(8,4,35,.22) 45%,rgba(10,5,40,.1) 100%);
+}
+.menu-hero-tower .menu-hero-badge{z-index:5;right:16px}
+.tower-hero-content{position:relative;z-index:3;padding:18px 14px 16px 16px;margin-left:36%;display:flex;flex-direction:column}
+/* [tipografía] Misma fuente de cuerpo (Manrope, bold) que el resto de la
+   UI, en dorado, sin animación de brillo — nada de Cinzel/decorativa acá,
+   desentonaba y quedaba "estirado". */
+.tower-hero-desc{margin-bottom:10px;max-width:200px;text-shadow:0 1px 4px rgba(0,0,0,.55)}
+.menu-hero-tower .menu-hero-pill{transition:transform .15s ease,background .15s ease}
+.menu-hero-tower:hover .menu-hero-pill{transform:translateY(-1px);background:rgba(168,85,247,.28)}
+.tower-hero-floor-label{
+  font-family:var(--font-body);font-size:9.5px;font-weight:800;color:var(--gold-text);
+  text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;opacity:.85;
+}
+.tower-hero-floor-value{margin-bottom:6px;line-height:1}
+.tower-hero-floor-num{font-family:var(--font-body);font-size:32px;font-weight:800;color:var(--gold-text);text-shadow:0 1px 6px rgba(0,0,0,.5)}
+.tower-hero-floor-max{font-family:var(--font-body);font-weight:700;font-size:13px;color:rgba(232,238,247,.55);margin-left:3px}
+.tower-hero-complete-msg{font-family:var(--font-body);font-size:11.5px;color:var(--gold-text);font-weight:800;margin-top:6px}
+/* [cofre junto al botón] Antes el cofre tenía su propia fila arriba y el
+   botón quedaba solo más abajo — eso alargaba la tarjeta y dejaba un
+   colchón de fondo vacío entre el contenido y el borde inferior. Ahora
+   comparten la última fila: la tarjeta baja de altura y el cofre queda
+   como preview de recompensa justo al lado del CTA. */
+.tower-hero-bottom-row{margin-top:auto;padding-top:12px}
+/* La etiqueta "Mejor recompensa" vive en su propia línea, separada de la
+   fila cofre+botón — si comparte columna con el cofre, el ANCHO DEL TEXTO
+   de la etiqueta termina siendo lo que más empuja esa columna, y le deja
+   el botón chiquito (eso fue lo que pasó en el intento anterior). Separada,
+   el cofre puede ser angosto de verdad y el botón vuelve a ser grande. */
+.tower-hero-reward-label-row{display:flex;align-items:center;gap:4px;margin-bottom:6px}
+.tower-hero-chest-label{
+  font-family:var(--font-body);font-size:9.5px;font-weight:800;color:var(--gold-text);
+  text-transform:uppercase;letter-spacing:.04em;opacity:.85;
+}
+/* [interacción] El ícono "i" ahora es tocable de verdad — antes dependía de
+   un title, que en el celular no se ve nunca. Tocarlo muestra el mismo
+   toast (setMsg) que ya usa el resto del juego, sin navegar a la Torre. */
+.tower-hero-chest-info{
+  width:13px;height:13px;border-radius:50%;border:1px solid rgba(255,233,168,.55);
+  color:rgba(255,233,168,.8);font-size:8px;font-weight:800;line-height:11px;text-align:center;
+  flex-shrink:0;cursor:pointer;transition:transform .15s ease,background .15s ease;
+}
+.tower-hero-chest-info:hover{background:rgba(255,233,168,.18);transform:scale(1.15)}
+.tower-hero-chest-info:active{transform:scale(.9)}
+.tower-hero-bottom-inner{display:flex;align-items:center;gap:8px}
+/* [interacción] El cofre deja de ser una imagen inerte — reacciona al
+   toque con el mismo lenguaje que el botón (escala + brillo), aunque el
+   destino sea el mismo (entrar a la Torre): se siente vivo, no pegado. */
+.tower-hero-chest-mini{
+  display:flex;align-items:center;gap:5px;flex-shrink:0;cursor:pointer;
+  padding:3px;margin:-3px;border-radius:10px;
+  transition:transform .15s ease,background .15s ease;
+}
+.tower-hero-chest-mini:hover{background:rgba(255,255,255,.06);transform:scale(1.04)}
+.tower-hero-chest-mini:active{transform:scale(.96)}
+.tower-hero-chest-img{
+  width:44px;height:auto;object-fit:contain;flex-shrink:0;
+  filter:drop-shadow(0 0 10px rgba(139,57,255,.4)) drop-shadow(0 3px 8px rgba(0,0,0,.35));
+}
+.tower-hero-chest-text{
+  font-family:var(--font-body);font-size:11.5px;font-weight:800;color:var(--gold-text);
+  max-width:68px;line-height:1.25;
+}
+.tower-enter-button{
+  display:block;flex:1.6;min-width:0;padding:0;border:0;
+  background:transparent;cursor:pointer;position:relative;z-index:4;
+  transition:transform .18s ease,filter .18s ease;
+}
+.tower-enter-button img{display:block;width:100%;height:auto;pointer-events:none;user-select:none}
+.tower-enter-button:hover{transform:scale(1.025) translateY(-1px);filter:brightness(1.08) drop-shadow(0 0 12px rgba(171,66,255,.55))}
+.tower-enter-button:active{transform:scale(.98)}
+@keyframes towerHeroBgDrift{0%{transform:scale(1)}100%{transform:scale(1.03)}}
+@keyframes towerHeroFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+@media(max-width:380px){
+  .tower-hero-tower-img{width:37%}
+  .tower-hero-ground{width:44%}
+  .tower-hero-content{margin-left:35%;padding:14px 14px 14px 12px}
+  .tower-hero-chest-img{width:38px}
+  .tower-hero-chest-text{max-width:56px;font-size:10px}
+  .tower-hero-floor-num{font-size:22px}
+}
+@media(prefers-reduced-motion:reduce){.menu-hero-mini-wheel{animation:none}.menu-hero-card:hover{transform:none}.tower-hero-bg,.tower-hero-tower-img{animation:none}}
+
+/* [Pase de temporada — composición con assets, mismo criterio que Torre]
+   fondo/banner/emblema/cofre/botón en client/img/pass/. El fondo.png viene
+   recortado en el archivo para excluir su propio marco dorado (misma
+   lección de Torre semanal: márgenes transparentes desparejos no calzan
+   igual en todas las alturas posibles de la tarjeta) — el marco de acá es
+   un border de CSS de verdad. */
+.menu-hero-card.menu-hero-pass{
+  position:relative;overflow:hidden;border-radius:18px;cursor:pointer;
+  transition:transform var(--motion-fast) var(--motion-ease);
+  background:#160c38;
+  border:2px solid rgba(255,224,153,.4);
+  box-shadow:0 10px 30px rgba(0,0,0,.5),0 0 30px rgba(168,85,247,.12),inset 0 0 24px rgba(0,0,0,.35);
+  padding:0;height:100%;
+}
+.menu-hero-card.menu-hero-pass:hover{border-color:rgba(255,224,153,.65)}
+.season-pass-bg{
+  position:absolute;inset:0;z-index:0;width:100%;height:100%;
+  object-fit:cover;pointer-events:none;user-select:none;
+}
+.season-pass-overlay{
+  position:absolute;inset:0;z-index:1;pointer-events:none;
+  background:linear-gradient(180deg,rgba(6,3,28,.15) 0%,rgba(6,3,28,.1) 55%,rgba(6,3,28,.55) 100%);
+}
+/* El banner queda "clavado" arriba, sobresaliendo un poco del borde
+   superior — por eso vive fuera de .season-pass-content (que sí tiene
+   padding-top para dejarle lugar) y no adentro, para poder sobresalir sin
+   que el padding del contenido lo empuje. */
+.season-pass-banner{
+  position:absolute;top:-8px;left:50%;transform:translateX(-50%);
+  width:82%;height:auto;z-index:5;pointer-events:none;user-select:none;
+  filter:drop-shadow(0 4px 10px rgba(0,0,0,.5));
+}
+.menu-hero-pass .menu-hero-badge{z-index:6;top:8px;right:8px}
+/* display:flex + margin-top:auto en el botón (más abajo): cuando la
+   tarjeta crece para igualar el alto de Ruleta+Torre (ver align-items en
+   .menu-layout), el espacio de más se vuelve aire antes del botón en vez
+   de estirar el emblema/textos de forma rara. */
+/* justify-content:space-between (antes solo el botón tenía margin-top:auto):
+   reparte el aire sobrante entre título/nivel/recompensa/botón en vez de
+   dejarlo todo junto como un hueco muerto arriba del botón — a pedido del
+   usuario, para que el contenido use TODO el alto real de la tarjeta. */
+.season-pass-content{position:relative;z-index:2;padding:34px 16px 22px;height:100%;display:flex;flex-direction:column;justify-content:space-between}
+/* El banner (imagen) ya dice "Temporada activa" — este título de texto queda
+   invisible a propósito (transparent + sin text-shadow, NO display:none: se
+   mantiene el mismo alto para no correr el resto del contenido, y sigue
+   siendo texto real para lectores de pantalla). Antes dependía de que el
+   banner lo tapara pixel a pixel, que se rompía en columnas angostas (se
+   veía la palabra asomando debajo del banner en ~1366px). */
+.menu-hero-pass .menu-hero-title{text-align:center;color:transparent;text-shadow:none;margin-bottom:14px}
+.season-pass-top-row{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+.season-level-emblem{position:relative;width:42%;min-width:100px;flex-shrink:0;container-type:inline-size;animation:seasonEmblemGlow 5s ease-in-out infinite}
+.season-level-emblem img{display:block;width:100%;height:auto;object-fit:contain;pointer-events:none;user-select:none}
+/* El emblema NO trae número dibujado (a propósito) — es texto real
+   superpuesto, mismo valor que "Nivel actual" (una sola fuente de verdad:
+   `lvl` en menuPassCardHTML). Clases según cantidad de dígitos para que
+   1/2/3 cifras entren bien sin desbordar el escudo. */
+.season-level-number{
+  position:absolute;left:50%;top:57%;transform:translate(-50%,-50%);
+  font-family:var(--font-heading);font-weight:800;color:#fff;
+  text-shadow:0 3px 5px rgba(0,0,0,.7),0 0 8px rgba(255,255,255,.18);
+  pointer-events:none;user-select:none;
+}
+.season-level-number.season-level-num-1{font-size:32cqw}
+.season-level-number.season-level-num-2{font-size:26cqw}
+.season-level-number.season-level-num-3{font-size:19cqw}
+.season-level-info{flex:1;min-width:0}
+.season-xp-sub{margin-top:6px}
+.season-reward-box{margin-top:0}
+.season-reward-chest{
+  width:26%;min-width:76px;max-width:110px;height:auto;object-fit:contain;flex-shrink:0;
+  filter:drop-shadow(0 0 12px rgba(151,55,255,.4)) drop-shadow(0 8px 12px rgba(0,0,0,.35));
+}
+.season-pass-button{
+  display:block;width:100%;padding:0;border:0;
+  background:transparent;cursor:pointer;position:relative;z-index:4;
+  transition:transform .18s ease,filter .18s ease;
+}
+.season-pass-button img{display:block;width:100%;height:auto;pointer-events:none;user-select:none}
+.season-pass-button:hover{transform:translateY(-2px) scale(1.025);filter:brightness(1.08) drop-shadow(0 0 12px rgba(167,58,255,.45))}
+.season-pass-button:active{transform:scale(.98)}
+@keyframes seasonEmblemGlow{0%,100%{filter:brightness(1)}50%{filter:brightness(1.05)}}
+@media(max-width:380px){
+  .season-level-emblem{width:26%;min-width:64px}
+  .season-pass-content{padding:30px 12px 14px}
+  .season-reward-chest{width:52px}
+  .menu-hero-pass .menu-hero-title{font-size:17px}
+}
+@media(prefers-reduced-motion:reduce){.season-level-emblem{animation:none}}
 /* atriles fantasma en las esquinas */
 .menu-rack-ghost{position:absolute;bottom:-40px;display:flex;gap:5px;opacity:.10;perspective:600px}
 .menu-rack-ghost.left{left:-30px;transform:rotateX(55deg) rotateZ(-18deg)}
@@ -1666,8 +2056,32 @@ body.ingame{background:
 @media(max-width:400px){
   .fan{transform:scale(.82);transform-origin:top center;margin-bottom:-22px}
 }
+/* Escritorios grandes (≥1500px): .fan tiene la geometría de cada ficha
+   resuelta en JS con translateX en px fijos (ver fanLogoHTML()), así que
+   agrandar el conjunto sin tocar esa lógica es un transform:scale() sobre
+   el contenedor completo — mismo mecanismo que el achicado de arriba en
+   mobile, espejado hacia arriba. No es el zoom global de página que se sacó
+   (ver html,body más arriba): es un solo elemento decorativo autocontenido,
+   y margin-bottom compensa el alto visual extra que gana al escalar desde
+   arriba, para no pisar el subtítulo de abajo. */
+@media(min-width:1500px){
+  .fan{transform:scale(1.3);transform-origin:top center;margin-bottom:38px}
+}
+/* Fichas del logo "BURAKO" (decorativas, arriba del menú) — SOLO estas,
+   no ".tile" en general (esa se usa en el juego real y no se toca). Más
+   bisel/profundidad y una veta sutil de marfil para que se sientan menos
+   "planas" que una ficha de juego común. */
 .fan .tile{position:absolute;left:50%;top:20px;width:56px;height:76px;font-size:17px;font-weight:800;
-  transform-origin:50% 130%;box-shadow:0 6px 14px rgba(0,0,0,.6);
+  transform-origin:50% 130%;
+  border-width:1px;border-bottom-width:4px;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.95),
+    inset 0 -4px 5px rgba(0,0,0,.14),
+    0 3px 4px rgba(0,0,0,.35),
+    0 10px 16px -6px rgba(0,0,0,.55);
+  background:
+    repeating-linear-gradient(100deg, rgba(150,120,60,.05) 0px, rgba(150,120,60,.05) 1px, transparent 1px, transparent 5px),
+    linear-gradient(165deg, var(--ivory1) 0%, var(--ivory2) 45%, var(--ivory3) 100%);
   transform:var(--final-t);
   animation:fanIn .8s var(--motion-ease) backwards}
 @keyframes fanIn{
@@ -1678,35 +2092,161 @@ body.ingame{background:
 }
 .fan .letter{font-family:var(--font-heading);font-weight:800;font-size:20px;color:#3a2d10;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1}
 .fan .letter small{font-size:9px;font-weight:600;opacity:.6}
-/* botones dorados grandes del menú principal — misma familia dorada que .btn-gold,
-   solo más grandes/ceremoniosos por ser la puerta de entrada al juego */
-.big-gold{display:block;width:min(290px,86vw);margin:11px auto 0;padding:15px;border-radius:10px;
-  font-family:var(--font-display);font-size:clamp(15px,4.6vw,19px);font-weight:700;letter-spacing:2px;
-  color:#1a1200;text-shadow:none;
-  background:var(--btn-gold-grad);
-  border:1px solid var(--gold-dark);
-  box-shadow:var(--btn-gold-shadow), 0 6px 14px rgba(0,0,0,.45);
-  transition:transform .12s, box-shadow .2s, filter .2s}
-.big-gold:hover{filter:brightness(1.08)}
-.big-gold:active{transform:translateY(2px);box-shadow:0 2px 0 #b45309}
-.big-gold.primary{width:min(320px,90vw);font-size:clamp(18px,6vw,24px);padding:19px;
-  box-shadow:var(--btn-gold-shadow), 0 0 30px rgba(251,191,36,.35), 0 8px 18px rgba(0,0,0,.5)}
-.big-gold.primary:hover{box-shadow:var(--btn-gold-shadow), 0 0 40px rgba(251,191,36,.5), 0 8px 18px rgba(0,0,0,.5)}
-@keyframes newsDotPulse{0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,.65)}50%{box-shadow:0 0 0 5px rgba(239,68,68,0)}}
-.news-dot{position:absolute;top:6px;right:10px;width:9px;height:9px;border-radius:50%;background:#ef4444;border:1.5px solid #1a1200;animation:newsDotPulse 1.6s ease-out infinite}
+/* ============================================================
+   BOTONES PRINCIPALES DEL MENÚ (JUGAR/PERFIL/TIENDA/NOVEDADES) — sobre los
+   PNG de "Imagenes de referencia/botones perfil". Reemplaza a .big-gold
+   (rediseño): cada uno sigue siendo un <button> real con la MISMA lógica de
+   siempre (ver GameMenuButton() en burako.js), la imagen (.gmb-art) es solo
+   el arte — encima van capas puramente visuales (.gmb-glow/.gmb-shine) y,
+   en Novedades, el badge real (.notification-badge).
+   ============================================================ */
+.game-menu-btns{display:flex;flex-direction:column;gap:14px;width:100%;align-items:center;margin-top:2px;perspective:800px}
+.game-menu-btn{
+  position:relative;display:block;width:min(clamp(240px,19vw,370px),86vw);padding:0;border:0;
+  background:transparent;cursor:pointer;flex-shrink:0;
+  -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;
+  transform:translateY(0) scale(1) rotateX(var(--tiltY,0deg)) rotateY(var(--tiltX,0deg));
+  transition:transform .22s cubic-bezier(.22,.85,.32,1.1);
+}
+.game-menu-btn:focus-visible{outline:2px solid #fbbf24;outline-offset:5px;border-radius:10px}
+.game-menu-btn-primary{width:min(clamp(260px,21vw,410px),90vw)}
+/* Recorta el reflejo/glow a la silueta del botón (si no, .gmb-shine en
+   reposo — left:-30% — queda flotando visible fuera del PNG, sobre el
+   fondo azul, como un trapecio gris). El badge de notificación queda AFUERA
+   de este wrapper a propósito, para poder sobresalir del borde. */
+.gmb-clip{position:relative;display:block;overflow:hidden;border-radius:12%/28%}
+.gmb-art{
+  display:block;width:100%;height:auto;pointer-events:none;user-select:none;-webkit-user-drag:none;
+  filter:drop-shadow(0 6px 14px rgba(0,0,0,.4)) drop-shadow(0 0 8px rgba(251,191,36,.16));
+  transition:filter .22s ease;
+}
+/* halo cálido detrás del botón — MUY sutil en reposo, crece en hover.
+   drop-shadow (no box-shadow) para que respete la silueta del PNG, no un
+   rectángulo. */
+.gmb-glow{position:absolute;inset:0;z-index:-1;pointer-events:none}
+.game-menu-btn:hover .gmb-art{
+  filter:drop-shadow(0 10px 20px rgba(0,0,0,.5)) drop-shadow(0 0 20px rgba(251,191,36,.55)) brightness(1.05) saturate(1.08);
+}
+.game-menu-btn:hover{transform:translateY(-3px) scale(1.035) rotateX(var(--tiltY,0deg)) rotateY(var(--tiltX,0deg))}
+.game-menu-btn:active{transition-duration:.09s}
+.game-menu-btn:active,.game-menu-btn:active:hover{transform:translateY(1px) scale(.975) rotateX(var(--tiltY,0deg)) rotateY(var(--tiltX,0deg))}
+.game-menu-btn:active .gmb-art{filter:drop-shadow(0 3px 8px rgba(0,0,0,.4)) drop-shadow(0 0 26px rgba(251,191,36,.75)) brightness(1.14)}
+/* reflejo que atraviesa el botón — un pequeño destello ocasional solo (en
+   vez de constante), y uno más marcado al pasar el mouse. */
+.gmb-shine{
+  position:absolute;top:6%;bottom:6%;left:-30%;width:26%;z-index:1;pointer-events:none;
+  background:linear-gradient(100deg,transparent,rgba(255,255,255,.55),transparent);
+  transform:skewX(-18deg);
+  animation:gmbIdleShine 9s ease-in-out infinite;
+}
+.game-menu-btns > .game-menu-btn:nth-child(2) .gmb-shine{animation-delay:1.6s}
+.game-menu-btns > .game-menu-btn:nth-child(3) .gmb-shine{animation-delay:3.2s}
+.game-menu-btns > .game-menu-btn:nth-child(4) .gmb-shine{animation-delay:4.8s}
+@keyframes gmbIdleShine{0%,88%{left:-30%;opacity:0}90%{opacity:.8}98%,100%{left:130%;opacity:0}}
+.game-menu-btn:hover .gmb-shine{animation:gmbHoverShine .7s ease-out}
+@keyframes gmbHoverShine{from{left:-30%;opacity:.9}to{left:130%;opacity:.9}}
+@media(prefers-reduced-motion:reduce){.gmb-shine{animation:none;opacity:0}.game-menu-btn:hover .gmb-shine{animation:none}}
+/* Badge real de notificación (Novedades) — reemplaza al .news-dot viejo,
+   ahora con contador real (ver unseenChangelogCount en burako.js) en vez de
+   un punto ciego. */
+.notification-badge{
+  position:absolute;top:-9px;right:-6px;min-width:24px;height:24px;padding:0 6px;z-index:3;
+  border-radius:999px;display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(circle at 35% 30%,#ff7a7a,#c0392b);
+  border:2px solid #ffe9a8;color:#fff;font-family:var(--font-body);font-size:12px;font-weight:800;
+  box-shadow:0 2px 6px rgba(0,0,0,.5);
+  animation:notifBadgeIn .35s cubic-bezier(.34,1.56,.64,1) both,notifBadgePulse 2.6s ease-out 1s infinite;
+}
+@keyframes notifBadgeIn{0%{transform:scale(0)}70%{transform:scale(1.15)}100%{transform:scale(1)}}
+@keyframes notifBadgePulse{0%,100%{box-shadow:0 2px 6px rgba(0,0,0,.5),0 0 0 0 rgba(239,68,68,.55)}50%{box-shadow:0 2px 6px rgba(0,0,0,.5),0 0 0 5px rgba(239,68,68,0)}}
+@media(prefers-reduced-motion:reduce){.notification-badge{animation:none}}
+/* Entrada escalonada (JUGAR → PERFIL → TIENDA → NOVEDADES, 70ms entre cada
+   uno) — solo en una entrada real de pantalla (.gmb-enter llega de
+   G._enterCls, igual que .a-slidein de .menu-layout), nunca en un
+   re-render por WS (dailyStatus/towerStatus/etc.), si no revivirían la
+   animación cada vez que llega un mensaje. */
+@keyframes gmbEnter{from{opacity:0;transform:translateY(15px) scale(.96)}to{opacity:1;transform:translateY(0) scale(1)}}
+.game-menu-btns.gmb-enter > .game-menu-btn{animation:gmbEnter .5s cubic-bezier(.22,.85,.32,1.1) both}
+.game-menu-btns.gmb-enter > .game-menu-btn:nth-child(1){animation-delay:0ms}
+.game-menu-btns.gmb-enter > .game-menu-btn:nth-child(2){animation-delay:70ms}
+.game-menu-btns.gmb-enter > .game-menu-btn:nth-child(3){animation-delay:140ms}
+.game-menu-btns.gmb-enter > .game-menu-btn:nth-child(4){animation-delay:210ms}
+@media(prefers-reduced-motion:reduce){.game-menu-btns.gmb-enter > .game-menu-btn{animation:none}}
+@media(pointer:coarse){.game-menu-btn{transform:translateY(0) scale(1)!important}.game-menu-btn:active{transform:scale(.975)!important}}
 @keyframes betPending{0%,100%{box-shadow:0 0 0 0 rgba(251,191,36,.5)}50%{box-shadow:0 0 0 6px rgba(251,191,36,0)}}
 .bet-pending{animation:betPending 1.6s ease-out infinite}
-.elegant-hud{position:absolute;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:12px 18px;font-size:13px;color:#c9b78a;z-index:2}
-/* Chip de perfil en el header (reemplaza el "☰ Burako" decorativo — no hacía
-   nada al tocarlo). Fase 11: a pedido del usuario, el mini-perfil que estaba
-   como tarjeta grande en la barra lateral se mudó acá arriba, compacto. */
-.hud-profile-chip{display:flex;align-items:center;gap:8px;cursor:pointer;padding:4px 10px 4px 4px;border-radius:999px;
-  background:rgba(0,0,0,.22);border:1px solid var(--panel-border);transition:border-color var(--motion-fast) var(--motion-ease)}
-.hud-profile-chip:hover{border-color:rgba(251,191,36,.45)}
-.hud-profile-avatar{font-size:19px;line-height:1;width:28px;height:28px;border-radius:50%;background:rgba(184,150,63,.22);display:flex;align-items:center;justify-content:center;flex-shrink:0}
-.hud-profile-text{display:flex;flex-direction:column;line-height:1.2}
-.hud-profile-name{font-weight:800;font-size:12px;color:#ffe9a8;max-width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.hud-profile-level{font-size:9.5px;color:rgba(232,238,247,.55)}
+.elegant-hud{position:absolute;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:16px 22px;font-size:13px;color:#c9b78a;z-index:2}
+/* Antes era un número suelto ("🪙 14189") flotando arriba a la derecha, sin
+   ningún tratamiento — ahora es una píldora premium con ícono redondo y
+   acceso directo a la tienda (mismo goShop() de siempre, solo un camino más
+   corto). Burako no tiene una segunda moneda (gemas/premium) — a diferencia
+   de la referencia no se inventa una: una sola píldora bien resuelta en vez
+   de dos, una de ellas de mentira. */
+.hud-coins{
+  display:flex;align-items:center;gap:8px;flex-shrink:0;cursor:pointer;
+  padding:6px 8px 6px 6px;border-radius:999px;border:1px solid var(--panel-border);
+  background:linear-gradient(165deg,rgba(255,255,255,.06),rgba(0,0,0,.32));
+  box-shadow:0 4px 14px rgba(0,0,0,.35);
+  transition:border-color var(--motion-fast) var(--motion-ease),transform var(--motion-fast) var(--motion-ease);
+}
+.hud-coins:hover{border-color:rgba(251,191,36,.5);transform:translateY(-1px)}
+.hud-coins:active{transform:scale(.97)}
+.hud-coins-icon{
+  width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font-size:15px;background:radial-gradient(circle at 35% 30%,#fde68a,var(--gold-dark));
+  box-shadow:0 0 0 2px rgba(251,191,36,.25);flex-shrink:0;
+}
+.hud-coins-value{font-family:var(--font-heading);font-weight:700;font-size:15px;color:#ffe9a8}
+.hud-coins-plus{
+  width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font-size:13px;font-weight:800;color:#1a1200;background:var(--btn-gold-grad);flex-shrink:0;
+}
+@media(min-width:920px){
+  .hud-coins{padding:8px 12px 8px 8px;gap:10px}
+  .hud-coins-icon{width:32px;height:32px;font-size:18px}
+  .hud-coins-value{font-size:18px}
+  .hud-coins-plus{width:24px;height:24px;font-size:15px}
+}
+/* Tarjeta de jugador del header (reemplaza el viejo .hud-profile-chip — Fase 14,
+   rediseño con assets reales de "Imagenes de referencia/Perfil Lobby"):
+   panel.png de fondo, avatar-frame.png como aro dorado HUECO encima del
+   avatar (se le perforó el centro — venía con un relleno oscuro sólido que
+   habría tapado la foto), avatar-default.png (sol) solo si no hay avatar
+   elegido, y rank-shield.png como contenedor del rango real (tierOf/P.rankPts,
+   mismo sistema de siempre). container-type:inline-size en .player-card para
+   que TODO adentro escale en proporción exacta al ancho real del panel
+   (mismo truco que .season-level-emblem), sin breakpoints manuales sueltos. */
+.player-card{position:relative;display:inline-block;cursor:pointer;width:clamp(220px,40vw,320px);container-type:inline-size;flex-shrink:0}
+.pcard-panel-wrap{position:relative;width:100%;border-radius:999px;overflow:hidden}
+.pcard-panel{display:block;width:100%;height:auto}
+.pcard-panel-wrap::after{content:"";position:absolute;top:0;bottom:0;left:-60%;width:35%;
+  background:linear-gradient(100deg,transparent,rgba(255,255,255,.28),transparent);
+  animation:pcardShine 5.5s ease-in-out infinite}
+@keyframes pcardShine{0%,35%{left:-60%}65%,100%{left:130%}}
+@media(prefers-reduced-motion:reduce){.pcard-panel-wrap::after{animation:none;display:none}}
+.pcard-avatar{position:absolute;left:-7cqw;top:50%;transform:translateY(-50%);width:32cqw;height:32cqw;z-index:3;
+  transition:transform var(--motion-fast) var(--motion-ease)}
+.player-card:hover .pcard-avatar{transform:translateY(-50%) scale(1.05)}
+.pcard-avatar-emoji{position:absolute;inset:12%;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font-size:15cqw;line-height:1;background:radial-gradient(circle at 35% 30%,#16233d,#0a1526 75%)}
+.pcard-avatar-default{position:absolute;inset:22%;width:56%;height:56%;object-fit:contain;filter:drop-shadow(0 0 6px rgba(251,191,36,.5))}
+.pcard-avatar-ring{position:absolute;inset:0;width:100%;height:100%;z-index:1;pointer-events:none}
+.pcard-info{position:absolute;left:29cqw;top:0;right:20cqw;bottom:0;display:flex;flex-direction:column;justify-content:center;gap:5cqw;z-index:2}
+.pcard-name{font-weight:800;font-size:6.2cqw;color:#ffe9a8;text-shadow:0 2px 3px rgba(0,0,0,.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.1}
+.pcard-level-row{display:flex;align-items:center;gap:5cqw}
+.pcard-level-pill{flex-shrink:0;font-family:var(--font-heading);font-size:3.6cqw;font-weight:700;color:#ffe9a8;
+  background:rgba(0,0,0,.35);border:1px solid rgba(251,191,36,.5);border-radius:999px;padding:0.8cqw 2.6cqw;white-space:nowrap}
+.pcard-xp-track{flex:1;height:2.6cqw;min-height:5px;border-radius:999px;background:rgba(0,0,0,.4);border:1px solid rgba(251,191,36,.35);overflow:hidden}
+.pcard-xp-fill{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,#f59e0b,#fcd34d);
+  transition:width .6s var(--motion-ease)}
+.pcard-rank{position:absolute;right:-8cqw;top:50%;transform:translateY(-50%);width:24cqw;z-index:3;
+  display:flex;align-items:center;justify-content:center;transition:transform var(--motion-fast) var(--motion-ease)}
+.player-card:hover .pcard-rank{transform:translateY(-50%) scale(1.08)}
+.pcard-rank-shield{position:relative;width:100%;height:auto;display:block;filter:drop-shadow(0 3px 6px rgba(0,0,0,.5))}
+.pcard-rank-icon{position:absolute;top:38%;left:50%;transform:translate(-50%,-50%);font-size:8cqw;line-height:1;
+  filter:drop-shadow(0 1px 2px rgba(0,0,0,.7))}
+.pcard-rank-pts{position:absolute;bottom:18%;left:50%;transform:translateX(-50%);font-size:3.2cqw;font-weight:800;
+  color:#ffe9a8;text-shadow:0 1px 2px rgba(0,0,0,.9);white-space:nowrap}
 .elegant-sub{text-align:center;color:#8a7d5f;font-size:13px;font-style:italic;margin-bottom:8px}
 
 /* ---------- TAPETES DE MESA ---------- */

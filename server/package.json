@@ -16,7 +16,13 @@
     "test:auth": "node scripts/test-etapa4-auth.mjs",
     "test:e2e": "node scripts/test-etapa5-production.mjs",
     "test:chat": "node scripts/test-chat.mjs",
-    "test:chat-ui": "node scripts/test-chat-ui.mjs"
+    "test:chat-ui": "node scripts/test-chat-ui.mjs",
+    "test:cold-start-achievements": "node scripts/test-cold-start-achievements.mjs",
+    "test:session-manager": "node scripts/test-session-manager.mjs",
+    "test:connection-manager": "node scripts/test-connection-manager.mjs",
+    "test:serial-queue-unit": "node scripts/test-serial-queue-unit.mjs",
+    "test:message-serialization": "node scripts/test-message-serialization.mjs",
+    "test:lobby-grace": "node scripts/test-lobby-grace.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

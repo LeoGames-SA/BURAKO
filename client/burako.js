@@ -2,7 +2,7 @@
    BURAKO — app completa: menú, tutorial, sonidos, IA con delay
    ================================================================ */
 
-const GAME_VERSION = "1.2.10";
+const GAME_VERSION = "1.2.16";
 const MAX_PLAYERS_ONLINE = 8; // el server acepta hasta 8 en sala (mazo doble si se supera 4)
 const QUICK_CHAT_COOLDOWN_MS = 15000;
 const QUICK_CHAT_OPTIONS = [
@@ -18,6 +18,26 @@ const TEAM_CHAT_OPTIONS = [
   {send:"👍 Dale", show:"👍"}, {send:"🚫 No tengo", show:"🚫"}, {send:"⏳ Esperá", show:"⏳"},
 ];
 const CHANGELOG = [
+  {version:"1.2.16", date:"28/08/2026", items:[
+    "🏠 Reacomodado el menú: el título BURAKO y los botones quedan un poco más arriba que Pase/Ruleta/Torre y perfectamente centrados en la pantalla (antes se corrían un poco hacia la izquierda). La tarjeta de Pase de temporada también tiene el escudo de nivel y el cofre de recompensa más grandes, usando todo el alto de la tarjeta en vez de dejar un hueco vacío abajo.",
+  ]},
+  {version:"1.2.15", date:"28/08/2026", items:[
+    "🕹 JUGAR/PERFIL/TIENDA/NOVEDADES tienen arte nuevo (botones dorados propios) y ahora responden de verdad: se elevan e iluminan al pasar el mouse, se \"presionan\" al tocarlos, un reflejo los recorre de vez en cuando y entran de a uno al abrir el menú. NOVEDADES sumó una burbuja roja con el número real de novedades que te perdiste (antes era solo un punto).",
+  ]},
+  {version:"1.2.14", date:"28/08/2026", items:[
+    "🪪 Tu tarjeta de jugador (arriba a la izquierda del menú) tiene diseño nuevo, más grande y con arte propio: avatar en marco circular dorado, nombre, nivel + barra de XP y tu rango real (medalla) en un escudo — todo con tus datos de siempre, solo cambió la presentación.",
+    "🖥 En monitores grandes (1080p o más) el menú ahora se ve más \"zoomeado\", aprovechando mejor la pantalla; en laptops más chicas queda como antes. También se arregló que el contenido del menú se pegara abajo en vez de quedar centrado, y el logo de BURAKO ahora arranca a la misma altura que la tarjeta de Pase de temporada.",
+  ]},
+  {version:"1.2.13", date:"27/08/2026", items:[
+    "🎰 Ruleta diaria completamente renovada, adentro y en el menú: la pantalla de girar tiene fondo, banner y ruleta con la B de Burako como ilustraciones propias, con giro real (la rueda gira de verdad y frena exactamente en tu premio, con ticks del indicador) en vez de una animación de mentira. La tarjeta del menú también tiene arte nuevo y ya no se queda pegada en \"Consultando tu progreso\". Botón dorado nuevo, acorde al resto del juego.",
+    "🏠 Ajustado el menú principal: Pase de temporada, Ruleta y Torre ahora quedan alineados prolijamente (arriba y abajo) entre sí, JUGAR y el resto del menú central quedaron perfectamente centrados (antes se corrían un poco a la izquierda), y JUGAR/PERFIL/TIENDA/NOVEDADES suman un ícono dorado propio y un brillo sutil.",
+  ]},
+  {version:"1.2.12", date:"27/08/2026", items:[
+    "🎫 La tarjeta de Pase de temporada del menú tiene arte nuevo: marco/fondo, banner \"Temporada activa\", escudo de nivel y cofre de recompensa como ilustraciones propias — tu nivel, XP, barra de progreso y próxima recompensa siguen siendo los datos reales de siempre.",
+  ]},
+  {version:"1.2.11", date:"27/08/2026", items:[
+    "🗼 La tarjeta de Torre semanal del menú tiene arte nuevo: fondo de tormenta violeta, la torre gótica y el cofre de la mejor recompensa como ilustraciones propias, con el mismo piso actual, barra de progreso y recompensa reales de siempre.",
+  ]},
   {version:"1.2.10", date:"27/08/2026", items:[
     "🎰 Arreglado: si dejabas la app abierta de un día para el otro, la tarjeta de Ruleta diaria en el menú podía quedarse mostrando \"ya la giraste hoy\" con el dato de ayer, sin dejarte entrar a girar la de hoy. Ya se refresca sola y, aunque llegara a pasar, ahora tocarla siempre te lleva a la Ruleta real (con el estado correcto del día).",
   ]},
@@ -211,6 +231,7 @@ const Sound = {
   draw(){ this.beep(520,0.06,"triangle",0.15); this.beep(760,0.05,"triangle",0.1,0.05); },
   place(){ const b=curSoundFx().place; this.beep(b[0],b[1],b[2],b[3]); },
   select(){ this.beep(660,0.04,"square",0.07); },
+  wheelTick(){ this.beep(1500,0.018,"square",0.04); },
   meld(){ curSoundFx().meld.forEach(b=>this.beep(b[0],b[1],b[2],b[3],b[4])); },
   error(){ this.beep(180,0.15,"sawtooth",0.12); this.beep(140,0.18,"sawtooth",0.1,0.1); },
   flip(){ this.beep(880,0.07,"triangle",0.12); },
@@ -1490,6 +1511,18 @@ function goMenu(){
 }
 function goHelp(){ G.screen="help"; render(); }
 function goChangelog(){ G.screen="changelog"; P.lastSeenVersion=GAME_VERSION; saveP(); render(); }
+/* Antes NOVEDADES solo mostraba un puntito rojo (viste/no viste el
+   changelog, sin número). El botón nuevo tiene una burbuja real con
+   contador — en vez de inventar un número, se deriva de CHANGELOG (ya
+   existe, ordenado del más nuevo al más viejo): cuántas entradas hay antes
+   de la última que el jugador vio. Si nunca abrió Novedades (lastSeenVersion
+   null), cuenta como que le faltan todas — mismo criterio que ya usaba el
+   puntito (P.lastSeenVersion!==GAME_VERSION) para decidir si mostrar algo. */
+function unseenChangelogCount(){
+  if(!P.lastSeenVersion) return CHANGELOG.length;
+  const idx=CHANGELOG.findIndex(c=>c.version===P.lastSeenVersion);
+  return idx===-1?CHANGELOG.length:idx;
+}
 function closeWelcomeBonus(){ G.pendingWelcomeBonus=null; Sound.meld(); saveP(); render(); }
 function closeSanctionAlert(){ G.pendingSanctionAlert=null; render(); }
 function goConfig(){ G.screen="config"; render(); }
@@ -4069,17 +4102,24 @@ function dailyStreakPipsHTML(streakDay){
   return `<div class="daily-pips" role="img" aria-label="Racha: día ${streakDay} de 7">${html}</div>`;
 }
 
-/* Rueda de Ruleta con 5 segmentos reales (v1.3 — reemplaza el emoji que
-   oscilaba). Espejo del server (server/db.js DAILY_REWARD_RANGES/
-   DAILY_REWARD_SEGMENTS) SOLO para dibujar los 5 montos posibles del día de
-   racha — el premio real y el que se acredita siempre lo decide y confirma
-   el servidor (dailyResult); esto nunca elige ni acredita nada, solo pinta
-   la rueda y calcula en qué ángulo cae el segmento que el servidor ya eligió. */
+/* Rueda de Ruleta — asset nuevo con 8 gajos físicos dibujados (rediseño
+   con PNGs, ver client/img/ruleta/). Espejo del server (server/db.js
+   DAILY_REWARD_RANGES/DAILY_REWARD_SEGMENTS, ahora 8 — antes 5, subido
+   justamente para que cada gajo real de la imagen tenga un monto propio y
+   la rueda NUNCA pueda frenar entre dos gajos) SOLO para dibujar los montos
+   posibles del día de racha — el premio real y el que se acredita siempre
+   lo decide y confirma el servidor (dailyResult); esto nunca elige ni
+   acredita nada, solo calcula en qué ángulo cae el gajo que el servidor ya
+   eligió. Los gajos de la imagen tienen íconos fijos de "tipos de premio"
+   (cartas, cofre, sobre, monedas...) que hoy no existen como tal en el
+   sistema real (todo premio diario es SIEMPRE monedas) — a propósito no se
+   les superpone ningún número: el monto real se revela abajo de la rueda
+   (.daily-prize-amount), igual que antes. */
 const DAILY_WHEEL_RANGES={1:[50,80],2:[60,100],3:[80,120],4:[100,150],5:[130,190],6:[170,240],7:[250,400]};
-const DAILY_WHEEL_COLORS=["#7c3aed","#0369a1","#059669","#b45309","#be123c"];
+const DAILY_WHEEL_SEGMENTS=8;
 function dailySegmentValues(streakDay){
   const [lo,hi]=DAILY_WHEEL_RANGES[Math.min(Math.max(streakDay,1),7)]||DAILY_WHEEL_RANGES[1];
-  const n=5, step=(hi-lo)/(n-1);
+  const n=DAILY_WHEEL_SEGMENTS, step=(hi-lo)/(n-1);
   return Array.from({length:n},(_,i)=>Math.round(lo+step*i));
 }
 function dailySegmentIndexForCoins(streakDay,coins){
@@ -4105,40 +4145,57 @@ function dailyWheelRestAngle(streakDay,coins){
   const centerAngle=idx*segAngle+segAngle/2;
   return (360-centerAngle)%360;
 }
-function dailyWheelHTML(streakDay,opts){
-  opts=opts||{};
-  const values=dailySegmentValues(streakDay);
-  const n=values.length, segAngle=360/n;
-  const stops=values.map((v,i)=>`${DAILY_WHEEL_COLORS[i%DAILY_WHEEL_COLORS.length]} ${(i*segAngle).toFixed(2)}deg ${((i+1)*segAngle).toFixed(2)}deg`).join(",");
-  // 2 spans anidados a propósito: el de AFUERA solo posiciona (rotar +
-  // empujar hacia el borde, geometría ya verificada — el label del premio
-  // ganador cae exactamente donde debe), el de ADENTRO solo corrige la
-  // orientación del texto para que quede legible. Separarlos evita que
-  // ajustar la rotación del texto termine corriendo la posición sin querer
-  // (encontrado en verificación real de navegador: los números salían al
-  // revés con la fórmula de un solo span). v1.3.1: esta geometría NO se tocó
-  // al agregar el aro/marcas/halo decorativos — siguen siendo capas aparte
-  // alrededor de .daily-wheel-wrap, del mismo tamaño (150x150) que antes.
-  const labels=values.map((v,i)=>{
-    const angle=i*segAngle+segAngle/2;
-    return `<span class="daily-wheel-label-pos" style="transform:translate(-50%,-50%) rotate(${angle}deg) translateY(-52px)">
-      <span class="daily-wheel-label" style="transform:translate(-50%,-50%) rotate(${-angle}deg)">${v}</span>
-    </span>`;
-  }).join("");
-  const rot=opts.restAngle!=null?opts.restAngle:0;
-  return `<div class="daily-wheel-zone">
-    <div class="daily-wheel-halo" aria-hidden="true"></div>
-    <div class="daily-wheel-pointer" aria-hidden="true"></div>
-    <div class="daily-wheel-ring" aria-hidden="true"></div>
-    <div class="daily-wheel-ticks" aria-hidden="true"></div>
-    <div class="daily-wheel-wrap">
-      <div class="daily-wheel-circle${opts.waiting?" daily-wheel-waiting":""}" data-daily-wheel style="background:conic-gradient(${stops});transform:rotate(${rot}deg)">
-        <div class="daily-wheel-labels">${labels}</div>
+/* [reconstrucción visual con assets — fondo.png/banner.png/ruleta.png/
+   monedas.png/boton.png en client/img/ruleta/] Composición en capas:
+   fondo < banner < contenido (texto+monedas a la izquierda, rueda a la
+   derecha) < botón. La imagen de la rueda (con la B de Burako al centro,
+   SIN tocar) es el elemento que gira de verdad — el indicador de arriba es
+   un triángulo CSS aparte, fijo, para que nunca gire con ella. */
+function dailyWheelPanelHTML(streakDay,state){
+  state=state||{};
+  const mode=state.mode||"idle"; // idle | spinning | result | locked
+  const rot=mode==="result"&&state.restAngle!=null?state.restAngle:0;
+  const spinning=mode==="spinning";
+  const ctaDisabled=spinning||mode==="locked";
+  let countdown;
+  if(spinning) countdown=`<div class="daily-wheel-status">Girando…</div>`;
+  else if(mode==="locked"||mode==="result") countdown=`<div class="daily-wheel-countdown">◷ Se reinicia en ${fmtHoursMin(G.dailyMsUntilNext)}</div>`;
+  else countdown=`<div class="daily-wheel-countdown daily-wheel-countdown-ghost">Girá una vez al día</div>`;
+  return `<div class="daily-wheel-panel">
+    <img class="daily-wheel-bg" src="./img/ruleta/fondo.png" alt="" aria-hidden="true">
+    <div class="daily-wheel-overlay" aria-hidden="true"></div>
+    <img class="daily-wheel-banner" src="./img/ruleta/banner.png" alt="¡Premio diario!" aria-hidden="true">
+    <div class="daily-wheel-content">
+      <div class="daily-wheel-left">
+        <div class="daily-wheel-heading">Ruleta diaria</div>
+        <div class="daily-wheel-tagline">Girá cada día y ganá premios increíbles</div>
+        ${dailyStreakPipsHTML(streakDay)}
+        <div class="daily-wheel-coins-wrap" onclick="event.stopPropagation();dailyCoinsPoke(this)">
+          <img class="daily-wheel-coins" src="./img/ruleta/monedas.png" alt="" aria-hidden="true">
+        </div>
+      </div>
+      <div class="daily-wheel-right">
+        <div class="daily-wheel-parallax" data-wheel-parallax>
+          <div class="daily-wheel-hoverwrap${spinning?" daily-wheel-nohover":""}">
+            <div class="daily-wheel-pointer-fixed" aria-hidden="true"></div>
+            <img class="daily-wheel-image${!spinning&&mode!=="result"?" daily-wheel-image-idle":""}" data-daily-wheel src="./img/ruleta/ruleta.png" alt="Ruleta" style="transform:rotate(${rot}deg)">
+            <div class="daily-wheel-winglow" data-wheel-winglow aria-hidden="true"></div>
+          </div>
+        </div>
       </div>
     </div>
-    <div class="daily-wheel-hub" aria-hidden="true">🪙</div>
+    <div class="daily-wheel-bottom">
+      <button class="daily-wheel-spin-btn${ctaDisabled?" daily-wheel-spin-btn-off":""}" ${ctaDisabled?"disabled":""} onclick="event.stopPropagation();doDailySpin()" aria-label="Girar ahora">
+        <img src="./img/ruleta/boton.png" alt="Girar ahora">
+      </button>
+      ${countdown}
+    </div>
     <div id="daily-burst-host"></div>
   </div>`;
+}
+function dailyCoinsPoke(el){
+  Sound.select();
+  el.classList.remove("daily-wheel-coins-poke"); void el.offsetWidth; el.classList.add("daily-wheel-coins-poke");
 }
 // Dispara la animación de frenado UNA sola vez, justo cuando llega dailyResult
 // (ver el handler de mensajes) — el HTML de arriba siempre puede renderizar el
@@ -4149,11 +4206,10 @@ function dailyWheelHTML(streakDay,opts){
 function spinDailyWheelTo(streakDay,coins,onDone){
   const el=document.querySelector("[data-daily-wheel]"); if(!el) return;
   const restAngle=dailyWheelRestAngle(streakDay,coins);
+  const segAngle=360/DAILY_WHEEL_SEGMENTS;
   const reduceMotion=window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  if(reduceMotion){ el.style.transition="none"; el.style.transform=`rotate(${restAngle}deg)`; if(onDone) onDone(); return; }
-  el.style.transition="none"; el.style.transform="rotate(0deg)";
-  void el.offsetWidth; // fuerza el reflow: registra el 0deg ANTES de animar, si no el navegador puede saltarse la transición
-  // [v1.3.2] Antes SIEMPRE eran exactamente 4 vueltas en 1.7s clavado — el
+  if(reduceMotion){ el.style.transform=`rotate(${restAngle}deg)`; if(onDone) onDone(); return; }
+  // [v1.4] Antes SIEMPRE eran exactamente 4 vueltas en 1.7s clavado — el
   // premio ya era 100% al azar del lado servidor (crypto.randomInt), pero
   // con la MISMA velocidad y cantidad de vueltas en cada giro, la animación
   // se sentía mecánica/idéntica y daba la sensación de estar trucada. Ahora
@@ -4161,25 +4217,56 @@ function spinDailyWheelTo(streakDay,coins,onDone){
   // (puramente estético — el ángulo final sigue siendo el único que importa,
   // ya calculado arriba a partir del premio real).
   const extraSpins=5+Math.floor(Math.random()*3); // 5, 6 o 7 vueltas completas
-  const duration=(1.6+Math.random()*0.7).toFixed(2); // 1.6s-2.3s
-  el.style.transition=`transform ${duration}s cubic-bezier(.12,.72,.15,1)`;
-  el.style.transform=`rotate(${extraSpins*360+restAngle}deg)`;
-  if(onDone){
-    const handler=()=>{ el.removeEventListener("transitionend",handler); onDone(); };
-    el.addEventListener("transitionend",handler);
+  const duration=4.8+Math.random()*1.4; // 4.8s-6.2s (pedido: 4.5-6.5s)
+  const finalAngle=extraSpins*360+restAngle;
+  const ptr=document.querySelector(".daily-wheel-pointer-fixed");
+  let lastBucket=-1;
+  function fireTick(){
+    if(ptr){ ptr.classList.remove("daily-wheel-pointer-hit"); void ptr.offsetWidth; ptr.classList.add("daily-wheel-pointer-hit"); }
+    Sound.wheelTick();
+  }
+  // El tick se dispara comparando el ángulo REAL animado contra el ángulo
+  // de cada gajo (no un timer aparte) — así siempre coincide con el
+  // movimiento visual real, sea cual sea el easing, y se espacía solo cada
+  // vez más al final (la rueda cruza menos gajos por segundo al frenar).
+  function onAngle(angle){
+    const bucket=Math.floor(angle/segAngle);
+    if(bucket!==lastBucket){ lastBucket=bucket; fireTick(); }
+    el.style.transform=`rotate(${angle}deg)`;
+  }
+  if(window.gsap){
+    const state={angle:0};
+    gsap.to(state,{angle:finalAngle,duration,ease:"power4.out",
+      onUpdate:()=>onAngle(state.angle),
+      onComplete:()=>{ onAngle(finalAngle); if(onDone) onDone(); },
+    });
+  } else {
+    // Respaldo sin GSAP: mismo ángulo final, sin ticks finos (no hay forma
+    // liviana de leer el valor intermedio de una transición CSS cuadro a
+    // cuadro sin GSAP/WAAPI) — igual de correcto, menos vistoso.
+    el.style.transition="none"; el.style.transform="rotate(0deg)";
+    void el.offsetWidth;
+    el.style.transition=`transform ${duration}s cubic-bezier(.1,.6,.15,1)`;
+    el.style.transform=`rotate(${finalAngle}deg)`;
+    if(onDone){ const h=()=>{ el.removeEventListener("transitionend",h); onDone(); }; el.addEventListener("transitionend",h); }
   }
 }
 // Explosión de partículas puramente decorativa cuando se confirma el premio
 // (ver dailyResult en el handler de mensajes) — nunca decide ni muestra un
-// monto, solo celebra el que ya vino confirmado por el servidor.
+// monto, solo celebra el que ya vino confirmado por el servidor. Paleta
+// dorado-forward (antes tenía violeta/rojo/azul/verde en partes iguales —
+// pedido explícito del rediseño: "menos arcoíris, más protagonismo del
+// dorado").
 function dailyRouletteBurst(){
   const host=document.querySelector("#daily-burst-host"); if(!host) return;
+  const glow=document.querySelector("[data-wheel-winglow]");
+  if(glow){ glow.classList.remove("daily-wheel-winglow-active"); void glow.offsetWidth; glow.classList.add("daily-wheel-winglow-active"); }
   if(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-  const colors=["#fde68a","#fbbf24","#c0392b","#1f5fa8","#1e7d3f","#5a2d82"];
-  for(let i=0;i<16;i++){
+  const colors=["#fde68a","#fbbf24","#d99b00","#fff7d6","#fbbf24","#1f5fa8"];
+  for(let i=0;i<18;i++){
     const p=document.createElement("span");
     p.className="daily-burst-piece";
-    const ang=(i/16)*360+(Math.random()*14-7);
+    const ang=(i/18)*360+(Math.random()*14-7);
     p.style.setProperty("--r",ang+"deg");
     p.style.setProperty("--d",(64+Math.random()*28)+"px");
     p.style.background=colors[i%colors.length];
@@ -4216,24 +4303,19 @@ function renderDailyRoulette(app){
   if(G.dailyLoading){
     body=`<div class="searching-spinner" aria-hidden="true"></div><p style="font-size:12px;color:rgba(232,238,247,.6);margin-top:10px">Consultando tu ruleta…</p>`;
   } else if(G.dailySpinning){
-    body=`${dailyWheelHTML(streakDay,{waiting:true})}
-      <button class="btn btn-gold rt-cta" disabled style="margin-top:16px;opacity:.55;cursor:default">Girando…</button>`;
+    body=dailyWheelPanelHTML(streakDay,{mode:"spinning"});
   } else if(G.dailyResult){
     const restAngle=dailyWheelRestAngle(G.dailyResult.streakDay,G.dailyResult.coins);
-    body=`${dailyWheelHTML(G.dailyResult.streakDay,{restAngle})}
+    body=`${dailyWheelPanelHTML(G.dailyResult.streakDay,{mode:"result",restAngle})}
       <p class="daily-prize-amount a-pop" style="margin:14px 0 2px">+${G.dailyResult.coins.toLocaleString("es-UY")} monedas</p>
-      <p style="font-size:11px;color:rgba(232,238,247,.6);margin-bottom:12px">Racha: día ${G.dailyResult.streakDay} de 7</p>
-      <p style="font-size:10.5px;color:rgba(232,238,247,.45)">Volvé ${fmtHoursMin(G.dailyMsUntilNext)} por tu próxima tirada.</p>`;
+      <p style="font-size:11px;color:rgba(232,238,247,.6)">Racha: día ${G.dailyResult.streakDay} de 7</p>`;
   } else if(G.dailyClaimedToday){
-    body=`${dailyWheelHTML(streakDay,{})}
-      <div class="daily-claimed-badge" style="margin-top:16px">✔ Ya reclamaste la ruleta de hoy</div>
-      <p style="font-size:10.5px;color:rgba(232,238,247,.5);margin-top:8px">Volvé ${fmtHoursMin(G.dailyMsUntilNext)} por la de mañana.</p>`;
+    body=`${dailyWheelPanelHTML(streakDay,{mode:"locked"})}
+      <div class="daily-claimed-badge" style="margin-top:16px">✔ Ya reclamaste la ruleta de hoy</div>`;
   } else {
-    body=`${dailyWheelHTML(streakDay,{})}
-      <p style="font-size:12px;color:rgba(232,238,247,.6);margin:10px 0 14px">Girá una vez al día — 7 días seguidos suben el premio.</p>
-      <button class="btn btn-gold rt-cta" onclick="doDailySpin()">🎰 Girar</button>`;
+    body=dailyWheelPanelHTML(streakDay,{mode:"idle"});
   }
-  app.innerHTML=`<div class="screen-center"><div class="card rt-card ${G._enterCls}">
+  app.innerHTML=`<div class="screen-center"><div class="card rt-card rt-card-daily ${G._enterCls}">
     ${rtBgFloatHTML()}
     <div class="rt-topbar">
       <button class="rt-back" onclick="goMenu()" title="Volver al menú">
@@ -4242,8 +4324,7 @@ function renderDailyRoulette(app){
       </button>
       <h2 class="rt-title">🎰 Ruleta diaria</h2>
     </div>
-    <div class="rt-body">
-      ${dailyStreakPipsHTML(streakDay)}
+    <div class="rt-body rt-body-daily">
       ${body}
     </div>
   </div></div>`;
@@ -4483,33 +4564,56 @@ function withLogoFlip(fn){
    de solo mostrar una barra. Columna izquierda en desktop (antes derecha,
    compartida con Ruleta/Torre — ahora cada una tiene su propia tarjeta
    grande, ver menuRuletaHeroHTML/menuTowerHeroHTML). */
+/* [reconstrucción visual con assets — fondo.png/banner.png/emblema.png/
+   cofre.png/boton-ver-pase.png en client/img/pass/] Misma lógica y mismos
+   datos reales de siempre (passLevel/P.xpInLevel/P.xpForNext/PASS_LEVELS/
+   P.passClaimed) — acá solo cambia CÓMO se dibuja. El emblema NO trae
+   número dibujado (a propósito, según el asset que pasó el usuario): el
+   nivel es texto HTML real superpuesto (single source of truth: `lvl`, se
+   usa tanto dentro del emblema como en "Nivel actual"). No existe ningún
+   dato real de "número/nombre de temporada" en el proyecto (no hay
+   currentSeason/seasonName en ningún lado — passLevel() usa P.level, el
+   nivel general del jugador) — por eso NO se agrega ese subtítulo: hubiera
+   sido inventar un dato, y esa regla se mantuvo en todo el rediseño. */
 function menuPassCardHTML(){
   const lvl=passLevel();
   const xpInLevel=P.xpInLevel||0, xpForNext=P.xpForNext||xpForNextLevel(lvl);
   const xpPct=Math.min(100,Math.round(xpInLevel/xpForNext*100));
   const claimable=PASS_LEVELS.some(L=>lvl>=L.lv&&!P.passClaimed[L.lv]);
   const next=PASS_LEVELS.find(L=>L.lv>lvl);
+  const lvlDigits=String(lvl).length;
+  const lvlCls=lvlDigits>=3?"season-level-num-3":lvlDigits===2?"season-level-num-2":"season-level-num-1";
   return `<div class="menu-hero-card menu-hero-pass" onclick="goPass()">
-    <span class="menu-hero-pill menu-hero-pill-violet">🎫 Temporada activa</span>
-    <div class="menu-hero-title">Pase de temporada</div>
-    <div class="menu-hero-level-row">
-      <div class="menu-hero-level-badge">${lvl}</div>
-      <div>
-        <div class="menu-hero-level-label">Nivel actual</div>
-        <div class="menu-hero-level-value">${lvl}</div>
+    <img class="season-pass-bg" src="./img/pass/fondo.png" alt="" aria-hidden="true">
+    <div class="season-pass-overlay" aria-hidden="true"></div>
+    <img class="season-pass-banner" src="./img/pass/banner.png" alt="Temporada activa" aria-hidden="true">
+    ${claimable?`<span class="menu-hero-badge">🎁</span>`:""}
+    <div class="season-pass-content">
+      <div class="menu-hero-title">Pase de temporada</div>
+      <div class="season-pass-top-row">
+        <div class="season-level-emblem">
+          <img src="./img/pass/emblema.png" alt="" aria-hidden="true">
+          <span class="season-level-number ${lvlCls}">${lvl}</span>
+        </div>
+        <div class="season-level-info">
+          <div class="menu-hero-level-label">Nivel actual</div>
+          <div class="menu-hero-level-value">${lvl}</div>
+          <div class="menu-hero-bar"><div class="menu-hero-bar-fill menu-hero-bar-gold" style="width:${xpPct}%"></div></div>
+          <div class="menu-hero-sub season-xp-sub">${xpInLevel}/${xpForNext} XP para el próximo nivel</div>
+        </div>
       </div>
+      ${next?`<div class="menu-hero-reward-box season-reward-box">
+        <img class="season-reward-chest" src="./img/pass/cofre.png" alt="" aria-hidden="true">
+        <div>
+          <div class="menu-hero-reward-label">Recompensa destacada</div>
+          <div class="menu-hero-reward-value">${esc(next.label)}</div>
+          <div class="menu-hero-reward-sub">Reclamalo al nivel ${next.lv}</div>
+        </div>
+      </div>`:""}
+      <button class="season-pass-button" onclick="event.stopPropagation();goPass()" aria-label="Ver pase">
+        <img src="./img/pass/boton-ver-pase.png" alt="Ver pase">
+      </button>
     </div>
-    <div class="menu-hero-bar"><div class="menu-hero-bar-fill menu-hero-bar-gold" style="width:${xpPct}%"></div></div>
-    <div class="menu-hero-sub">${xpInLevel}/${xpForNext} XP para el próximo nivel</div>
-    ${next?`<div class="menu-hero-reward-box">
-      <span class="menu-hero-reward-icon">🎁</span>
-      <div>
-        <div class="menu-hero-reward-label">Recompensa destacada</div>
-        <div class="menu-hero-reward-value">${esc(next.label)}</div>
-        <div class="menu-hero-reward-sub">Reclamalo al nivel ${next.lv}</div>
-      </div>
-    </div>`:""}
-    <button class="menu-hero-cta menu-hero-cta-violet">${claimable?"¡Reclamar!":"Ver pase"} →</button>
   </div>`;
 }
 /* [v1.3.3] Tarjeta grande de Ruleta diaria en el menú — usa los MISMOS datos
@@ -4518,27 +4622,89 @@ function menuPassCardHTML(){
    más abajo), así la tarjeta nunca inventa un estado. El botón lleva a la
    pantalla real de Ruleta — el giro en sí sigue pasando ahí (misma lógica,
    solo un acceso más atractivo desde el menú). */
+/* [reconstrucción visual con assets — fondo.png/banner.png/ruleta.png/
+   boton.png en client/img/ruleta/, mismos archivos que ya usa la pantalla
+   completa de girar] Esta es la tarjeta CHICA del menú (la que vive al
+   lado de Torre) — la rueda de acá es solo decorativa (leve balanceo, no
+   gira de verdad ni decide nada); el giro real con premio real sigue
+   pasando en la pantalla dedicada (goDailyRoulette/renderDailyRoulette),
+   esta tarjeta solo invita a entrar, igual que ya hacen Pase y Torre.
+   Mismos datos reales de siempre (G.dailyStreakDay/G.dailyClaimedToday de
+   dailyStatus) — nunca inventa un estado. El botón de "ya reclamado" NO
+   usa disabled nativo (bug ya encontrado antes: en algunos navegadores
+   bloquea el click-bubbling) — sigue siendo clickeable y lleva a la
+   pantalla real, solo se ve apagado. */
 function menuRuletaHeroHTML(){
   const loaded=G.dailyStreakDay!=null;
   const claimedToday=!!G.dailyClaimedToday;
   return `<div class="menu-hero-card menu-hero-ruleta" onclick="goDailyRoulette()">
-    <span class="menu-hero-pill menu-hero-pill-gold">🎁 ¡Premio diario!</span>
-    <div class="menu-hero-title">Ruleta diaria</div>
-    <div class="menu-hero-sub" style="margin-bottom:10px">Girá cada día y ganá premios increíbles</div>
-    <div class="menu-hero-mini-wheel" aria-hidden="true">
-      <span class="menu-hero-mini-wheel-hub">🪙</span>
+    <img class="ruleta-hero-bg" src="./img/ruleta/fondo.png" alt="" aria-hidden="true">
+    <div class="ruleta-hero-overlay" aria-hidden="true"></div>
+    <img class="ruleta-hero-banner" src="./img/ruleta/banner.png" alt="¡Premio diario!" aria-hidden="true">
+    <div class="ruleta-hero-content">
+      <div class="ruleta-hero-main">
+        <div class="ruleta-hero-left">
+          <div class="menu-hero-title">Ruleta diaria</div>
+          <div class="menu-hero-sub ruleta-hero-tagline">Girá cada día y ganá premios increíbles</div>
+          ${!loaded?`<div class="menu-hero-sub ruleta-hero-status">Consultando tu progreso…</div>`
+            :claimedToday?`<div class="menu-hero-sub ruleta-hero-status">✔ Ya la giraste hoy · se reinicia ${fmtHoursMin(G.dailyMsUntilNext)}</div>`
+            :`<div class="menu-hero-sub ruleta-hero-status">Racha: día ${G.dailyStreakDay} de 7</div>`}
+        </div>
+        <div class="ruleta-hero-right">
+          <img class="ruleta-hero-wheel" src="./img/ruleta/ruleta.png" alt="" aria-hidden="true">
+          <img class="ruleta-hero-coins" src="./img/ruleta/monedas.png" alt="" aria-hidden="true">
+        </div>
+      </div>
+      <button class="ruleta-hero-button${claimedToday?" ruleta-hero-button-off":""}" onclick="event.stopPropagation();goDailyRoulette()" aria-label="Girar ahora">
+        <img src="./img/ruleta/boton.png" alt="Girar ahora">
+      </button>
     </div>
-    ${!loaded?`<button class="menu-hero-cta menu-hero-cta-gold menu-hero-cta-inert" onclick="event.stopPropagation()">Cargando…</button>`
-      :claimedToday?`<button class="menu-hero-cta menu-hero-cta-gold menu-hero-cta-inert" onclick="event.stopPropagation();goDailyRoulette()">✔ Ya la giraste hoy</button>
-        <div class="menu-hero-sub" style="margin-top:6px">Se reinicia ${fmtHoursMin(G.dailyMsUntilNext)}</div>`
-      :`<button class="menu-hero-cta menu-hero-cta-gold">Girar ahora</button>
-        <div class="menu-hero-sub" style="margin-top:6px">Racha: día ${G.dailyStreakDay} de 7</div>`}
   </div>`;
 }
 /* [v1.3.3] Tarjeta grande de Torre semanal en el menú — mismos datos reales
    de towerStatus (piso actual, completa o no). El botón lleva a la Torre
    real; ahí es donde de verdad se arranca la partida (goTower()/
    doTowerStart()), esta tarjeta no duplica esa lógica. */
+/* [reconstrucción visual con assets — torre.png/fondo.png/cofre.png/
+   boton-ir-a-la-torre.png en client/img/tower/] Misma lógica y mismos datos
+   reales de siempre (loaded/floor/pct/prizeLabel/pendingCount) — acá solo
+   cambia CÓMO se dibuja el bloque: fondo como capa de imagen, torre PNG
+   emergiendo a la izquierda, cofre PNG en "mejor recompensa" y el botón
+   real es la imagen (sin texto HTML duplicado encima). El click de la
+   tarjeta entera sigue yendo a goTower() — el botón-imagen llama a la
+   misma función, solo con stopPropagation para no dispararla dos veces. */
+function towerHeroFloorHTML(floor,pct,extraMsg){
+  return `<div class="tower-hero-floor-block">
+    <div class="tower-hero-floor-label">Piso actual</div>
+    <div class="tower-hero-floor-value"><span class="tower-hero-floor-num">${floor}</span><span class="tower-hero-floor-max">/10</span></div>
+    <div class="menu-hero-bar"><div class="menu-hero-bar-fill menu-hero-bar-violet" style="width:${pct}%"></div></div>
+    ${extraMsg?`<div class="tower-hero-complete-msg">${extraMsg}</div>`:""}
+  </div>`;
+}
+/* [cofre junto al botón] El cofre comparte la última fila con el botón para
+   que la tarjeta quede compacta (sin colchón de fondo vacío abajo), pero la
+   etiqueta "Mejor recompensa" vive en SU PROPIA línea arriba de esa fila —
+   si comparte columna con el cofre, su ancho de texto termina siendo lo que
+   más empuja esa columna y le deja el botón chiquito. Separada, el cofre
+   puede ser angosto de verdad y el botón recupera tamaño.
+   [interacción] El cofre ahora reacciona al toque (mismo lenguaje visual
+   que el botón: escala + brillo) en vez de ser una imagen inerte, y el
+   ícono "i" es tocable de verdad — muestra el aviso de siempre
+   (setMsg, el mismo toast que usa el resto del juego) en vez de depender
+   de un title que en el celular no se ve nunca. */
+function towerHeroRewardLabelHTML(){
+  return `<div class="tower-hero-reward-label-row">
+    <span class="tower-hero-chest-label">Mejor recompensa</span>
+    <span class="tower-hero-chest-info" onclick="event.stopPropagation();setMsg('🎁 Es lo que ganás al superar el próximo piso de la Torre')">i</span>
+  </div>`;
+}
+function towerHeroChestMiniHTML(prizeLabel){
+  if(!prizeLabel) return "";
+  return `<div class="tower-hero-chest-mini" onclick="event.stopPropagation();goTower()">
+    <img class="tower-hero-chest-img" src="./img/tower/cofre.png" alt="" aria-hidden="true">
+    <span class="tower-hero-chest-text">${esc(prizeLabel)}</span>
+  </div>`;
+}
 function menuTowerHeroHTML(){
   const loaded=G.towerFloor!=null||G.towerComplete;
   const floor=G.towerComplete?10:(G.towerFloor||1);
@@ -4546,25 +4712,84 @@ function menuTowerHeroHTML(){
   const prizeLabel=G.towerComplete?"Torre Celestial 🏰":towerFloorPrizeLabel(floor);
   const pendingCount=(G.towerPending||[]).length;
   return `<div class="menu-hero-card menu-hero-tower" onclick="goTower()">
-    <span class="menu-hero-pill menu-hero-pill-violet">⚔ Desafío semanal</span>
+    <img class="tower-hero-bg" src="./img/tower/fondo.png" alt="" aria-hidden="true">
+    <div class="tower-hero-ground" aria-hidden="true"></div>
+    <img class="tower-hero-tower-img" src="./img/tower/torre.png" alt="" aria-hidden="true">
+    <div class="tower-hero-overlay" aria-hidden="true"></div>
     ${pendingCount?`<span class="menu-hero-badge">🎁 ${pendingCount}</span>`:""}
-    <div class="menu-hero-title">Torre semanal</div>
-    <div class="menu-hero-sub" style="margin-bottom:10px">Subí pisos, superá desafíos y ganá recompensas épicas</div>
-    <div class="menu-hero-tower-icon" aria-hidden="true">🏰</div>
-    ${!loaded?`<div class="menu-hero-sub">Consultando tu progreso…</div>`
-      :G.towerComplete?`<div class="menu-hero-sub" style="color:#ffe9a8;font-weight:700">🎉 ¡Completaste los 10 pisos de esta semana!</div>`
-      :`<div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
-          <div style="flex:1">
-            <div class="menu-hero-sub">Piso actual <b style="color:#ffe9a8">${floor}/10</b></div>
-            <div class="menu-hero-bar"><div class="menu-hero-bar-fill menu-hero-bar-violet" style="width:${pct}%"></div></div>
-          </div>
-          ${prizeLabel?`<div class="menu-hero-reward-mini">🎁<br>${esc(prizeLabel)}</div>`:""}
-        </div>`}
-    <button class="menu-hero-cta menu-hero-cta-violet">Ir a la Torre</button>
+    <div class="tower-hero-content">
+      <span class="menu-hero-pill menu-hero-pill-violet">⚔ Desafío semanal</span>
+      <div class="menu-hero-title">Torre semanal</div>
+      <div class="menu-hero-sub tower-hero-desc">Subí pisos, superá desafíos y ganá recompensas épicas</div>
+      ${!loaded?`<div class="menu-hero-sub">Consultando tu progreso…</div>`
+        :towerHeroFloorHTML(floor,pct,G.towerComplete?"🎉 ¡Completaste la Torre esta semana!":"")}
+      <div class="tower-hero-bottom-row">
+        ${loaded&&prizeLabel?towerHeroRewardLabelHTML():""}
+        <div class="tower-hero-bottom-inner">
+          ${loaded?towerHeroChestMiniHTML(prizeLabel):""}
+          <button class="tower-enter-button" onclick="event.stopPropagation();goTower()" aria-label="Ir a la Torre">
+            <img src="./img/tower/boton-ir-a-la-torre.png" alt="Ir a la Torre">
+          </button>
+        </div>
+      </div>
+    </div>
   </div>`;
 }
-function renderMenu(app){
+/* Tarjeta de jugador del menú (esquina superior izquierda) — reconstruida con los
+   assets de "Imagenes de referencia/Perfil Lobby" (panel + marco circular + ícono
+   sol por defecto + escudo de rango), reemplazando el viejo .hud-profile-chip.
+   Ojo: Burako no tiene fotos de perfil reales, el "avatar" siempre es un emoji
+   (ver AVATARS/P.avatar) — así que "la foto del jugador" de la spec es ese emoji;
+   el ícono sol (imagen 3) queda como fallback defensivo para el caso raro de que
+   P.avatar venga vacío. Nombre/nivel/XP/rango salen 100% de P.*, nada hardcodeado. */
+function playerCardHTML(){
   const t=tierOf(P.rankPts);
+  const xpForNext=P.xpForNext||500;
+  const xpPct=Math.max(0,Math.min(100,Math.round((P.xpInLevel||0)/xpForNext*100)));
+  return `<div class="player-card" onclick="goProfile()" title="Ver perfil">
+    <div class="pcard-panel-wrap"><img class="pcard-panel" src="./img/profile/panel.png" alt="" aria-hidden="true"></div>
+    <div class="pcard-avatar">
+      ${P.avatar?`<span class="pcard-avatar-emoji">${P.avatar}</span>`:`<img class="pcard-avatar-default" src="./img/profile/avatar-default.png" alt="">`}
+      <img class="pcard-avatar-ring" src="./img/profile/avatar-frame.png" alt="" aria-hidden="true">
+    </div>
+    <div class="pcard-info">
+      <div class="pcard-name">${nameEffectHTML(P.name||"Jugador",P.nameeffect)}</div>
+      <div class="pcard-level-row">
+        <span class="pcard-level-pill">Nv. ${P.level||1}</span>
+        <span class="pcard-xp-track"><span class="pcard-xp-fill" style="width:${xpPct}%"></span></span>
+      </div>
+    </div>
+    <div class="pcard-rank" title="${esc(t.name)} · ${P.rankPts} pts">
+      <img class="pcard-rank-shield" src="./img/profile/rank-shield.png" alt="" aria-hidden="true">
+      <span class="pcard-rank-icon">${t.icon}</span>
+      <span class="pcard-rank-pts">${P.rankPts}</span>
+    </div>
+  </div>`;
+}
+/* Botones dorados principales del menú (JUGAR/PERFIL/TIENDA/NOVEDADES) —
+   reconstruidos sobre los PNG de "Imagenes de referencia/botones perfil"
+   como componentes reales, no <img> sueltas: siguen siendo <button> de
+   verdad (mismo onclick/lógica exacta de siempre, cero funcionalidad
+   duplicada), la imagen es solo el arte de fondo, y el resto (glow, shine,
+   badge) son capas HTML encima. Un solo lugar (acá) define tamaño/efectos
+   para los 4 — GameMenuButton() se llama una vez por botón en renderMenu().
+   asset: nombre de archivo en client/img/menu-buttons/ (sin extensión).
+   action: el mismo string que antes iba en onclick="..." (se preserva tal
+   cual, ver renderMenu). primary: JUGAR, ~10% más grande. notificationCount:
+   entero real (0/undefined = sin badge) — ver unseenChangelogCount(). */
+function GameMenuButton({asset,alt,action,primary,notificationCount}){
+  const count=notificationCount||0;
+  const badge=count>0?`<span class="notification-badge">${count>9?"9+":count}</span>`:"";
+  return `<button class="game-menu-btn${primary?" game-menu-btn-primary":""}" onclick="${action}" aria-label="${esc(alt)}">
+    <span class="gmb-clip">
+      <span class="gmb-glow" aria-hidden="true"></span>
+      <img class="gmb-art" src="./img/menu-buttons/${asset}.png" alt="" draggable="false">
+      <span class="gmb-shine" aria-hidden="true"></span>
+    </span>
+    ${badge}
+  </button>`;
+}
+function renderMenu(app){
   const fan=fanLogoHTML();
   const ghostRack=(cls)=>`<div class="menu-rack-ghost ${cls} sk-clasica">${
     [3,7,11,4,9,13,2,5,8,1,10,6].map((v,i)=>`<div class="tile c-${["rojo","azul","verde","amarillo"][i%4]} dotc-${["rojo","azul","verde","amarillo"][i%4]}">${v}</div>`).join("")
@@ -4584,17 +4809,12 @@ function renderMenu(app){
     ${ghostRack("right")}
   </div>
   <div class="elegant-hud">
-    <span class="hud-profile-chip" onclick="goProfile()" title="Ver perfil">
-      <span class="hud-profile-avatar">${P.avatar||"🀄"}</span>
-      <span class="hud-profile-text">
-        <span class="hud-profile-name">${nameEffectHTML(P.name||"Jugador",P.nameeffect)}</span>
-        <span class="hud-profile-level">Nv ${P.level||1}</span>
-      </span>
-    </span>
-    <span style="display:flex;gap:14px">
-      <span>🪙 ${P.fichas}</span>
-      <span onclick="goProfile()" style="cursor:pointer;display:inline-flex;align-items:center;gap:4px">${tierBadgeHTML(t,16)} ${P.rankPts}</span>
-    </span>
+    ${playerCardHTML()}
+    <button class="hud-coins" onclick="goShop()" title="Ir a la tienda">
+      <span class="hud-coins-icon">🪙</span>
+      <span class="hud-coins-value">${P.fichas.toLocaleString("es-UY")}</span>
+      <span class="hud-coins-plus">+</span>
+    </button>
   </div>
   <div class="screen-center" style="position:relative;z-index:1">
     <div class="menu-layout ${G._enterCls?"a-slidein":""}">
@@ -4602,10 +4822,12 @@ function renderMenu(app){
       <div class="menu-main">
         ${fan}
         <p class="elegant-sub" style="margin-top:2px">El juego de Burako definitivo <span style="opacity:.6">· v${GAME_VERSION.replace(/\.0$/,"")}</span></p>
-        <button class="big-gold primary" onclick="Sound.init();goPlay()">JUGAR</button>
-        <button class="big-gold" onclick="goProfile()">PERFIL</button>
-        <button class="big-gold" onclick="goShop()">TIENDA</button>
-        <button class="big-gold" style="position:relative" onclick="goChangelog()">📣 NOVEDADES${P.lastSeenVersion!==GAME_VERSION?'<span class="news-dot"></span>':''}</button>
+        <div class="game-menu-btns${G._enterCls?" gmb-enter":""}">
+          ${GameMenuButton({asset:"jugar",alt:"Jugar",action:"Sound.init();goPlay()",primary:true})}
+          ${GameMenuButton({asset:"perfil",alt:"Perfil",action:"Sound.select();goProfile()"})}
+          ${GameMenuButton({asset:"tienda",alt:"Tienda",action:"Sound.select();goShop()"})}
+          ${GameMenuButton({asset:"novedades",alt:"Novedades",action:"Sound.select();goChangelog()",notificationCount:unseenChangelogCount()})}
+        </div>
         <div style="display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-top:16px">
           <button onclick="goConfig()" style="background:none;border:none;color:#a5926a;font-size:12px;cursor:pointer">⚙ Opciones</button>
           <button onclick="goHelp()" style="background:none;border:none;color:#a5926a;font-size:12px;cursor:pointer">📖 Cómo jugar</button>
@@ -4617,6 +4839,30 @@ function renderMenu(app){
         ${menuTowerHeroHTML()}
       </div>
     </div>
+    ${menuComingSoonRowHTML()}
+  </div>`;
+}
+/* Fila inferior de "próximamente" — puramente visual/decorativa, a pedido
+   explícito: NO hay funcionalidad real de racha diaria/eventos/invitar
+   amigos todavía (no existe ese sistema en P.* / G.* ni en el servidor), así
+   que ninguno de los 3 abre una pantalla real ni inventa datos — el click
+   solo muestra el mismo toast "Próximamente" (setMsg, igual que el resto
+   del juego) para que quede clarísimo que no es una función rota. */
+function menuComingSoonRowHTML(){
+  const items=[
+    {icon:"📅",title:"Jugá todos los días",sub:"y conseguí grandes premios"},
+    {icon:"🎁",title:"Eventos especiales",sub:"Muy pronto, nuevos eventos"},
+    {icon:"👥",title:"Invitá a tus amigos",sub:"y ganá recompensas juntos"},
+  ];
+  return `<div class="menu-soon-row">
+    ${items.map(it=>`<button class="menu-soon-item" onclick="setMsg('🔜 Próximamente')">
+      <span class="menu-soon-icon">${it.icon}</span>
+      <span class="menu-soon-text">
+        <span class="menu-soon-title">${it.title}</span>
+        <span class="menu-soon-sub">${it.sub}</span>
+      </span>
+      <span class="menu-soon-badge">Próximamente</span>
+    </button>`).join("")}
   </div>`;
 }
 
@@ -6062,7 +6308,12 @@ function netConnect(host){
       }
       if(msg.type==="dailyStatus"){
         G.dailyLoading=false; G.dailyClaimedToday=!!msg.claimedToday; G.dailyStreakDay=msg.streakDay||1; G.dailyMsUntilNext=msg.msUntilNext||0;
-        if(G.screen==="dailyRoulette") render();
+        // [fix] antes solo re-renderizaba en "dailyRoulette" — la tarjeta del
+        // menú (menuRuletaHeroHTML) quedaba pegada en "Consultando tu
+        // progreso…" para siempre aunque el dato ya hubiera llegado, porque
+        // nada disparaba un nuevo render() del menú. towerStatus (arriba) ya
+        // contemplaba "menu" — esto lo deja simétrico.
+        if(G.screen==="dailyRoulette"||G.screen==="menu") render();
         return;
       }
       if(msg.type==="dailyResult"){
@@ -8067,6 +8318,30 @@ window.addEventListener("beforeunload",(e)=>{
   e.returnValue="Si cerrás la página perdés la partida en curso"+(G.online?" y quedás afuera (tus fichas vuelven al pozo)":"")+". ¿Seguro que querés salir?";
   return e.returnValue;
 });
+
+/* Micro-tilt 3D de los botones del menú (JUGAR/PERFIL/TIENDA/NOVEDADES) al
+   mover el mouse — casi imperceptible (±2deg), solo desktop con mouse real
+   (pointer:fine) y respetando prefers-reduced-motion. UN SOLO listener
+   delegado en document (no uno por botón, y no se reengancha en cada
+   render() — .game-menu-btn se resuelve en vivo con closest() así que
+   sigue andando aunque renderMenu() reemplace el DOM). Solo toca las
+   variables CSS --tiltX/--tiltY; el resto del transform (hover/active) lo
+   sigue manejando el CSS normal, ver .game-menu-btn en burako.css. */
+(function initMenuButtonTilt(){
+  const fine=matchMedia("(pointer:fine)");
+  const reduced=matchMedia("(prefers-reduced-motion:reduce)");
+  let current=null;
+  document.addEventListener("pointermove",(e)=>{
+    if(!fine.matches||reduced.matches) return;
+    const btn=e.target.closest&&e.target.closest(".game-menu-btn");
+    if(btn!==current){ if(current){ current.style.setProperty("--tiltX","0deg"); current.style.setProperty("--tiltY","0deg"); } current=btn; }
+    if(!btn) return;
+    const r=btn.getBoundingClientRect();
+    const px=(e.clientX-r.left)/r.width, py=(e.clientY-r.top)/r.height;
+    btn.style.setProperty("--tiltX",((px-0.5)*4).toFixed(2)+"deg");
+    btn.style.setProperty("--tiltY",((0.5-py)*4).toFixed(2)+"deg");
+  });
+})();
 
 // La música (loop de fondo, Web Audio + <audio> de archivo para el menú) no se
 // enteraba de que la pestaña dejó de estar visible — cambiar de pestaña, minimizar

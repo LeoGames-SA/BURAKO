@@ -3,7 +3,7 @@
    cliente). El modo online sigue necesitando red para el WebSocket — eso no lo toca este SW.
    IMPORTANTE: subir CACHE_VERSION cada vez que cambie GAME_VERSION en burako.js, si no los
    celulares que ya instalaron la app se quedan con los archivos viejos cacheados. */
-const CACHE_VERSION = "burako-v1.2.10";
+const CACHE_VERSION = "burako-v1.2.16";
 
 const PRECACHE_URLS = [
   "./",
@@ -12,6 +12,28 @@ const PRECACHE_URLS = [
   "./burako.js",
   "./burako-core.js",
   "./vendor/vendor-bundle.js",
+  "./img/tower/fondo.png",
+  "./img/tower/torre.png",
+  "./img/tower/cofre.png",
+  "./img/tower/boton-ir-a-la-torre.png",
+  "./img/pass/fondo.png",
+  "./img/pass/banner.png",
+  "./img/pass/emblema.png",
+  "./img/pass/cofre.png",
+  "./img/pass/boton-ver-pase.png",
+  "./img/ruleta/fondo.png",
+  "./img/ruleta/banner.png",
+  "./img/ruleta/ruleta.png",
+  "./img/ruleta/monedas.png",
+  "./img/ruleta/boton.png",
+  "./img/profile/panel.png",
+  "./img/profile/avatar-frame.png",
+  "./img/profile/avatar-default.png",
+  "./img/profile/rank-shield.png",
+  "./img/menu-buttons/jugar.png",
+  "./img/menu-buttons/perfil.png",
+  "./img/menu-buttons/tienda.png",
+  "./img/menu-buttons/novedades.png",
   "./fonts/fonts.css",
   "./fonts/Cinzel-variable.woff2",
   "./fonts/CinzelDecorative-400.woff2",

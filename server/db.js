@@ -1411,7 +1411,13 @@ const DAILY_TZ = "America/Montevideo";
 // [min,max] de monedas por día de racha (1..7) — fase inicial solo monedas.
 const DAILY_REWARD_RANGES = [[50, 80], [60, 100], [80, 120], [100, 150], [130, 190], [170, 240], [250, 400]];
 // Segmentos discretos dentro de cada rango — nunca un monto continuo/manipulable.
-const DAILY_REWARD_SEGMENTS = 5;
+// [rediseño ruleta] Antes 5 — la rueda nueva (asset del usuario) tiene 8
+// gajos físicos dibujados; para que la animación caiga SIEMPRE en el centro
+// de un gajo real (nunca entre dos), la cantidad de segmentos lógicos pasa
+// a coincidir con la cantidad de gajos físicos. Mismos rangos [lo,hi] de
+// siempre por día de racha, mismo mecanismo de azar (crypto.randomInt acá
+// abajo) — solo cambia a cuántos pasos discretos se parte cada rango.
+const DAILY_REWARD_SEGMENTS = 8;
 
 function uruguayDateStr(d) {
   return new Intl.DateTimeFormat("en-CA", { timeZone: DAILY_TZ, year: "numeric", month: "2-digit", day: "2-digit" }).format(d || new Date());
