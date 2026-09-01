@@ -415,6 +415,32 @@ const findBestAttach = C.findBestAttach;
 const planBestMove = C.planBestMove;
 const findBestReorg = C.findBestReorg;
 
+/* ================================================================
+   TORRE — IA ADAPTATIVA (bloque 5, opción A del pedido)
+
+   `room.towerBehavior` es un objeto EFÍMERO por partida (vive solo en
+   memoria del room, nunca se persiste ni sobrevive a la partida) que
+   cuenta jugadas PÚBLICAS y reales del HUMANO — nunca mira su mano ni
+   nada que un rival humano no pudiera ver, y nunca afecta partidas fuera
+   de Torre (recordTowerHumanMove sale inmediato si room.towerFloor no está
+   seteado). Sirve para nudgear los sesgos de personalidad del rival DE
+   ESA PARTIDA, con un techo acotado — nunca toca `depth` (no cambia el
+   nivel de búsqueda real a mitad de partida) y el ajuste es chico a
+   propósito para que un piso fácil (attachProb/jokerUse ya limitados por
+   AI_CONFIG) nunca termine jugando como uno difícil por esto solo.
+   ================================================================ */
+function recordTowerHumanMove(room, player, kind, info) {
+  if (!room.towerFloor || !player || !player.username) return; // solo Torre, solo jugada humana real
+  const b = room.towerBehavior = room.towerBehavior || { turns: 0, wildcardUses: 0, bigMelds: 0, reorgCount: 0, attachCount: 0 };
+  b.turns++;
+  if (kind === "lay") { if (info.value >= 40) b.bigMelds++; }
+  else if (kind === "attach") b.attachCount++;
+  else if (kind === "reorg") b.reorgCount++;
+  if (info.usedJoker) b.wildcardUses++;
+}
+// adaptTowerPersonality vive en db.js (lógica pura, testeable sin arrancar
+// el servidor) — ver DB.adaptTowerPersonality.
+
 /* --- Mayora principal de AI --- */
 function maybeAIPlay(room) {
   if (!room.started || room.phase !== "playing") return;
@@ -424,6 +450,18 @@ function maybeAIPlay(room) {
   const diff = cur.aiDifficulty || "normal";
   const cfg = AI_CONFIG[diff] || AI_CONFIG.normal;
   const delay = cfg.delay[0] + Math.random() * (cfg.delay[1] - cfg.delay[0]);
+  // [Torre — personalidades, bloque 4/5] `aiPersonality` solo lo setea
+  // towerStart (ver DB.TOWER_RIVALS) — para cualquier otro bot (matchmaking,
+  // salas privadas) esto es undefined y todo se comporta exactamente igual
+  // que siempre (personality=undefined ya es no-op en burako-core.js).
+  // adaptTowerPersonality le suma un nudge acotado según cómo viene
+  // jugando el humano ESTA partida (room.towerBehavior, bloque 5) — con
+  // personality=null (fuera de Torre) devuelve null sin tocar nada.
+  const personality = cur.aiPersonality ? DB.adaptTowerPersonality(cur.aiPersonality, room.towerBehavior) : null;
+  const effectiveAttachProb = personality && personality.attachProbMult != null
+    ? Math.max(0, Math.min(1, cfg.attachProb * personality.attachProbMult))
+    : cfg.attachProb;
+  const reorgProb = personality && personality.reorgProbMult != null ? Math.max(0, Math.min(1, personality.reorgProbMult)) : 1;
 
   setTimeout(() => {
     if (!room.started || room.phase !== "playing") return;
@@ -437,7 +475,7 @@ function maybeAIPlay(room) {
     // Antes de buscar la mejor jugada, ve si conviene cambiar un comodín suelto
     // de la mesa por la ficha real que le corresponde (intercambio 1x1, siempre
     // legal, no cuesta rupturas) — solo lo hace si eso arma algo mejor.
-    const plan = planBestMove(hand, hasLaid, room.table, room.scores, cur.id, cfg.depth, cfg.jokerUse);
+    const plan = planBestMove(hand, hasLaid, room.table, room.scores, cur.id, cfg.depth, cfg.jokerUse, personality);
     if (plan.swap) {
       const targetMeld = room.table.find(m => m.id === plan.swap.meld.id);
       if (targetMeld) {
@@ -466,7 +504,7 @@ function maybeAIPlay(room) {
       }
 
       // Hard/Expert: try attach after laying
-      if (cfg.depth >= 3 && Math.random() < cfg.attachProb) {
+      if (cfg.depth >= 3 && Math.random() < effectiveAttachProb) {
         const att = findBestAttach(room.hands[cur.id], room.table);
         if (att) {
           room.hands[cur.id] = room.hands[cur.id].filter(t => t.id !== att.tile.id);
@@ -503,7 +541,7 @@ function maybeAIPlay(room) {
       // de la mano en uno o más juegos válidos, antes de simplemente robar.
       // Solo Difícil/Extremo/Claude (mismo umbral que ya usa el intento de
       // pegar) — es la búsqueda más cara del motor.
-      if (cfg.depth >= 3) {
+      if (cfg.depth >= 3 && (reorgProb >= 1 || Math.random() < reorgProb)) {
         const reorg = findBestReorg(hand, room.table, room.jokerBreaks[cur.id] || 0, cfg.jokerUse);
         if (reorg) {
           const openedMeld = room.table.find(m => m.id === reorg.meldId);
@@ -803,18 +841,27 @@ async function finishMatch(room, winnerId, opts) {
     // Solo entrega el premio del piso si ganó el HUMANO — perder (por juego
     // real, rendición o desconexión) es derrota sin recompensa, sin excepción.
     let towerResult = null;
+    let towerLivesRemaining = null;
     if (humanPlayer && winner && winner.id === humanPlayer.id) {
-      try { towerResult = await DB.claimTowerFloor(humanPlayer.username, room.towerWeekId, room.towerFloor); }
+      try { towerResult = await DB.claimTowerFloor(humanPlayer.username, room.towerWeekId, room.towerTowerId, room.towerFloor); }
       catch (e) { console.error("[finishMatch/tower] DB.claimTowerFloor falló -", e.message); }
       if (towerResult && towerResult.ok && towerResult.profile) send(humanPlayer.ws, { type: "profile", profile: towerResult.profile });
+    } else if (humanPlayer) {
+      // El humano perdió: descuenta 1 vida de ESA Torre para esta semana —
+      // el piso NO cambia (se puede reintentar sin volver al piso 1). Si la
+      // partida ni siquiera llegó a resolverse (abandono/crash), esta rama
+      // nunca se ejecuta — no hay castigo oculto por eso.
+      try { towerLivesRemaining = await DB.loseTowerLifeByUsername(humanPlayer.username, room.towerTowerId, room.towerWeekId); }
+      catch (e) { console.error("[finishMatch/tower] DB.loseTowerLifeByUsername falló -", e.message); }
     }
     room.players.forEach((p) => {
       if (!p.ws) return;
       send(p.ws, {
         type: "matchResult", won: p.id === winnerId, place: p.id === winnerId ? 1 : 2,
         winnerName: winner ? winner.name : null, ranked: false, reason: "tower",
-        towerFloor: room.towerFloor, towerWeekId: room.towerWeekId,
+        towerTower: room.towerTowerId, towerFloor: room.towerFloor, towerWeekId: room.towerWeekId,
         towerResult: (p.id === (humanPlayer && humanPlayer.id)) ? towerResult : null,
+        towerLivesRemaining: (p.id === (humanPlayer && humanPlayer.id)) ? towerLivesRemaining : null,
         update: null, betResult: null, finalHands: [],
       });
     });
@@ -1019,6 +1066,7 @@ function handleLay(room, player, tileIds) {
     meldValue: info.value,
   });
 
+  recordTowerHumanMove(room, player, "lay", { value: info.value, usedJoker: tiles.some((t) => t.joker) });
   if (handIsEmptyForWin(room, player.id)) {
     room.players.forEach((p) => { if (p.ws) send(p.ws, { type: "toast", msg: "¡" + player.name + " ganó la partida! 🎉" }); });
     finishMatch(room, player.id);
@@ -1077,6 +1125,7 @@ function handleLayMultiple(room, player, groups) {
     const uniqC = new Set(g.tiles.filter(t=>!t.joker).map(t=>t.color)).size;
     reportLiveAchievements(room, player, { playedEscalera: g.info.type==="escalera", fourColors: g.info.type==="grupo"&&uniqC===4, meldValue: g.info.value });
   });
+  recordTowerHumanMove(room, player, "lay", { value: totalPts, usedJoker: tileGroups.some((g) => g.tiles.some((t) => t.joker)) });
   advanceTurn(room, `${player.name} bajó ${tileGroups.length} juego(s) (${totalPts} pts).`, "lay");
   return null;
 }
@@ -1162,6 +1211,7 @@ function handleReorganize(room, player, openedMeldIds, newGroups) {
     if (t) _handValue += (t.joker ? 25 : t.number);
   }
   if (_handValue > 0) room.scores[player.id] = (room.scores[player.id] || 0) + _handValue;
+  recordTowerHumanMove(room, player, "reorg", { value: _handValue, usedJoker: newMelds.some((m) => m.tiles.some((t) => t.joker)) });
   const _msg = _handValue > 0
     ? player.name + " reorganizó y agregó fichas (+" + _handValue + " pts)."
     : player.name + " reorganizó la mesa (sin sumar puntos).";
@@ -1201,6 +1251,7 @@ function handleAttach(room, player, meldId, tileIds) {
   const _addedValue = tiles.reduce((s, t) => s + (t.joker ? 25 : t.number), 0);
   room.scores[player.id] = (room.scores[player.id] || 0) + _addedValue;
 
+  recordTowerHumanMove(room, player, "attach", { value: _addedValue, usedJoker: tiles.some((t) => t.joker) || meldHasJoker });
   if (handIsEmptyForWin(room, player.id)) {
     room.players.forEach((p) => { if (p.ws) send(p.ws, { type: "toast", msg: "¡" + player.name + " ganó la partida! 🎉" }); });
     finishMatch(room, player.id);
@@ -2024,24 +2075,40 @@ wss.on("connection", (ws) => {
       if (!authUser) return send(ws, { type: "error", msg: "No estás logueado." });
       const r = await DB.towerStatus(authUser);
       if (!r.ok) return send(ws, { type: "error", msg: r.error || "No se pudo consultar la Torre." });
-      send(ws, { type: "towerStatus", weekId: r.weekId, floor: r.floor, complete: r.complete, clearedFloors: r.clearedFloors, pending: r.pending || [] });
+      send(ws, {
+        type: "towerStatus", weekId: r.weekId, tower: r.tower, floor: r.floor, complete: r.complete,
+        towers: r.towers, towersCompleted: r.towersCompleted, pending: r.pending || [], pendingChests: r.pendingChests || [],
+      });
       return;
     }
     // [Torre — premios pendientes] El jugador tocó un regalo (piso ya
-    // superado o el bonus de completar) para abrirlo — la plata/ítem YA se
-    // había otorgado en el momento de superar el piso (grant_rewards es
-    // atómico); esto solo marca que ya lo vio, para que dejen de aparecer
-    // como "pendiente" en la Torre. Idempotente: tocarlo de nuevo no rompe
-    // nada. `kind`/`id` vienen de lo que ya mandó towerStatus en `pending`
-    // (floor+weekId o weekId del bonus), nunca un piso inventado por el
-    // cliente — igual no hay plata en juego acá, solo el flag de visto.
+    // superado, el bonus de completar una Torre, o el bonus de run
+    // completo) para abrirlo — la plata/ítem YA se había otorgado en el
+    // momento de superar el piso (grant_rewards es atómico); esto solo
+    // marca que ya lo vio, para que deje de aparecer como "pendiente".
+    // Idempotente: tocarlo de nuevo no rompe nada. `sourceId` viaja tal
+    // cual lo mandó towerStatus en `pending` — nunca se reconstruye acá
+    // (evita depender de un formato fijo que además ya cambió una vez,
+    // ver parseTowerPending en db.js) — igual no hay plata en juego acá,
+    // solo el flag de visto.
     if (msg.type === "towerAcknowledge") {
       if (!authUser) return send(ws, { type: "error", msg: "No estás logueado." });
-      const kind = msg.kind === "complete" ? "complete" : "floor";
-      const id = kind === "complete" ? msg.weekId : (msg.weekId + ":" + msg.floor);
-      const r = await DB.acknowledgeTowerReward(authUser, kind, id);
+      const kind = msg.kind === "run_complete" ? "run_complete" : msg.kind === "complete" ? "complete" : "floor";
+      const r = await DB.acknowledgeTowerReward(authUser, kind, msg.sourceId);
       if (!r.ok) return send(ws, { type: "error", msg: r.error || "No se pudo confirmar." });
-      send(ws, { type: "towerAcknowledged", kind, weekId: msg.weekId, floor: msg.floor });
+      send(ws, { type: "towerAcknowledged", sourceId: msg.sourceId });
+      return;
+    }
+    // [Torre — cofres] Abre un cofre de piso: el contenido YA se sorteó al
+    // ganar ese piso (createTowerChest, server-side) — esto solo lo revela
+    // y lo aplica. `chestId` es el id de fila que ya mandó towerStatus en
+    // `pendingChests`, nunca algo que el cliente arme a mano.
+    if (msg.type === "towerOpenChest") {
+      if (!authUser) return send(ws, { type: "error", msg: "No estás logueado." });
+      const r = await DB.openTowerChest(authUser, msg.chestId);
+      if (!r.ok) return send(ws, { type: "error", msg: r.error || "No se pudo abrir el cofre." });
+      send(ws, { type: "towerChestOpened", chestId: msg.chestId, tower: r.tower, floor: r.floor, tier: r.tier, rewards: r.rewards });
+      if (r.profile) send(ws, { type: "profile", profile: r.profile });
       return;
     }
     if (msg.type === "towerStart") {
@@ -2049,18 +2116,25 @@ wss.on("connection", (ws) => {
       if (room) return send(ws, { type: "error", msg: "Salí de la sala actual antes de entrar a la Torre." });
       const status = await DB.towerStatus(authUser);
       if (!status.ok) return send(ws, { type: "error", msg: status.error || "No se pudo iniciar la Torre." });
-      if (status.complete) return send(ws, { type: "error", msg: "Ya superaste los 10 pisos de esta semana. Volvé el lunes." });
+      if (status.complete) return send(ws, { type: "error", msg: "Ya superaste las 3 Torres de esta semana. Volvé el lunes." });
+      const towerId = status.tower;
       const floor = status.floor;
+      // Vidas de la Torre que le toca ahora — se rechaza ACÁ, antes de
+      // crear ninguna sala, nunca dejando que el cliente decida si puede
+      // jugar o no.
+      if ((status.towers[towerId] || {}).livesRemaining <= 0) {
+        return send(ws, { type: "error", code: "sin_intentos", msg: "Te quedaste sin intentos en esta Torre por esta semana. Volvé el lunes." });
+      }
       const prof = await DB.getProfileByName(authUser);
-      // La dificultad SIEMPRE sale de DB.TOWER_FLOOR_DIFFICULTY según el piso
-      // real del servidor — nunca de nada que mande el cliente.
-      const diff = DB.TOWER_FLOOR_DIFFICULTY[floor] || "easy";
+      // La dificultad SIEMPRE sale de DB.TOWER_DIFFICULTY según la Torre y
+      // el piso reales del servidor — nunca de nada que mande el cliente.
+      const diff = DB.TOWER_DIFFICULTY[towerId][floor] || "easy";
       const towerRoom = {
-        code: makeRoomCode(), name: "Torre — piso " + floor,
+        code: makeRoomCode(), name: "Torre " + DB.TOWER_META[towerId].name + " — piso " + floor,
         public: false, players: [], started: false, table: [], bag: [], hands: {},
         hasLaidInitial: {}, currentIdx: 0, meldCounter: 0, passStreak: 0,
         ranked: false, gameMode: "casual", chatLog: [],
-        towerFloor: floor, towerWeekId: status.weekId,
+        towerTowerId: towerId, towerFloor: floor, towerWeekId: status.weekId,
       };
       rooms.set(towerRoom.code, towerRoom);
       const humanPlayer = {
@@ -2072,13 +2146,24 @@ wss.on("connection", (ws) => {
       };
       towerRoom.players.push(humanPlayer);
       if (ws._applyRoomPlayer) ws._applyRoomPlayer(towerRoom, humanPlayer);
-      const rivalNames = { easy: "Aprendiz", normal: "Retador", hard: "Veterano", expert: "Maestro", claude: "Claude" };
+      // Rival fijo con nombre/avatar/personalidad propios (30 rivales, uno
+      // por piso — ver DB.TOWER_RIVALS). La dificultad real (profundidad,
+      // comodines) sigue viniendo SOLO de `diff`; la personalidad es un
+      // sesgo de estilo aparte (ver TOWER_PERSONALITY_PRESETS/maybeAIPlay).
+      // Fallback genérico por si algún piso no estuviera en el roster (no
+      // debería pasar nunca, los 30 están cubiertos).
+      const rivalNamesFallback = { easy: "Aprendiz", normal: "Retador", hard: "Veterano", expert: "Maestro", claude: "Claude" };
+      const rival = (DB.TOWER_RIVALS[towerId] || {})[floor];
       const bot = makeMatchmakingBot([humanPlayer.name]);
       bot.aiDifficulty = diff;
-      bot.name = "Torre · " + (rivalNames[diff] || "Rival");
-      if (diff === "claude") bot.avatar = "🧠";
+      bot.name = "Torre · " + (rival ? rival.name : (rivalNamesFallback[diff] || "Rival"));
+      bot.avatar = rival ? rival.avatar : (diff === "claude" ? "🧠" : undefined);
+      bot.aiPersonality = (rival && DB.TOWER_PERSONALITY_PRESETS[rival.personality]) || null;
       towerRoom.players.push(bot);
-      send(ws, { type: "towerStarted", code: towerRoom.code, floor, weekId: status.weekId });
+      send(ws, {
+        type: "towerStarted", code: towerRoom.code, tower: towerId, floor, weekId: status.weekId,
+        rival: rival ? { name: rival.name, avatar: rival.avatar, personality: rival.personality, boss: !!rival.boss } : null,
+      });
       send(ws, { type: "joined", code: towerRoom.code, playerId: humanPlayer.id });
       sendChatHistory(ws, towerRoom);
       broadcast(towerRoom);

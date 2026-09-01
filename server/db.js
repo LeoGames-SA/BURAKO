@@ -132,6 +132,9 @@ const CATALOG = {
     { id: "artico",       name: "Ártico",           price: 3100 },
     { id: "bambu",        name: "Bambú Zen",        price: 2200 },
     { id: "vitral",       name: "Vitral",           price: 3600 },
+    // [Torre — bloque 3] Nuevo, real y comprable (no exclusivo) — también
+    // aparece en el pool de cofres épicos de Torre (ver TOWER_CHEST_LOOT).
+    { id: "brasas",       name: "Brasas",           price: 2600 },
   ],
   effects: [
     { id: "clasico",   name: "Clásico",   price: 0 },
@@ -1517,64 +1520,237 @@ async function claimDailyReward(username) {
 }
 
 /* ============================================================
-   TORRE SEMANAL (v1.3) — 10 pisos contra IA escalonada, reinicio semanal
-   (lunes 00:00 Uruguay). MISMA decisión de diseño que Ruleta diaria: SIN
-   tabla `tower_progress` nueva — se evaluó explícitamente (pedido de la
-   tarea) si el progreso se puede derivar de `reward_grants` con
-   source_type='tower', source_id='{weekId}:{floor}', y la respuesta es que
-   SÍ alcanza para validación e idempotencia correctas: el piso actual es
-   "el primero de 1-10 sin una fila para week_id actual", y superar un piso
-   ya superado simplemente no vuelve a otorgar nada (mismo unique constraint
-   de siempre). No se necesitó crear ninguna migración.
+   TORRE SEMANAL (v2) — 3 Torres consecutivas (Violeta/Roja/Dorada) de 10
+   pisos c/u = 30 pisos, vidas por Torre, reinicio semanal (lunes 00:00
+   Uruguay). MISMO criterio de diseño que v1 (y que Ruleta diaria): SIN
+   tabla de progreso de pisos — se deriva de `reward_grants` con
+   source_type='tower', source_id='{weekId}:{towerId}:{floor}' (antes era
+   '{weekId}:{floor}' para la única Torre que existía; ver
+   getTowerClearedFloorsAll para el porqué de que esto no necesite migrar
+   nada histórico). El piso actual de una Torre es "el primero de 1-10 sin
+   una fila para ese towerId+weekId", igual que antes.
 
-   IMPORTANTE (restricción de esta pasada): estas funciones NO se probaron
-   contra Supabase real — la tarea prohibió explícitamente conectarse al
-   proyecto de producción en esta segunda pasada. Sí están cubiertas por
-   tests puros (weekId, computeCurrentFloor, tabla de premios/dificultad) en
-   scripts/test-tower.mjs. La integración real contra Supabase queda
-   pendiente de una corrida futura con autorización explícita o un proyecto
-   de staging separado.
+   Lo único que si necesitó una tabla nueva son las VIDAS por Torre
+   (`tower_lives`, migración 20260831120000_tower_v2_three_towers.sql):
+   perder un piso no genera ninguna fila en reward_grants (no hay nada que
+   otorgar), así que no hay ledger del que derivar cuántos intentos quedan.
+
+   IMPORTANTE (misma restricción que siempre): estas funciones se prueban
+   con lógica pura (weekId, computeCurrentTowerFloor, tablas de premios/
+   dificultad) en scripts/test-tower.mjs, sin tocar Supabase. La migración
+   nueva y la integración real (towerStatus/claimTowerFloor/tower_lives
+   contra Supabase) quedan pendientes de autorización explícita del
+   usuario — no hay proyecto de staging separado de producción (ver
+   docs/ai/DECISIONS.md).
    ============================================================ */
-const TOWER_FLOOR_DIFFICULTY = { 1: "easy", 2: "easy", 3: "normal", 4: "normal", 5: "hard", 6: "hard", 7: "hard", 8: "expert", 9: "expert", 10: "claude" };
-// [v1.3.4 — rediseño de recompensas] Progresión balanceada contra la
-// economía real del juego (no simulada): skins comprables van de 1500 a
-// 12000 🪙, tapetes de 1200 a 4000, efectos de 1200 a 3500 (ver SKINS/
-// TAPETES/FX_LIST en client/burako.js); la Ruleta diaria da 50-400 🪙/día
-// al azar (~1000-1400/semana en un uso normal). Completar los 10 pisos de
-// punta a punta (algo que exige ganarle a una IA que escala hasta "Claude"
-// en el piso 10, no es gratis) da ~2725 🪙 + 950 XP + 2 efectos exclusivos
-// + el bonus de completar — un empujón real hacia un cosmético de gama
-// media, sin regalar los de gama alta ni superar lo que ya se puede ganar
-// jugando/con la Ruleta en una semana normal. Cofres = solo un nombre/ícono
-// para el salto de monto en la UI (piso 3/5/7), no una mecánica de loot
-// aparte — mantiene todo predecible y fácil de balancear.
-const TOWER_FLOOR_PRIZES = {
-  1: [{ type: "coins", amount: 60 }, { type: "xp", amount: 20 }],
-  2: [{ type: "coins", amount: 75 }, { type: "xp", amount: 25 }],
-  3: [{ type: "coins", amount: 100 }, { type: "xp", amount: 30 }], // "Cofre Común"
-  4: [{ type: "coins", amount: 140 }, { type: "xp", amount: 45 }],
-  5: [{ type: "coins", amount: 190 }, { type: "xp", amount: 65 }], // "Cofre Raro"
-  6: [{ type: "coins", amount: 240 }, { type: "xp", amount: 85 }],
-  7: [{ type: "coins", amount: 320 }, { type: "xp", amount: 110 }], // "Cofre Épico"
-  8: [{ type: "coins", amount: 400 }, { type: "xp", amount: 140 }],
-  // Recompensa premium — único efecto NUEVO exclusivo de Torre antes del
-  // 10 (reusa el sistema genérico de efectos por id+forma+paleta, sin CSS
-  // nuevo — ver FX_SHAPES/paletas en client/burako.js).
-  9: [{ type: "coins", amount: 500 }, { type: "xp", amount: 180 }, { type: "item", itemType: "effect", itemId: "torre_relampago" }],
-  // Gran recompensa semanal — Torre Celestial ya existía; ahora además el
-  // piso 10 por sí solo también sube de monto (antes 400/150).
-  10: [{ type: "coins", amount: 700 }, { type: "xp", amount: 250 }, { type: "item", itemType: "effect", itemId: "torre_celestial" }],
+const TOWER_IDS = [1, 2, 3];
+const TOWER_META = { 1: { name: "Violeta" }, 2: { name: "Roja" }, 3: { name: "Dorada" } };
+
+// Dificultad por Torre y piso (30 entradas). A diferencia de v1 (donde el
+// único piso 10 ya llegaba a "claude"), acá solo la Torre III llega a la
+// IA más fuerte — Torre I nunca pasa de "expert" ni en su propio jefe
+// (pedido explícito: la Torre I tiene que sentirse accesible de punta a
+// punta, "claude" queda reservado para el contenido endgame de verdad).
+const TOWER_DIFFICULTY = {
+  1: { 1: "easy", 2: "easy", 3: "easy", 4: "normal", 5: "normal", 6: "normal", 7: "hard", 8: "hard", 9: "hard", 10: "expert" },
+  2: { 1: "normal", 2: "normal", 3: "normal", 4: "hard", 5: "hard", 6: "hard", 7: "hard", 8: "hard", 9: "hard", 10: "expert" },
+  3: { 1: "hard", 2: "hard", 3: "hard", 4: "expert", 5: "expert", 6: "expert", 7: "claude", 8: "claude", 9: "claude", 10: "claude" },
 };
-// [Duplicados de cosmético — pedido explícito] Los efectos exclusivos de
-// Torre (torre_relampago en piso 9, torre_celestial en piso 10) se pueden
-// volver a ganar en una semana FUTURA (los pisos se resetean cada lunes,
-// el cosmético no) — sin esto, un jugador que ya lo tiene de una semana
-// anterior perdería la parte más vistosa del premio en silencio (el
+/* ============================================================
+   TORRE — 30 RIVALES CON PERSONALIDAD (bloque 4)
+
+   Cada piso tiene un rival fijo con nombre/avatar/personalidad propios en
+   vez del genérico "Aprendiz/Retador/Veterano/Maestro/Claude" por
+   dificultad (ese mapeo queda como fallback si algún piso no estuviera acá
+   — nunca debería pasar, los 30 están cubiertos). La dificultad REAL
+   (profundidad de búsqueda, uso de comodines) sigue siendo 100%
+   TOWER_DIFFICULTY, sin excepciones — la personalidad es un sesgo de
+   ESTILO aparte, aplicado vía meldBiasValue/attachProbMult/reorgProbMult
+   en burako-core.js/maybeAIPlay, nunca cambia si una jugada es legal ni le
+   da acceso a información que un humano no tendría (ver planBestMove: la
+   IA solo ve su propia mano y la mesa, igual que siempre).
+   ============================================================ */
+// groupBias/runBias/jokerBias: multiplicador de valor al comparar melds
+// candidatos entre sí (>1 = lo prefiere en empates/casi-empates, nunca
+// hace legal algo que no lo era). attachProbMult: multiplica el attachProb
+// de la dificultad real (recortado a [0,1] al usarse). reorgProbMult:
+// probabilidad de INTENTAR reorganizar cuando el motor ya calificaría para
+// hacerlo (recortado a [0,1]) — 1 = siempre lo intenta, como el
+// comportamiento base de siempre.
+const TOWER_PERSONALITY_PRESETS = {
+  conservador: { attachProbMult: 0.6, reorgProbMult: 0.3 },
+  oportunista: { attachProbMult: 1.3, reorgProbMult: 0.5 },
+  equilibrado: {}, // sin sesgo — el punto de comparación neutral del roster
+  especialista_grupos: { groupBias: 1.35, runBias: 0.9 },
+  especialista_escaleras: { groupBias: 0.9, runBias: 1.35 },
+  bloqueador: { attachProbMult: 1.5, reorgProbMult: 1.2 }, // "cierra" la mesa: pega y reorganiza seguido
+  acumulador: { attachProbMult: 0.5, reorgProbMult: 0.4 }, // prefiere guardar y esperar una jugada grande
+  agresivo_comodines: { jokerBias: 1.4, attachProbMult: 1.1 },
+  reorganizador: { reorgProbMult: 1.3 },
+  maestro: { groupBias: 1.15, runBias: 1.15, jokerBias: 1.2, attachProbMult: 1.2, reorgProbMult: 1.2 }, // combina todos los estilos
+};
+// [Torre — IA adaptativa, bloque 5, opción A del pedido] Deriva un ajuste
+// ACOTADO sobre los sesgos de personalidad de un rival a partir de cómo
+// viene jugando el HUMANO en ESTA partida (`behavior` = room.towerBehavior,
+// contado en server.js solo con jugadas públicas reales — nunca mira la
+// mano de nadie). Pura y sin efectos: no persiste nada, no hay ML, se
+// recalcula en cada turno del bot a partir de behavior efímero de esa
+// partida. Techo fijo y chico (+0.15, siempre SUMADO sobre la base, nunca
+// multiplicado) para que un piso fácil (attachProb/jokerUse ya limitados
+// por AI_CONFIG) nunca termine jugando como uno difícil solo por esto —
+// nunca toca `depth`, el verdadero nivel de fuerza de la IA.
+function adaptTowerPersonality(basePersonality, behavior) {
+  if (!behavior || behavior.turns < 3) return basePersonality; // muy poca información todavía
+  const p = Object.assign({}, basePersonality || {});
+  const wildcardRate = behavior.wildcardUses / behavior.turns;
+  const attachRate = (behavior.attachCount + behavior.reorgCount) / behavior.turns;
+  if (wildcardRate > 0.4) p.jokerBias = Math.min(1.5, (p.jokerBias || 1) + 0.15);
+  if (attachRate > 0.4) p.attachProbMult = Math.min(1.5, (p.attachProbMult != null ? p.attachProbMult : 1) + 0.15);
+  return p;
+}
+// Nombres originales (sin ninguna referencia a IP de terceros) — guardianes/
+// conquistadores/entidades/maestros, con identidad de Torre (Violeta/Roja/
+// Dorada). El piso 10 de cada Torre es el jefe (mismo personality "maestro"
+// que el resto de jefes, para que se sienta como el techo real de esa Torre).
+const TOWER_RIVALS = {
+  1: {
+    1: { name: "Iniciado Bruma", avatar: "🌫️", personality: "conservador" },
+    2: { name: "Aprendiz Espina", avatar: "🥀", personality: "oportunista" },
+    3: { name: "Centinela Gris", avatar: "🗿", personality: "equilibrado" },
+    4: { name: "Errante del Bosque", avatar: "🌲", personality: "especialista_grupos" },
+    5: { name: "Vigía Escarcha", avatar: "❄️", personality: "especialista_escaleras" },
+    6: { name: "Cazador de Sombras", avatar: "🐺", personality: "bloqueador" },
+    7: { name: "Heraldo Violeta", avatar: "🔮", personality: "acumulador" },
+    8: { name: "Duelista Nocturno", avatar: "🗡️", personality: "agresivo_comodines" },
+    9: { name: "Guardiana del Umbral", avatar: "🕯️", personality: "reorganizador" },
+    10: { name: "Señor Amatista", avatar: "👑", personality: "maestro", boss: true },
+  },
+  2: {
+    1: { name: "Soldado Carmesí", avatar: "⚔️", personality: "equilibrado" },
+    2: { name: "Verdugo de Brasas", avatar: "🔥", personality: "agresivo_comodines" },
+    3: { name: "Estratega de Hierro", avatar: "⚙️", personality: "especialista_grupos" },
+    4: { name: "Centinela de Cenizas", avatar: "🌋", personality: "bloqueador" },
+    5: { name: "Arquitecta de Fuego", avatar: "🏗️", personality: "reorganizador" },
+    6: { name: "Cazadora Escarlata", avatar: "🏹", personality: "oportunista" },
+    7: { name: "Maestro Forjador", avatar: "🔨", personality: "especialista_escaleras" },
+    8: { name: "Guardián de Magma", avatar: "🪨", personality: "acumulador" },
+    9: { name: "Comandante Carmesí", avatar: "🎖️", personality: "maestro" },
+    10: { name: "Emperatriz de Brasas", avatar: "👑", personality: "maestro", boss: true },
+  },
+  3: {
+    1: { name: "Custodio Áureo", avatar: "🛡️", personality: "equilibrado" },
+    2: { name: "Portador del Ocaso", avatar: "🌅", personality: "especialista_escaleras" },
+    3: { name: "Tejedora Celestial", avatar: "✨", personality: "especialista_grupos" },
+    4: { name: "Centinela del Eclipse", avatar: "🌑", personality: "bloqueador" },
+    5: { name: "Oráculo Dorado", avatar: "🔱", personality: "acumulador" },
+    6: { name: "Heraldo del Vacío", avatar: "🌀", personality: "agresivo_comodines" },
+    7: { name: "Guardián Ancestral", avatar: "🗿", personality: "reorganizador" },
+    8: { name: "Campeona Solar", avatar: "☀️", personality: "oportunista" },
+    9: { name: "Sabio del Trono", avatar: "📜", personality: "maestro" },
+    10: { name: "El Soberano Dorado", avatar: "👑", personality: "maestro", boss: true },
+  },
+};
+// Premios por Torre y piso. Torre I queda IDÉNTICA a v1 (ya calibrada
+// contra la economía real, con jugadores reales que ya la jugaron — ver
+// el razonamiento completo más abajo). Torre II escala ~1.8x, Torre III
+// ~3x, sobre esa misma base. Los cosméticos exclusivos de Torre II/III
+// (skin/título/banner nuevos) se suman en un bloque aparte una vez exista
+// su catálogo real — por ahora esos pisos pagan coins+xp, igual que
+// cualquier otro piso intermedio, sin dejar de superarse ni de contar
+// para el progreso.
+//
+// skins comprables van de 1500 a 12000 🪙, tapetes de 1200 a 4000, efectos
+// de 1200 a 3500 (ver SKINS/TAPETES/FX_LIST en client/burako.js); la
+// Ruleta diaria da 50-400 🪙/día al azar (~1000-1400/semana en un uso
+// normal). Completar los 10 pisos de la Torre I de punta a punta da
+// ~2725 🪙 + 950 XP + 2 efectos exclusivos + el bonus de completar — un
+// empujón real hacia un cosmético de gama media, sin regalar los de gama
+// alta ni superar lo que ya se puede ganar jugando/con la Ruleta en una
+// semana normal. Torre II/III son más difíciles Y más caras de completar,
+// pero llegar hasta el piso 30 en una misma semana sigue siendo algo que
+// muy pocos jugadores van a lograr regularmente.
+const TOWER_PRIZES = {
+  1: {
+    1: [{ type: "coins", amount: 60 }, { type: "xp", amount: 20 }],
+    2: [{ type: "coins", amount: 75 }, { type: "xp", amount: 25 }],
+    3: [{ type: "coins", amount: 100 }, { type: "xp", amount: 30 }],
+    4: [{ type: "coins", amount: 140 }, { type: "xp", amount: 45 }],
+    5: [{ type: "coins", amount: 190 }, { type: "xp", amount: 65 }],
+    6: [{ type: "coins", amount: 240 }, { type: "xp", amount: 85 }],
+    7: [{ type: "coins", amount: 320 }, { type: "xp", amount: 110 }],
+    8: [{ type: "coins", amount: 400 }, { type: "xp", amount: 140 }],
+    // Recompensa premium — único efecto NUEVO exclusivo de Torre antes del
+    // 10 (reusa el sistema genérico de efectos por id+forma+paleta, sin
+    // CSS nuevo — ver FX_SHAPES/paletas en client/burako.js).
+    9: [{ type: "coins", amount: 500 }, { type: "xp", amount: 180 }, { type: "item", itemType: "effect", itemId: "torre_relampago" }],
+    10: [{ type: "coins", amount: 700 }, { type: "xp", amount: 250 }, { type: "item", itemType: "effect", itemId: "torre_celestial" }],
+  },
+  2: {
+    1: [{ type: "coins", amount: 110 }, { type: "xp", amount: 35 }],
+    2: [{ type: "coins", amount: 140 }, { type: "xp", amount: 45 }],
+    3: [{ type: "coins", amount: 180 }, { type: "xp", amount: 55 }],
+    4: [{ type: "coins", amount: 230 }, { type: "xp", amount: 75 }],
+    5: [{ type: "coins", amount: 300 }, { type: "xp", amount: 100 }],
+    6: [{ type: "coins", amount: 380 }, { type: "xp", amount: 130 }],
+    7: [{ type: "coins", amount: 480 }, { type: "xp", amount: 165 }],
+    8: [{ type: "coins", amount: 600 }, { type: "xp", amount: 210 }],
+    // Título exclusivo — primer contenido real de la categoría "title"
+    // (existía en el esquema desde el reward engine, pero nunca se había
+    // usado). Igual que los efectos de Torre I: se paga íntegro al ganar
+    // este piso, sin pasar por el cofre.
+    9: [{ type: "coins", amount: 750 }, { type: "xp", amount: 260 }, { type: "title", itemId: "guardian_carmesi" }],
+    // Skin exclusiva de Torre — no está en CATALOG.skins (ver client
+    // SKINS: price:null, sourceOnly), así que no se puede comprar ni con
+    // monedas: solo llegando hasta acá.
+    10: [{ type: "coins", amount: 1000 }, { type: "xp", amount: 350 }, { type: "item", itemType: "skin", itemId: "escarlata_torre" }],
+  },
+  3: {
+    1: [{ type: "coins", amount: 180 }, { type: "xp", amount: 60 }],
+    2: [{ type: "coins", amount: 230 }, { type: "xp", amount: 75 }],
+    3: [{ type: "coins", amount: 300 }, { type: "xp", amount: 95 }],
+    4: [{ type: "coins", amount: 380 }, { type: "xp", amount: 125 }],
+    5: [{ type: "coins", amount: 500 }, { type: "xp", amount: 165 }],
+    6: [{ type: "coins", amount: 640 }, { type: "xp", amount: 215 }],
+    7: [{ type: "coins", amount: 800 }, { type: "xp", amount: 270 }],
+    8: [{ type: "coins", amount: 1000 }, { type: "xp", amount: 340 }],
+    9: [{ type: "coins", amount: 1250 }, { type: "xp", amount: 420 }, { type: "item", itemType: "banner", itemId: "corona_dorada" }],
+    10: [{ type: "coins", amount: 1800 }, { type: "xp", amount: 600 }, { type: "item", itemType: "skin", itemId: "titan_dorado" }],
+  },
+};
+// Bonus al completar CADA Torre (piso 10 superado), aparte del premio
+// propio del piso 10 — source_id propio ("tower_complete", "{weekId}:
+// {towerId}") para que sea idempotente por su cuenta, igual que en v1. Cada
+// uno suma también un título exclusivo de esa Torre (primer contenido real
+// de la categoría "title" del reward engine).
+const TOWER_COMPLETE_BONUS = {
+  1: [{ type: "coins", amount: 500 }, { type: "xp", amount: 200 }, { type: "title", itemId: "ascendente" }],
+  2: [{ type: "coins", amount: 800 }, { type: "xp", amount: 300 }, { type: "title", itemId: "forjado_en_fuego" }],
+  3: [{ type: "coins", amount: 1500 }, { type: "xp", amount: 500 }, { type: "title", itemId: "leyenda_dorada" }],
+};
+// Bonus EXTRA por completar las 3 Torres en la misma semana (piso 30) —
+// aparte del bonus de Torre III de arriba. Es la base del contador
+// histórico "Torres conquistadas" del perfil (ver getTowersCompletedCount):
+// se deriva de cuántas filas tiene este source_type, sin columna nueva en
+// profiles. Trae el título más prestigioso de todos — pensado para que
+// muy pocos jugadores lo tengan.
+const TOWER_RUN_COMPLETE_BONUS = [{ type: "coins", amount: 500 }, { type: "title", itemId: "conquistador_de_la_torre" }];
+// [Duplicados de cosmético — pedido explícito] Cualquier ítem/título fijo
+// de Torre (no los de cofre, que ya tienen su propia conversión por
+// rareza — ver TOWER_CHEST_DUPLICATE_COINS) se puede volver a ganar en una
+// semana FUTURA o al completar la misma Torre otra vez (los pisos se
+// resetean cada lunes, el cosmético/título no) — sin esto, un jugador que
+// ya lo tiene perdería la parte más vistosa del premio en silencio (el
 // `on conflict do nothing` de inventory_items lo absorbe sin avisar). En
-// vez de eso, si ya lo tiene, se le da esta conversión en monedas —
-// ni la mitad del precio de un efecto comprable comparable (1200-3500 🪙),
-// pero tampoco nada: es un "ya lo tenés, tomá esto en cambio" honesto.
-const TOWER_ITEM_DUPLICATE_COINS = { torre_relampago: 300, torre_celestial: 400 };
+// vez de eso, si ya lo tiene, se le da esta conversión en monedas — nunca
+// nada. Los títulos valen menos (son puro adorno, sin categoría
+// comprable equivalente); las skins exclusivas más caras reflejan que son
+// el ítem más premium de su Torre.
+const TOWER_ITEM_DUPLICATE_COINS = {
+  torre_relampago: 300, torre_celestial: 400,
+  guardian_carmesi: 350, escarlata_torre: 1800,
+  corona_dorada: 500, titan_dorado: 3000,
+  ascendente: 200, forjado_en_fuego: 400, leyenda_dorada: 800, conquistador_de_la_torre: 1000,
+};
 async function ownsItem(profileId, itemType, itemId) {
   const { data, error } = await supabase
     .from("inventory_items")
@@ -1586,14 +1762,18 @@ async function ownsItem(profileId, itemType, itemId) {
   if (error) { console.error("[db] ownsItem: error -", error.message); return false; }
   return !!data;
 }
-// Devuelve la lista de rewards de un piso, cambiando cualquier ítem que el
-// jugador YA tenga por su conversión en monedas — nunca se pierde nada en
-// silencio. El resto de los rewards (coins/xp) queda intacto.
-async function resolveTowerRewards(profileId, floor) {
-  const base = TOWER_FLOOR_PRIZES[floor];
+// Reescribe una lista de rewards cambiando cualquier ítem/título que el
+// jugador YA tenga por su conversión en monedas (TOWER_ITEM_DUPLICATE_COINS)
+// — nunca se pierde nada en silencio. El resto de los rewards (coins/xp)
+// queda intacto. Genérica: la usan tanto los premios de piso
+// (resolveTowerRewards) como los bonus de Torre completa/run completo, que
+// también pueden repetirse semana a semana.
+async function resolveDuplicates(profileId, rewardsList) {
   const out = [];
-  for (const r of base) {
-    if (r.type === "item" && (await ownsItem(profileId, r.itemType, r.itemId))) {
+  for (const r of rewardsList) {
+    const isItemOrTitle = r.type === "item" || r.type === "title";
+    const itemType = r.type === "title" ? "title" : r.itemType;
+    if (isItemOrTitle && (await ownsItem(profileId, itemType, r.itemId))) {
       const coins = TOWER_ITEM_DUPLICATE_COINS[r.itemId] || 0;
       if (coins > 0) out.push({ type: "coins", amount: coins });
       continue;
@@ -1602,11 +1782,183 @@ async function resolveTowerRewards(profileId, floor) {
   }
   return out;
 }
-// Bonus aparte por completar los 10 pisos en la semana — se otorga UNA vez
-// por semana (idempotente por su propio source_id, separado del premio del
-// piso 10) apenas se confirma floor===10, ya que superar el 10 siempre
-// implica que la Torre quedó completa (los pisos se hacen en orden).
-const TOWER_COMPLETE_BONUS = [{ type: "coins", amount: 500 }, { type: "xp", amount: 200 }];
+async function resolveTowerRewards(profileId, towerId, floor) {
+  return resolveDuplicates(profileId, TOWER_PRIZES[towerId][floor]);
+}
+/* ============================================================
+   TORRE — COFRES CON LOOT DIFERIDO (bloque 2)
+
+   El premio "fijo" de cada piso (coins/xp de TOWER_PRIZES, y el ítem
+   garantizado de los pisos 9/10 de la Torre I) se paga íntegro al ganar,
+   sin sorpresa — eso no cambia. El COFRE es un premio ADICIONAL: su
+   contenido se sortea UNA sola vez, en el mismo instante en que se ganó el
+   piso (ver createTowerChest, llamado desde claimTowerFloor), pero queda
+   guardado sin revelar en `tower_chests` hasta que el jugador elige
+   abrirlo. Abrir el cofre nunca vuelve a tirar RNG — solo revela lo que ya
+   estaba decidido y lo aplica a la cuenta (grantRewards, atómico e
+   idempotente por su propio source_id, igual que el resto de Torre).
+
+   Todos los pisos dan cofre — el TIER (calidad del pool) escala con la
+   Torre y el piso: Kombatiente/Reino en la Torre I, Reino/Ancestral/
+   Conquistador en la Torre II, Conquistador/Titán en la Torre III. Los
+   pisos 9 y 10 de cada Torre tienen un piso mínimo de rareza garantizado
+   (nunca "solo monedas" en un piso importante) — ver TOWER_CHEST_GUARANTEE.
+   ============================================================ */
+const TOWER_CHEST_TIER = {
+  1: { 1: "kombatiente", 2: "kombatiente", 3: "kombatiente", 4: "kombatiente", 5: "kombatiente", 6: "reino", 7: "reino", 8: "reino", 9: "reino", 10: "reino" },
+  2: { 1: "reino", 2: "reino", 3: "reino", 4: "reino", 5: "ancestral", 6: "ancestral", 7: "ancestral", 8: "ancestral", 9: "ancestral", 10: "conquistador" },
+  3: { 1: "conquistador", 2: "conquistador", 3: "conquistador", 4: "conquistador", 5: "titan", 6: "titan", 7: "titan", 8: "titan", 9: "titan", 10: "titan" },
+};
+// Probabilidad de cada resultado al abrir un cofre de este tier — "coins" es
+// el relleno (sin cosmético nuevo), el resto son las 4 rarezas de
+// TOWER_CHEST_LOOT. Deben sumar 100 (verificado en test-tower.mjs).
+const TOWER_CHEST_TIER_WEIGHTS = {
+  kombatiente: { coins: 55, comun: 30, raro: 12, epico: 3, legendario: 0 },
+  reino: { coins: 40, comun: 30, raro: 20, epico: 9, legendario: 1 },
+  ancestral: { coins: 25, comun: 25, raro: 30, epico: 17, legendario: 3 },
+  conquistador: { coins: 15, comun: 15, raro: 30, epico: 30, legendario: 10 },
+  titan: { coins: 5, comun: 5, raro: 20, epico: 40, legendario: 30 },
+};
+// Rango de monedas cuando el resultado es "relleno" (sin cosmético) — sube
+// con el tier del cofre, igual que el resto de la economía de Torre.
+const TOWER_CHEST_COIN_BONUS_RANGE = {
+  kombatiente: [40, 90], reino: [80, 160], ancestral: [150, 280], conquistador: [250, 450], titan: [400, 700],
+};
+// Pools de cosméticos por rareza — TODOS ítems reales que ya existen en el
+// catálogo de la Tienda (ver SKINS/TAPETES/EFFECTS/TRAILS en
+// client/burako.js), elegidos por precio como referencia de rareza. Ganar
+// uno acá lo entrega gratis (no hace falta comprarlo después). Cuando
+// exista el catálogo de cosméticos EXCLUSIVOS de Torre II/III (bloque
+// aparte), la rareza "legendario" de esas Torres puede apuntar a esos en
+// vez de a estos — por ahora, contenido real y funcional con lo que ya
+// existe, sin inventar ids que no están en ningún catálogo.
+const TOWER_CHEST_LOOT = {
+  comun: [
+    { itemType: "tapete", itemId: "fieltroverde" }, { itemType: "tapete", itemId: "fieltroazul" },
+    { itemType: "trail", itemId: "viento" }, { itemType: "trail", itemId: "dorada" }, { itemType: "trail", itemId: "terremoto" },
+    { itemType: "effect", itemId: "explosion" }, { itemType: "effect", itemId: "escarcha" },
+  ],
+  raro: [
+    { itemType: "effect", itemId: "rayo" }, { itemType: "trail", itemId: "hielo" }, { itemType: "trail", itemId: "alquimia" },
+    { itemType: "skin", itemId: "circulo" }, { itemType: "skin", itemId: "oceano" }, { itemType: "skin", itemId: "carbon" },
+    { itemType: "tapete", itemId: "esmeraldatp" }, { itemType: "tapete", itemId: "marmol" },
+  ],
+  epico: [
+    { itemType: "skin", itemId: "piedra" }, { itemType: "skin", itemId: "oriental" }, { itemType: "skin", itemId: "elite" },
+    { itemType: "skin", itemId: "fuego" }, { itemType: "skin", itemId: "hielo" },
+    { itemType: "tapete", itemId: "dorado" }, { itemType: "tapete", itemId: "neon" }, { itemType: "tapete", itemId: "cobre" },
+    { itemType: "tapete", itemId: "brasas" }, { itemType: "trail", itemId: "fugaz" },
+  ],
+  legendario: [
+    { itemType: "skin", itemId: "oro" }, { itemType: "skin", itemId: "neon" }, { itemType: "skin", itemId: "galaxia" },
+    { itemType: "skin", itemId: "steampunk" }, { itemType: "skin", itemId: "vikingo" }, { itemType: "skin", itemId: "samurai" },
+    { itemType: "skin", itemId: "cristal" }, { itemType: "skin", itemId: "dragon" },
+  ],
+};
+// Conversión a monedas si el cosmético sorteado ya se tiene — mismo
+// espíritu que TOWER_ITEM_DUPLICATE_COINS pero por rareza (el pool es más
+// amplio acá, no tiene sentido un monto fijo por id). Nunca "nada".
+const TOWER_CHEST_DUPLICATE_COINS = { comun: 80, raro: 250, epico: 600, legendario: 1200 };
+// Piso mínimo de rareza garantizado en pisos importantes — nunca "solo
+// monedas" en un piso 9/10. Torre III piso 10 es el único FORZADO al 100%
+// (el resto son "como mínimo", pueden salir mejor si el roll da más).
+const TOWER_CHEST_GUARANTEE = {
+  "1:10": { minRarity: "raro" },
+  "2:9": { minRarity: "epico" }, "2:10": { minRarity: "epico" },
+  "3:9": { minRarity: "legendario" }, "3:10": { forceRarity: "legendario" },
+};
+const TOWER_CHEST_RARITY_ORDER = ["coins", "comun", "raro", "epico", "legendario"];
+function towerChestGuarantee(towerId, floor) { return TOWER_CHEST_GUARANTEE[towerId + ":" + floor] || null; }
+// RNG por pesos, servidor únicamente (crypto.randomInt, mismo mecanismo que
+// pickDailyCoins) — nunca en el cliente.
+function pickWeighted(weights) {
+  const entries = Object.entries(weights).filter(([, w]) => w > 0);
+  const total = entries.reduce((s, [, w]) => s + w, 0);
+  let roll = crypto.randomInt(0, total);
+  for (const [key, w] of entries) { if (roll < w) return key; roll -= w; }
+  return entries[entries.length - 1][0];
+}
+function rollChestRarity(tier, opts) {
+  opts = opts || {};
+  if (opts.forceRarity) return opts.forceRarity;
+  let rarity = pickWeighted(TOWER_CHEST_TIER_WEIGHTS[tier]);
+  if (opts.minRarity && TOWER_CHEST_RARITY_ORDER.indexOf(rarity) < TOWER_CHEST_RARITY_ORDER.indexOf(opts.minRarity)) rarity = opts.minRarity;
+  return rarity;
+}
+// Sortea el contenido de un cofre — UNA sola vez, llamado solo desde
+// createTowerChest al ganar el piso. Si el cosmético sorteado ya se tiene,
+// se convierte a monedas en el momento (nunca se guarda "nada" ni un
+// duplicado silencioso en inventory_items).
+async function rollTowerChestRewards(profileId, tier, opts) {
+  const rarity = rollChestRarity(tier, opts);
+  if (rarity === "coins") {
+    const [lo, hi] = TOWER_CHEST_COIN_BONUS_RANGE[tier];
+    return { rarity, rewards: [{ type: "coins", amount: crypto.randomInt(lo, hi + 1) }] };
+  }
+  const pool = TOWER_CHEST_LOOT[rarity];
+  const pick = pool[crypto.randomInt(0, pool.length)];
+  if (await ownsItem(profileId, pick.itemType, pick.itemId)) {
+    return { rarity, rewards: [{ type: "coins", amount: TOWER_CHEST_DUPLICATE_COINS[rarity] }] };
+  }
+  return { rarity, rewards: [{ type: "item", itemType: pick.itemType, itemId: pick.itemId }] };
+}
+// Crea (sortea y persiste) el cofre de un piso recién superado. Se llama
+// UNA vez desde claimTowerFloor, después de que el premio fijo del piso ya
+// se otorgó — un fallo acá no debe tirar abajo esa respuesta (el premio
+// fijo ya está pagado), por eso el llamador lo envuelve en try/catch.
+async function createTowerChest(profileId, towerId, weekId, floor) {
+  const tier = TOWER_CHEST_TIER[towerId][floor];
+  const rolled = await rollTowerChestRewards(profileId, tier, towerChestGuarantee(towerId, floor));
+  const { error } = await supabase.from("tower_chests").insert({
+    profile_id: profileId, tower_id: towerId, week_id: weekId, floor, tier, rewards: rolled.rewards,
+  });
+  // 23505 = ya existía (reintento) — nunca se sobreescribe un cofre ya creado.
+  if (error && error.code !== "23505") console.error("[db] createTowerChest: error -", error.message);
+}
+// Cofres sin abrir de TODAS las semanas (igual que las recompensas
+// pendientes de reward_grants, un cofre ganado nunca se borra solo por el
+// reset semanal). A propósito SIN `rewards` — esa es la sorpresa, no se le
+// muestra al jugador hasta que lo abre.
+async function getPendingTowerChests(profileId) {
+  const { data, error } = await supabase
+    .from("tower_chests")
+    .select("id, tower_id, week_id, floor, tier")
+    .eq("profile_id", profileId)
+    .eq("opened", false)
+    .order("created_at", { ascending: true });
+  if (error) { console.error("[db] getPendingTowerChests: error -", error.message); return []; }
+  return (data || []).map((r) => ({ id: r.id, tower: r.tower_id, weekId: r.week_id, floor: r.floor, tier: r.tier }));
+}
+// Abre un cofre — revela y aplica lo que YA se sorteó al ganar el piso.
+// Nunca vuelve a tirar RNG. Idempotente ante doble apertura (doble click,
+// reconexión): el UPDATE de `opened` es best-effort (no bloquea si pierde
+// una carrera), pero grantRewards con su propio source_id fijo
+// ("chest:{id}") es la garantía real de que el premio nunca se duplica,
+// gane o no esta llamada esa carrera.
+async function openTowerChest(username, chestId) {
+  const row = await fetchProfileRaw(username.trim().toLowerCase());
+  if (!row) return { ok: false, error: "Usuario inexistente." };
+  const { data: chest, error } = await supabase.from("tower_chests").select("*").eq("id", chestId).eq("profile_id", row.id).maybeSingle();
+  if (error) return { ok: false, error: error.message };
+  if (!chest) return { ok: false, error: "Ese cofre no existe o no es tuyo." };
+  if (!chest.opened) {
+    const { error: updErr } = await supabase.from("tower_chests").update({ opened: true, opened_at: new Date().toISOString() }).eq("id", chestId);
+    if (updErr) console.error("[db] openTowerChest: no se pudo marcar opened -", updErr.message);
+  }
+  let grantResult;
+  try {
+    grantResult = await grantRewards(username, chest.rewards, { type: "tower_chest", id: "chest:" + chestId }, true);
+  } catch (e) {
+    return { ok: false, error: "Servidor no disponible en este momento. Probá de nuevo." };
+  }
+  if (!grantResult.ok) return grantResult;
+  let profile = null;
+  try {
+    const fresh = await fetchProfileRaw(username.trim().toLowerCase());
+    if (fresh) profile = publicProfile(rowToProfileShape(fresh));
+  } catch (e) {}
+  return { ok: true, tower: chest.tower_id, floor: chest.floor, tier: chest.tier, rewards: chest.rewards, profile };
+}
 // Semana ancla: fecha (YYYY-MM-DD, Uruguay) del lunes que abre la semana de
 // `d`. Reinicio real a las 00:00 de Uruguay del lunes (uruguayDateStr ya
 // resuelve la zona horaria) — se usa como weekId directamente (comparable
@@ -1619,57 +1971,138 @@ function towerWeekId(d) {
   monday.setUTCDate(monday.getUTCDate() - ((dow + 6) % 7)); // retrocede al lunes de esa semana
   return monday.toISOString().slice(0, 10);
 }
-// Piso actual = el primero de 1..10 SIN fila de tirada superada. null = Torre
-// completada esta semana (los 10 pisos ya tienen fila).
+// Piso actual DENTRO de una Torre = el primero de 1..10 sin fila de tirada
+// superada. null = esa Torre quedó completada esta semana (los 10 pisos ya
+// tienen fila). Sigue siendo genérica por Torre — se llama una vez por cada
+// una de las 3 (ver computeCurrentTowerFloor).
 function computeCurrentFloor(clearedFloorsSet) {
   for (let f = 1; f <= 10; f++) if (!clearedFloorsSet.has(f)) return f;
   return null;
 }
-async function getTowerClearedFloors(profileId, weekId) {
+// Trae los pisos superados de las 3 Torres en UNA sola consulta (en vez de
+// 3), agrupados por towerId. Formato nuevo de source_id: "{weekId}:
+// {towerId}:{floor}" (3 partes). Filas viejas de antes de v2 (formato
+// "{weekId}:{floor}", 2 partes) no matchean acá y quedan afuera a
+// propósito: son de una semana que ya cerró — el progreso siempre se lee
+// scopeado por weekId, así que una semana vieja nunca se vuelve a
+// consultar como "actual", sea cual sea su formato.
+async function getTowerClearedFloorsAll(profileId, weekId) {
   const { data, error } = await supabase
     .from("reward_grants")
     .select("source_id")
     .eq("profile_id", profileId)
     .eq("source_type", "tower")
     .like("source_id", weekId + ":%");
-  if (error) throw new Error("getTowerClearedFloors: " + error.message);
-  const set = new Set();
+  if (error) throw new Error("getTowerClearedFloorsAll: " + error.message);
+  const byTower = { 1: new Set(), 2: new Set(), 3: new Set() };
   (data || []).forEach((r) => {
-    const floor = Number(String(r.source_id).split(":")[1]);
-    if (floor >= 1 && floor <= 10) set.add(floor);
+    const parts = String(r.source_id).split(":");
+    if (parts.length !== 3) return;
+    const towerId = Number(parts[1]), floor = Number(parts[2]);
+    if (byTower[towerId] && floor >= 1 && floor <= 10) byTower[towerId].add(floor);
   });
-  return set;
+  return byTower;
+}
+// Torre y piso actuales de la semana: la primera de las 3 Torres (en orden
+// I->II->III) que todavía no tiene sus 10 pisos superados. Si las 3 están
+// completas, {tower:3, floor:null} (semana completa) — mismo criterio que
+// usaba computeCurrentFloor para una sola Torre, ahora encadenado.
+function computeCurrentTowerFloor(clearedByTower) {
+  for (const t of TOWER_IDS) {
+    const floor = computeCurrentFloor(clearedByTower[t] || new Set());
+    if (floor !== null) return { tower: t, floor };
+  }
+  return { tower: 3, floor: null };
+}
+// Vidas restantes de las 3 Torres para esta semana. Sin fila en
+// `tower_lives` = 3 vidas (default implícito, la fila recién se crea la
+// primera vez que se pierde ahí — ver tower_lose_life en la migración).
+async function getTowerLivesAll(profileId, weekId) {
+  const out = { 1: 3, 2: 3, 3: 3 };
+  const { data, error } = await supabase
+    .from("tower_lives")
+    .select("tower_id, lives_remaining")
+    .eq("profile_id", profileId)
+    .eq("week_id", weekId);
+  if (error) { console.error("[db] getTowerLivesAll: error -", error.message); return out; }
+  (data || []).forEach((r) => { if (out[r.tower_id] !== undefined) out[r.tower_id] = r.lives_remaining; });
+  return out;
+}
+// Descuenta 1 vida de una Torre (crea la fila con 3 si es la primera
+// derrota de la semana ahí) — atómico en una sola llamada vía RPC, sin
+// read-modify-write desde acá. Devuelve las vidas que quedaron.
+async function loseTowerLife(profileId, towerId, weekId) {
+  const { data, error } = await supabase.rpc("tower_lose_life", {
+    p_profile_id: profileId, p_tower_id: towerId, p_week_id: weekId,
+  });
+  if (error) { console.error("[db] loseTowerLife: error -", error.message); return null; }
+  return data;
+}
+// Se llama SOLO desde server.js (finishMatch) cuando el HUMANO perdió una
+// partida de Torre — mismo criterio que claimTowerFloor: towerId/weekId
+// vienen de room.towerTowerId/room.towerWeekId, nunca inventados acá.
+async function loseTowerLifeByUsername(username, towerId, weekId) {
+  const row = await fetchProfileRaw(username.trim().toLowerCase());
+  if (!row) return null;
+  return loseTowerLife(row.id, towerId, weekId);
+}
+// Contador histórico "Torres conquistadas" — derivado de reward_grants
+// (una fila por cada semana en la que se completaron las 3 Torres), sin
+// columna nueva en profiles, mismo criterio que el resto de esta feature.
+async function getTowersCompletedCount(profileId) {
+  const { count, error } = await supabase
+    .from("reward_grants")
+    .select("id", { count: "exact", head: true })
+    .eq("profile_id", profileId)
+    .eq("source_type", "tower_run_complete");
+  if (error) { console.error("[db] getTowersCompletedCount: error -", error.message); return 0; }
+  return count || 0;
 }
 async function towerStatus(username) {
   const row = await fetchProfileRaw(username.trim().toLowerCase());
   if (!row) return { ok: false, error: "Usuario inexistente." };
   const weekId = towerWeekId();
-  const cleared = await getTowerClearedFloors(row.id, weekId);
-  const floor = computeCurrentFloor(cleared);
+  const clearedByTower = await getTowerClearedFloorsAll(row.id, weekId);
+  const { tower, floor } = computeCurrentTowerFloor(clearedByTower);
+  const livesByTower = await getTowerLivesAll(row.id, weekId);
   const pendingResult = await getPendingTowerRewards(username);
+  const pendingChests = await getPendingTowerChests(row.id);
+  const towersCompleted = await getTowersCompletedCount(row.id);
+  const towers = {};
+  for (const t of TOWER_IDS) {
+    towers[t] = {
+      clearedFloors: [...clearedByTower[t]].sort((a, b) => a - b),
+      livesRemaining: livesByTower[t],
+    };
+  }
   return {
-    ok: true, weekId, floor, complete: floor === null, clearedFloors: [...cleared].sort((a, b) => a - b),
+    ok: true, weekId, tower, floor, complete: floor === null, towers, towersCompleted,
     pending: pendingResult.ok ? pendingResult.pending : [],
+    pendingChests,
   };
 }
 // Se llama SOLO desde server.js (finishMatch) cuando el HUMANO ganó una
-// partida de Torre — nunca a pedido directo del cliente con un piso
-// arbitrario: `weekId`/`floor` vienen de room.towerWeekId/room.towerFloor,
-// capturados al ARRANCAR esa partida (así si la semana rota justo mientras
-// la partida está en curso, el resultado se acredita a la semana en la que
-// arrancó, no a la vigente al terminar — regla explícita y simple).
-async function claimTowerFloor(username, weekId, floor) {
+// partida de Torre — nunca a pedido directo del cliente con un piso/Torre
+// arbitraria: `weekId`/`towerId`/`floor` vienen de room.towerWeekId/
+// room.towerTowerId/room.towerFloor, capturados al ARRANCAR esa partida
+// (así si la semana rota justo mientras la partida está en curso, el
+// resultado se acredita a la semana en la que arrancó, no a la vigente al
+// terminar — regla explícita y simple, sin cambios respecto a v1).
+async function claimTowerFloor(username, weekId, towerId, floor) {
+  if (!(towerId >= 1 && towerId <= 3)) return { ok: false, error: "Torre inválida." };
   if (!(floor >= 1 && floor <= 10)) return { ok: false, error: "Piso inválido." };
   const usernameLower = username.trim().toLowerCase();
   const row = await fetchProfileRaw(usernameLower);
   if (!row) return { ok: false, error: "Usuario inexistente." };
-  const cleared = await getTowerClearedFloors(row.id, weekId);
-  const currentFloor = computeCurrentFloor(cleared);
-  // Server-authoritative: el piso a premiar tiene que ser exactamente el que
-  // ya le tocaba a este jugador esa semana — nunca el que mande el cliente
-  // "porque sí" (protege contra piso inválido/bloqueado/ya superado/manipulado).
-  if (currentFloor !== floor) return { ok: false, error: "Ese piso no está disponible para vos ahora mismo." };
-  const rewards = await resolveTowerRewards(row.id, floor);
+  const clearedByTower = await getTowerClearedFloorsAll(row.id, weekId);
+  const current = computeCurrentTowerFloor(clearedByTower);
+  // Server-authoritative: la Torre+piso a premiar tienen que ser
+  // EXACTAMENTE los que ya le tocaban a este jugador esa semana — nunca lo
+  // que mande el cliente "porque sí" (protege contra piso/Torre inválida,
+  // bloqueada, ya superada o manipulada).
+  if (current.tower !== towerId || current.floor !== floor) return { ok: false, error: "Ese piso no está disponible para vos ahora mismo." };
+  const rewards = await resolveTowerRewards(row.id, towerId, floor);
+  const sourceId = weekId + ":" + towerId + ":" + floor;
   let grantResult;
   try {
     // acknowledged:false — el premio YA se paga acá mismo (atómico, de
@@ -1677,39 +2110,77 @@ async function claimTowerFloor(username, weekId, floor) {
     // el jugador toque el regalo (ver acknowledgeTowerReward más abajo) —
     // así nunca se pierde (la plata/ítem ya está en su cuenta) pero la
     // Torre puede mostrarle "tenés un premio pendiente" si salió sin verlo.
-    grantResult = await grantRewards(username, rewards, { type: "tower", id: weekId + ":" + floor }, false);
+    grantResult = await grantRewards(username, rewards, { type: "tower", id: sourceId }, false);
   } catch (e) {
     return { ok: false, error: "Servidor no disponible en este momento. Probá de nuevo." };
   }
   if (!grantResult.ok) return grantResult;
   if (grantResult.alreadyGranted) return { ok: false, error: "Ese piso ya estaba superado.", alreadyClaimed: true };
+  // Cofre del piso — premio ADICIONAL al de arriba, con su propio loot
+  // sorteado ahora mismo pero revelado recién cuando el jugador lo abra
+  // (ver createTowerChest). Un fallo acá no debe tirar abajo la respuesta:
+  // el premio fijo del piso ya está pagado.
+  try { await createTowerChest(row.id, towerId, weekId, floor); }
+  catch (e) { console.error("[db] claimTowerFloor: no se pudo crear el cofre del piso -", e.message); }
   // Bonus de Torre completa — separado del premio del piso 10, su propio
   // source_id así grant_rewards lo trata como una recompensa aparte e
-  // idempotente por su cuenta (una sola vez por semana, sin importar
-  // cuántas veces se reintente esta llamada).
+  // idempotente por su cuenta (una sola vez por semana y por Torre, sin
+  // importar cuántas veces se reintente esta llamada).
   if (floor === 10) {
-    try { await grantRewards(username, TOWER_COMPLETE_BONUS, { type: "tower_complete", id: weekId }, false); }
-    catch (e) { console.error("[db] claimTowerFloor: no se pudo otorgar el bonus de Torre completa -", e.message); }
+    try {
+      const completeRewards = await resolveDuplicates(row.id, TOWER_COMPLETE_BONUS[towerId]);
+      await grantRewards(username, completeRewards, { type: "tower_complete", id: weekId + ":" + towerId }, false);
+    } catch (e) { console.error("[db] claimTowerFloor: no se pudo otorgar el bonus de Torre completa -", e.message); }
+    // Las 3 Torres completas esta semana -> bonus extra, aparte del de
+    // Torre III, con su propio source_id (idempotente por su cuenta).
+    if (towerId === 3) {
+      try {
+        const runRewards = await resolveDuplicates(row.id, TOWER_RUN_COMPLETE_BONUS);
+        await grantRewards(username, runRewards, { type: "tower_run_complete", id: weekId }, false);
+      } catch (e) { console.error("[db] claimTowerFloor: no se pudo otorgar el bonus de run completo -", e.message); }
+    }
   }
   let profile = null;
   try {
     const freshRow = await fetchProfileRaw(usernameLower);
     if (freshRow) profile = publicProfile(rowToProfileShape(freshRow));
   } catch (e) {}
-  const nextCleared = new Set(cleared); nextCleared.add(floor);
-  const nextFloor = computeCurrentFloor(nextCleared);
-  // rewards: lo REALMENTE otorgado esta vez (puede diferir de
-  // TOWER_FLOOR_PRIZES si un cosmético se convirtió a monedas por
-  // duplicado, ver resolveTowerRewards) — el cliente lo usa para mostrar
-  // el regalo con el monto real en vez de confiar ciegamente en su tabla
-  // espejo estática.
-  return { ok: true, floor, complete: nextFloor === null, nextFloor, profile, rewards: grantResult.rewards || rewards };
+  const nextClearedByTower = { 1: new Set(clearedByTower[1]), 2: new Set(clearedByTower[2]), 3: new Set(clearedByTower[3]) };
+  nextClearedByTower[towerId].add(floor);
+  const next = computeCurrentTowerFloor(nextClearedByTower);
+  // rewards: lo REALMENTE otorgado esta vez (puede diferir de TOWER_PRIZES
+  // si un cosmético se convirtió a monedas por duplicado, ver
+  // resolveTowerRewards) — el cliente lo usa para mostrar el regalo con el
+  // monto real en vez de confiar ciegamente en su tabla espejo estática.
+  return {
+    ok: true, tower: towerId, floor, complete: next.floor === null,
+    nextTower: next.tower, nextFloor: next.floor, profile, rewards: grantResult.rewards || rewards,
+  };
 }
-// [Torre — premios pendientes] Todos los grants de Torre (piso a piso Y el
-// bonus de completar) que el jugador todavía no reconoció — a propósito SIN
-// filtrar por semana actual: si cambió la semana y el jugador nunca vio el
-// premio de la anterior, tiene que seguir apareciendo acá (pedido explícito:
-// "no borres recompensas ganadas simplemente porque cambió la semana").
+// [Torre — premios pendientes] Todos los grants de Torre (piso a piso, el
+// bonus de completar cada Torre y el bonus de run completo) que el
+// jugador todavía no reconoció — a propósito SIN filtrar por semana
+// actual: si cambió la semana y el jugador nunca vio el premio de la
+// anterior, tiene que seguir apareciendo acá (pedido explícito: "no
+// borres recompensas ganadas simplemente porque cambió la semana").
+// `sourceId` viaja tal cual (formato opaco) para que acknowledgeTowerReward
+// no tenga que reconstruirlo — así una fila vieja (formato pre-v2, ver
+// parseTowerPending) se puede reconocer igual sin adivinar su forma.
+function parseTowerPending(r) {
+  const parts = String(r.source_id).split(":");
+  if (r.source_type === "tower_run_complete") {
+    return { kind: "run_complete", sourceId: r.source_id, weekId: r.source_id, rewards: r.rewards };
+  }
+  if (r.source_type === "tower_complete") {
+    // Formato viejo (pre-v2, una sola Torre): source_id = weekId a secas.
+    // Formato nuevo: weekId:towerId.
+    if (parts.length === 1) return { kind: "complete", sourceId: r.source_id, weekId: parts[0], tower: 1, rewards: r.rewards };
+    return { kind: "complete", sourceId: r.source_id, weekId: parts[0], tower: Number(parts[1]), rewards: r.rewards };
+  }
+  // source_type === "tower". Formato viejo: weekId:floor. Nuevo: weekId:towerId:floor.
+  if (parts.length === 2) return { kind: "floor", sourceId: r.source_id, weekId: parts[0], tower: 1, floor: Number(parts[1]), rewards: r.rewards };
+  return { kind: "floor", sourceId: r.source_id, weekId: parts[0], tower: Number(parts[1]), floor: Number(parts[2]), rewards: r.rewards };
+}
 async function getPendingTowerRewards(username) {
   const row = await fetchProfileRaw(username.trim().toLowerCase());
   if (!row) return { ok: false, error: "Usuario inexistente." };
@@ -1717,29 +2188,26 @@ async function getPendingTowerRewards(username) {
     .from("reward_grants")
     .select("source_type, source_id, rewards")
     .eq("profile_id", row.id)
-    .in("source_type", ["tower", "tower_complete"])
+    .in("source_type", ["tower", "tower_complete", "tower_run_complete"])
     .eq("acknowledged", false)
     .order("granted_at", { ascending: true });
   if (error) return { ok: false, error: error.message };
-  const pending = (data || []).map((r) => {
-    if (r.source_type === "tower_complete") return { kind: "complete", weekId: r.source_id, rewards: r.rewards };
-    const [weekId, floorStr] = String(r.source_id).split(":");
-    return { kind: "floor", weekId, floor: Number(floorStr), rewards: r.rewards };
-  });
-  return { ok: true, pending };
+  return { ok: true, pending: (data || []).map(parseTowerPending) };
 }
 // Marca un premio de Torre como reconocido/abierto — se llama cuando el
 // jugador toca el regalo (en el gameover o desde la Torre). Idempotente:
 // tocarlo dos veces (doble click, reintento de red) no hace nada raro, la
-// segunda vez simplemente confirma que ya estaba abierto.
-async function acknowledgeTowerReward(username, kind, id) {
+// segunda vez simplemente confirma que ya estaba abierto. `sourceId` viaja
+// opaco (ver parseTowerPending) — nunca se reconstruye a mano acá, así una
+// fila con formato viejo (pre-v2) también se puede reconocer.
+async function acknowledgeTowerReward(username, kind, sourceId) {
   const row = await fetchProfileRaw(username.trim().toLowerCase());
   if (!row) return { ok: false, error: "Usuario inexistente." };
-  const sourceType = kind === "complete" ? "tower_complete" : "tower";
+  const sourceType = kind === "run_complete" ? "tower_run_complete" : kind === "complete" ? "tower_complete" : "tower";
   const { data, error } = await supabase.rpc("acknowledge_reward_grant", {
     p_profile_id: row.id,
     p_source_type: sourceType,
-    p_source_id: String(id),
+    p_source_id: String(sourceId),
   });
   if (error) return { ok: false, error: error.message };
   return { ok: true, acknowledged: !!data };
@@ -1794,7 +2262,17 @@ module.exports = {
   dailyStatus, claimDailyReward,
   // Exportadas para tests de lógica pura (sin tocar Supabase) — ver scripts/test-daily-reward.mjs.
   uruguayDateStr, addDaysISO, countConsecutivePriorDays, pickDailyCoins, msUntilNextUruguayMidnight,
-  towerStatus, claimTowerFloor, getPendingTowerRewards, acknowledgeTowerReward, TOWER_FLOOR_DIFFICULTY, TOWER_FLOOR_PRIZES, TOWER_COMPLETE_BONUS,
+  towerStatus, claimTowerFloor, getPendingTowerRewards, acknowledgeTowerReward,
+  loseTowerLifeByUsername, getTowersCompletedCount,
+  TOWER_IDS, TOWER_META, TOWER_DIFFICULTY, TOWER_PRIZES, TOWER_COMPLETE_BONUS, TOWER_RUN_COMPLETE_BONUS,
+  TOWER_ITEM_DUPLICATE_COINS, resolveDuplicates,
+  TOWER_RIVALS, TOWER_PERSONALITY_PRESETS, adaptTowerPersonality,
+  // Cofres (bloque 2) — openTowerChest es la única que se llama desde
+  // server.js; el resto se exporta para tests de lógica pura.
+  openTowerChest, getPendingTowerChests,
+  TOWER_CHEST_TIER, TOWER_CHEST_TIER_WEIGHTS, TOWER_CHEST_LOOT, TOWER_CHEST_GUARANTEE,
+  TOWER_CHEST_DUPLICATE_COINS, TOWER_CHEST_COIN_BONUS_RANGE, TOWER_CHEST_RARITY_ORDER,
+  rollChestRarity, rollTowerChestRewards, pickWeighted,
   // Exportadas para tests de lógica pura — ver scripts/test-tower.mjs.
-  towerWeekId, computeCurrentFloor,
+  towerWeekId, computeCurrentFloor, computeCurrentTowerFloor, parseTowerPending,
 };

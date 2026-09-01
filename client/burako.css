@@ -438,6 +438,146 @@ body.galactico-mode .ptitle{color:rgba(216,180,254,.85)}
 @media(max-height:700px){.auth-screen .fan-compact{top:6%}}
 .fan-compact .fan .tile{animation:none}
 
+/* ============================================================
+   LOGIN v2 — capas PNG reales del usuario (background-login/burako-logo/
+   login-panel/login-info-panel/login-button/floating-tiles), recortadas a
+   su bounding box real de alpha (client/img/login/*.png, sin cajas negras
+   ni fondos visibles — verificado canal alfa antes de usarlas). Cubre
+   portada (renderIntro) Y login/registro (renderAuthScreen) con el mismo
+   "shell" (loginShellHTML) — los sub-estados breves (conectando/
+   reconectando/sin conexión) siguen con el fan-logo de siempre, sin tocar.
+   100% visual: inputs/eventos/validación/red intactos.
+   Capas (z-index pedido): fondo 0, ambiente 1, fichas flotantes 2, panel
+   10, contenido del panel 11, logo 20.
+   [ajuste v2.1, pedido del usuario] Sin parallax de mouse (se sacó del
+   todo, "no me gusta que se mueva solo") — solo queda el flote continuo
+   muy suave del logo, que es distinto a moverse con el cursor. Panel/logo
+   más chicos ("se veía muy grande/rectangular"), separación real entre el
+   logo y el panel (antes se superponían). Las animaciones de ENTRADA
+   (fade/slide-in, una sola vez) quedan condicionadas a `.login-v2-enter`
+   — mismo criterio que el resto de la app (G._enterCls): un re-render
+   dentro de la MISMA pantalla (ej. towerStatus llegando de fondo, o
+   cambiar de login a registro) no las repite. El flote continuo del logo
+   y de las fichas, en cambio, corre siempre — no es una entrada, es
+   ambiente.
+   ============================================================ */
+.login-v2{position:fixed;inset:0;overflow:hidden;display:flex;align-items:center;justify-content:center;padding:24px}
+.login-v2-bg{position:absolute;inset:0;z-index:0;background:url('./img/login/fondo.png') center/cover no-repeat}
+.login-v2-enter .login-v2-bg{animation:loginBgFade .8s ease both}
+.login-v2-ambient{position:absolute;inset:0;z-index:1;pointer-events:none;overflow:hidden}
+.login-v2-ambient::before,.login-v2-ambient::after{content:"";position:absolute;width:260px;height:260px;border-radius:50%;filter:blur(2px)}
+.login-v2-ambient::before{top:8%;left:10%;background:radial-gradient(circle,rgba(96,165,250,.16),transparent 70%);animation:loginAmbientDrift 14s ease-in-out infinite alternate}
+.login-v2-ambient::after{bottom:8%;right:12%;width:320px;height:320px;background:radial-gradient(circle,rgba(251,191,36,.10),transparent 70%);animation:loginAmbientDrift 19s ease-in-out infinite alternate-reverse}
+@keyframes loginAmbientDrift{0%{transform:translate(0,0)}100%{transform:translate(24px,-18px)}}
+@keyframes loginBgFade{0%{opacity:0}100%{opacity:1}}
+/* Una sola imagen ya trae varias fichas compuestas (no piezas sueltas) —
+   se anima como una sola capa, muy lenta, SIEMPRE (es ambiente, no
+   entrada) — sin parallax de mouse, movimiento fijo y predecible. */
+.login-v2-tiles{position:absolute;inset:-4%;z-index:2;width:108%;height:108%;object-fit:cover;pointer-events:none;opacity:.55;will-change:transform;
+  animation:loginTilesFloat 19s ease-in-out infinite alternate}
+.login-v2-enter .login-v2-tiles{animation:loginTilesFloat 19s ease-in-out infinite alternate,loginBgFade 1.1s ease both}
+@keyframes loginTilesFloat{0%{transform:translate3d(-6px,-5px,0) rotate(-.6deg)}100%{transform:translate3d(6px,7px,0) rotate(.6deg)}}
+.login-v2-stage{position:relative;z-index:10;display:flex;flex-direction:column;align-items:center;width:100%;max-width:560px;gap:16px}
+.login-v2-logo{position:relative;z-index:20;width:min(54vw,350px);height:auto;object-fit:contain;
+  filter:drop-shadow(0 0 18px rgba(56,189,248,.32));will-change:transform;
+  animation:loginLogoFloat 6s ease-in-out infinite alternate}
+.login-v2-enter .login-v2-logo{animation:loginLogoIn .7s cubic-bezier(.2,.8,.3,1.1) both,loginLogoFloat 6s ease-in-out .7s infinite alternate}
+@keyframes loginLogoIn{0%{opacity:0;transform:translateY(-15px) scale(.97)}100%{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes loginLogoFloat{0%{transform:translateY(0)}100%{transform:translateY(-6px)}}
+.login-v2-panel{position:relative;z-index:10;width:100%;max-width:520px}
+.login-v2-enter .login-v2-panel{animation:loginPanelIn .75s .08s cubic-bezier(.2,.8,.3,1) both}
+@keyframes loginPanelIn{0%{opacity:0;transform:translateY(20px)}100%{opacity:1;transform:translateY(0)}}
+.login-v2-panel-inner{position:relative;border-radius:22px;overflow:hidden;
+  background:url('./img/login/panel.png') center/100% 100% no-repeat}
+.login-v2-panel-content{position:relative;z-index:11;display:flex;flex-direction:column;align-items:stretch;
+  padding:clamp(24px,6%,34px) clamp(20px,6.5%,32px) clamp(20px,4.5%,28px)}
+.login-v2-close{position:absolute;top:12px;right:14px;z-index:12;width:28px;height:28px;border-radius:50%;
+  background:rgba(0,0,0,.28);border:1px solid rgba(184,150,63,.4);color:rgba(232,238,247,.8);font-size:13px;
+  display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background .15s,transform .15s}
+.login-v2-close:hover{background:rgba(0,0,0,.45);transform:scale(1.08)}
+.login-v2-subtitle{font-family:var(--font-heading);color:#ffe9a8;font-size:clamp(16px,2.2vw,19px);text-align:center;margin:0 0 4px}
+.login-v2-enter .login-v2-subtitle{animation:loginFieldIn .5s .12s ease both}
+.login-v2-notice{font-size:12px;color:#fbbf24;text-align:center;margin:0 0 10px;line-height:1.4}
+.login-v2-enter .login-v2-notice{animation:loginFieldIn .5s .16s ease both}
+.login-v2-desc{font-size:12.5px;color:rgba(232,238,247,.72);text-align:center;line-height:1.5;margin:0 0 12px}
+.login-v2-enter .login-v2-desc{animation:loginFieldIn .5s .14s ease both}
+.login-v2-info-wrap{position:relative;margin-top:10px}
+.login-v2-enter .login-v2-info-wrap{animation:loginFieldIn .5s .18s ease both}
+.login-v2-info-bg{position:absolute;inset:0;border-radius:14px;
+  background:url('./img/login/panel-info.png') center/100% 100% no-repeat;z-index:0}
+.login-v2-fields{position:relative;z-index:1;padding:14px clamp(12px,4vw,22px)}
+/* [Pedido] Bloque de features reales (Pase de Temporada/Torre Semanal/
+   Ruleta) en vez del texto de reglas — misma fuente dorada de los
+   títulos, no la tipografía de cuerpo genérica. */
+.login-v2-features{display:flex;flex-direction:column;gap:10px}
+.login-v2-feature{display:flex;align-items:center;gap:10px;text-align:left;
+  font-family:var(--font-heading);color:var(--gold-text,#fbbf24);font-size:clamp(12px,1.6vw,14px);
+  line-height:1.35;text-shadow:0 1px 3px rgba(0,0,0,.4)}
+.login-v2-feature-icon{font-size:18px;flex-shrink:0}
+.login-v2-lbl{display:block;font-size:10.5px;letter-spacing:1.4px;text-transform:uppercase;color:rgba(191,219,254,.65);margin:0 0 6px}
+.login-v2-fields .login-v2-lbl:not(:first-child){margin-top:12px}
+.login-v2-input-wrap{position:relative;display:flex;align-items:center}
+.login-v2-input-icon{position:absolute;left:12px;font-size:13px;opacity:.75;pointer-events:none}
+.login-v2-input{
+  width:100%;padding:10px 12px 10px 34px;border-radius:10px;font-size:13.5px;color:#fff;
+  background:rgba(3,8,26,.55);border:1px solid rgba(96,165,250,.22);
+  transition:border-color .18s,box-shadow .18s,background .18s;
+}
+.login-v2-input::placeholder{color:rgba(191,219,254,.45)}
+.login-v2-input:focus{outline:none;border-color:rgba(96,165,250,.75);background:rgba(3,8,26,.72);
+  box-shadow:0 0 0 3px rgba(56,189,248,.16),0 0 16px rgba(56,189,248,.35)}
+.login-v2-error{color:#f87171;font-size:12px;text-align:center;min-height:16px;margin:10px 0 0}
+.login-v2-submit{
+  position:relative;display:block;width:100%;max-width:280px;margin:16px auto 0;padding:0;border:none;background:none;
+  cursor:pointer;transition:transform .15s ease,filter .15s ease;
+}
+.login-v2-enter .login-v2-submit{animation:loginFieldIn .5s .24s ease both}
+.login-v2-submit img{display:block;width:100%;height:auto;pointer-events:none;user-select:none;
+  filter:drop-shadow(0 4px 10px rgba(0,0,0,.35))}
+.login-v2-submit:hover:not(:disabled){transform:scale(1.03);filter:brightness(1.08) drop-shadow(0 0 16px rgba(251,191,36,.55))}
+.login-v2-submit:active:not(:disabled){transform:scale(.98)}
+.login-v2-submit:disabled{cursor:default;opacity:.85}
+.login-v2-submit-loading{
+  position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  font-family:var(--font-heading);font-weight:700;font-size:clamp(12px,1.5vw,15px);color:#1a1200;
+  background:rgba(20,14,4,.35);border-radius:12px;letter-spacing:.5px;
+}
+.login-v2-submit-html{
+  display:block;width:100%;max-width:280px;margin:16px auto 0;padding:11px 16px;border:none;border-radius:13px;
+  background:var(--btn-gold-grad);color:#1a1200;font-family:var(--font-heading);font-weight:700;font-size:14px;cursor:pointer;
+  box-shadow:var(--btn-gold-shadow);transition:transform .15s ease,filter .15s ease;
+}
+.login-v2-enter .login-v2-submit-html{animation:loginFieldIn .5s .24s ease both}
+.login-v2-submit-html:hover:not(:disabled){transform:scale(1.03);filter:brightness(1.08)}
+.login-v2-submit-html:active:not(:disabled){transform:scale(.98)}
+.login-v2-submit-html:disabled{cursor:default;opacity:.85}
+.login-v2-ghost{display:block;margin:10px auto 0;background:none;border:none;color:rgba(191,219,254,.75);
+  font-size:12px;text-decoration:underline;cursor:pointer}
+.login-v2-enter .login-v2-ghost{animation:loginFieldIn .5s .3s ease both}
+.login-v2-ghost:hover{color:#fff}
+.login-v2-version{font-size:10px;color:rgba(232,238,247,.35);text-align:center;margin:10px 0 0}
+@keyframes loginFieldIn{0%{opacity:0;transform:translateY(8px)}100%{opacity:1;transform:translateY(0)}}
+@media(max-width:640px){
+  .login-v2-logo{width:min(50vw,250px)}
+  .login-v2-tiles{opacity:.28}
+  .login-v2-ambient::before,.login-v2-ambient::after{width:160px;height:160px}
+  .login-v2-stage{max-width:94vw}
+  .login-v2-panel-content{padding:22px 16px 18px}
+}
+@media(min-width:1900px){.login-v2-stage{max-width:560px}} /* ultrawide: el panel NO se estira, solo el fondo llena la pantalla */
+@media(prefers-reduced-motion:reduce){
+  .login-v2-bg,.login-v2-tiles,.login-v2-logo,.login-v2-panel,.login-v2-subtitle,.login-v2-notice,.login-v2-desc,
+  .login-v2-info-wrap,.login-v2-submit,.login-v2-submit-html,.login-v2-ghost{animation:none!important;opacity:1!important;transform:none!important}
+}
+/* Logo estático reusado en el menú (reemplaza el abanico animado de
+   fichas ahí — pedido explícito: "el burako nuevo que se ve re lindo").
+   data-flip-id se mantiene igual que fanLogoHTML() para que la
+   continuidad portada→login→menú (withLogoFlip/GSAP Flip) siga
+   funcionando con una imagen en vez del abanico de fichas CSS. */
+.menu-logo-img{display:block;margin:0 auto;width:min(58vw,340px);height:auto;object-fit:contain;
+  filter:drop-shadow(0 0 18px rgba(56,189,248,.3));animation:loginLogoFloat 6s ease-in-out infinite alternate}
+@media(prefers-reduced-motion:reduce){.menu-logo-img{animation:none}}
+
 /* ---------- Cerrar consistente en TODAS las pantallas ----------
    Fase 11 §7: antes CADA pantalla tenía esta X de acá Y un botón "← Volver"
    grande pegado abajo con el MISMO handler (literalmente idéntico en las 21
@@ -814,9 +954,24 @@ input[type="range"]:disabled{opacity:.35;cursor:default}
 }
 @keyframes towerBeacon{0%,100%{box-shadow:0 0 0 4px rgba(251,191,36,.16),0 0 16px rgba(251,191,36,.5)}50%{box-shadow:0 0 0 8px rgba(251,191,36,.1),0 0 28px rgba(251,191,36,.85)}}
 .tower-floor-top .tower-floor-node{
-  background:radial-gradient(circle at 35% 30%,#e9d5ff,var(--comodin));border-color:#e9d5ff;color:#2a0845;
-  box-shadow:0 0 22px rgba(168,85,247,.55);
+  background:radial-gradient(circle at 35% 30%,var(--tower-accent-light,#e9d5ff),var(--tower-accent-dark,var(--comodin)));
+  border-color:var(--tower-accent-light,#e9d5ff);color:var(--tower-accent-text,#2a0845);
+  box-shadow:0 0 22px var(--tower-accent-glow,rgba(168,85,247,.55));
 }
+/* [Identidad por Torre — bloque 6] Violeta/Roja/Dorada — recoloreo CSS de
+   lo que ya existe (decisión del usuario: arte nuevo queda para más
+   adelante). Solo cambia lo que es "marca" de cada Torre (jefe/corona/
+   camino/tarjeta del menú) — los estados FUNCIONALES (piso actual =
+   dorado, pendiente = dorado) se mantienen iguales en las 3, son
+   universales del sistema, no identidad de Torre. */
+.rt-card.tower-theme-1{--tower-accent-light:#e9d5ff;--tower-accent-dark:var(--comodin);--tower-accent-glow:rgba(168,85,247,.55);--tower-accent-text:#2a0845}
+.rt-card.tower-theme-2{--tower-accent-light:#fecaca;--tower-accent-dark:#7f1d1d;--tower-accent-glow:rgba(239,68,68,.55);--tower-accent-text:#450a0a}
+.rt-card.tower-theme-3{--tower-accent-light:#fef3c7;--tower-accent-dark:#92400e;--tower-accent-glow:rgba(250,204,21,.6);--tower-accent-text:#3a2100}
+.tower-crown-deco span{filter:drop-shadow(0 0 14px var(--tower-accent-glow,rgba(168,85,247,.7)))}
+/* Tarjeta del menú: mismos PNG (fondo/torre), recoloreados por filtro según
+   la Torre activa — Violeta es el tono original de los assets (sin filtro). */
+.tower-theme-2.menu-hero-tower .tower-hero-bg,.tower-theme-2.menu-hero-tower .tower-hero-tower-img{filter:hue-rotate(100deg) saturate(1.6) brightness(1.05)}
+.tower-theme-3.menu-hero-tower .tower-hero-bg,.tower-theme-3.menu-hero-tower .tower-hero-tower-img{filter:hue-rotate(45deg) saturate(1.3) brightness(1.2)}
 .tower-floor-card{
   background:var(--panel-bg-soft);border:1px solid var(--panel-border);border-radius:12px;
   padding:7px 10px;min-width:0;flex:1;
@@ -1601,11 +1756,21 @@ body.ingame{background:
    usa la MISMA familia de tokens que .body (--bg-mid/--bg-deep) con un tercer stop
    más profundo — sigue siendo "el mismo mundo", solo más noche/elegante, como pidió
    el usuario, en vez de un color distinto. */
+/* [Fondo del menú — imagen de referencia del usuario] Reemplaza el
+   degradé generado por la foto real ("Fondo azul real con fichas
+   doradas.png"), con un velo oscuro muy suave encima (mismo tono
+   --bg-deep de siempre) solo para que el HUD/los botones sigan
+   legibles — la imagen ya trae su propio mood azul/dorado, no hace
+   falta oscurecerla mucho. cover+center: se recorta parejo sin
+   deformarse en cualquier proporción de pantalla. */
 .menu-elegant{position:fixed;inset:0;z-index:0;overflow:hidden;
-  background:
-    radial-gradient(ellipse at 50% 28%, rgba(56,189,248,.06), transparent 55%),
-    radial-gradient(ellipse at 50% 105%, rgba(168,85,247,.10), transparent 60%),
-    radial-gradient(ellipse at 50% 35%, var(--bg-mid) 0%, var(--bg-deep) 65%, #03081a 100%)}
+  background-image:
+    radial-gradient(ellipse at 50% 20%, rgba(3,8,26,.08), rgba(3,8,26,.4) 100%),
+    url('./img/menu/fondo.png');
+  background-size:cover;
+  background-position:center;
+  background-repeat:no-repeat;
+}
 /* Layout del menú: en desktop usa el espacio vacío a los costados (Fase 11 §3/§A)
    con el mini-perfil y el destacado de temporada como columnas laterales; en
    mobile todo se apila en una sola columna centrada (donde ese espacio no sobra). */

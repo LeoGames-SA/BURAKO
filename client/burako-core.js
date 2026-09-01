@@ -209,8 +209,27 @@
     return score * 2 - handPts - hand.length * 3;
   }
 
+  // [Torre — personalidades, bloque 4] Sesgo OPCIONAL y puramente de
+  // desempate: nunca decide qué jugadas son legales (eso lo sigue haciendo
+  // enumerateMelds/meldInfo tal cual), solo pesa el VALOR con el que se
+  // COMPARAN jugadas ya legales entre sí, para que un rival con
+  // personalidad prefiera, ante empates o casi-empates, grupos vs.
+  // escaleras o el uso de comodines. `personality` es undefined para
+  // absolutamente todos los llamadores que no sean Torre (matchmaking,
+  // salas privadas, IA offline) — con undefined, meldBiasValue devuelve
+  // exactamente m.info.value, o sea CERO cambio de comportamiento para
+  // ellos. Ver TOWER_PERSONALITY_PRESETS en server/db.js.
+  function meldBiasValue(m, personality) {
+    if (!personality) return m.info.value;
+    let mult = 1;
+    if (m.info.type === "grupo" && personality.groupBias) mult *= personality.groupBias;
+    if (m.info.type === "escalera" && personality.runBias) mult *= personality.runBias;
+    if (m.usedJoker && personality.jokerBias) mult *= personality.jokerBias;
+    return m.info.value * mult;
+  }
+
   // Buscar el mejor movimiento posible, considerando combinaciones de varios juegos
-  function findBestMove(hand, hasLaid, table, scores, playerId, depth, useJokers) {
+  function findBestMove(hand, hasLaid, table, scores, playerId, depth, useJokers, personality) {
     const jokers = hand.filter((t) => t.joker);
     const nonJokers = hand.filter((t) => !t.joker);
     const melds = enumerateMelds(nonJokers, jokers, useJokers);
@@ -219,7 +238,7 @@
     if (!eligible.length) return null;
 
     if (depth <= 1) {
-      return eligible.sort((a, b) => b.info.value - a.info.value)[0];
+      return eligible.sort((a, b) => meldBiasValue(b, personality) - meldBiasValue(a, personality))[0];
     }
 
     let bestCombo = null;
@@ -230,18 +249,23 @@
         bestCombo = combo.slice();
       }
       if (combo.length >= Math.min(depth, 4)) return;
-      const remMelds = enumerateMelds(remaining.filter((t) => !t.joker), jokers, useJokers)
+      let remMelds = enumerateMelds(remaining.filter((t) => !t.joker), jokers, useJokers)
         .filter((m) => !m.tiles.some((t) => usedIds.has(t.id)))
         .filter((m) => hasLaid || combo.length > 0 || m.info.value >= 30);
+      // Sin personalidad, NO se ordena acá (mismo comportamiento de
+      // siempre: toma los primeros 8 en orden de enumeración) — el sort
+      // solo se activa cuando hay un sesgo real que aplicar, para no
+      // cambiarle el comportamiento a ningún llamador que no sea Torre.
+      if (personality) remMelds = remMelds.slice().sort((a, b) => meldBiasValue(b, personality) - meldBiasValue(a, personality));
       for (const m of remMelds.slice(0, 8)) {
         const newIds = new Set(usedIds);
         m.tiles.forEach((t) => newIds.add(t.id));
         const newRem = remaining.filter((t) => !newIds.has(t.id));
-        tryCombo(newRem, newIds, [...combo, m], totalVal + m.info.value);
+        tryCombo(newRem, newIds, [...combo, m], totalVal + meldBiasValue(m, personality));
       }
     };
     tryCombo(hand, new Set(), [], 0);
-    return bestCombo && bestCombo.length > 0 ? bestCombo[0] : eligible.sort((a, b) => b.info.value - a.info.value)[0];
+    return bestCombo && bestCombo.length > 0 ? bestCombo[0] : eligible.sort((a, b) => meldBiasValue(b, personality) - meldBiasValue(a, personality))[0];
   }
 
   // Buscar la MEJOR ficha para pegar a un juego ya bajado en la mesa — evalúa
@@ -380,15 +404,19 @@
   // mesa. Quien llama a esto es responsable de aplicar swap.meld/jokerTile/
   // realTile al estado real (mesa + mano) si vino un swap — esta función solo
   // decide, no muta nada.
-  function planBestMove(hand, hasLaid, table, scores, playerId, depth, useJokers) {
-    const baseline = findBestMove(hand, hasLaid, table, scores, playerId, depth, useJokers);
+  function planBestMove(hand, hasLaid, table, scores, playerId, depth, useJokers, personality) {
+    const baseline = findBestMove(hand, hasLaid, table, scores, playerId, depth, useJokers, personality);
     if (!useJokers) return { move: baseline, swap: null };
     const candidates = findAllJokerSwaps(hand, table);
     if (!candidates.length) return { move: baseline, swap: null };
+    // La decisión de "¿vale la pena el swap?" sigue comparando VALOR REAL
+    // (info.value), no el sesgado — un cambio de comodín es una jugada
+    // legítima sobre la mesa, no una ventaja de información, así que tiene
+    // que ganar puntos de verdad para tomarse, sin importar la personalidad.
     let bestSwap = null, bestMove = baseline, bestVal = baseline ? baseline.info.value : -1;
     for (const cand of candidates) {
       const hypHand = hand.filter((t) => t.id !== cand.realTile.id).concat([cand.jokerTile]);
-      const withSwap = findBestMove(hypHand, hasLaid, table, scores, playerId, depth, useJokers);
+      const withSwap = findBestMove(hypHand, hasLaid, table, scores, playerId, depth, useJokers, personality);
       const val = withSwap ? withSwap.info.value : -1;
       if (withSwap && val > bestVal) { bestVal = val; bestMove = withSwap; bestSwap = cand; }
     }
@@ -398,7 +426,7 @@
   return {
     COLOR_KEYS, nid, makeDeck, shuffle, meldInfo, sortMeldTiles, tilePoints, handPoints,
     AI_CONFIG, enumerateMelds, evaluateHand, findBestMove, findBestAttach,
-    findJokerSwap, findAllJokerSwaps, planBestMove, findBestReorg,
+    findJokerSwap, findAllJokerSwaps, planBestMove, findBestReorg, meldBiasValue,
     ABILITIES, makeAbilityTiles, splitHand,
   };
 });

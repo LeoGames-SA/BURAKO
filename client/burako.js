@@ -817,6 +817,7 @@ function syncProfileFromServer(profile){
   P.soundfx = profile.active.soundfx || "clasico";
   P.nameeffect = profile.active.nameeffect || null;
   P.banner = profile.active.banner || null;
+  P.title = profile.active.title || null;
   P.owned = profile.inventory.skins.slice();
   P.ownedTapetes = profile.inventory.tapetes.slice();
   P.ownedFx = profile.inventory.effects.slice();
@@ -825,6 +826,7 @@ function syncProfileFromServer(profile){
   P.ownedAvatars = (profile.inventory.avatars || FREE_AVATARS.slice()).slice();
   P.ownedNameEffects = (profile.inventory.nameeffects || []).slice();
   P.ownedBanners = (profile.inventory.banners || []).slice();
+  P.ownedTitles = (profile.inventory.titles || []).slice();
   P.achievements = profile.achievements.slice();
   P.passClaimed = profile.passClaimed || {};
   P.stats = profile.stats;
@@ -901,6 +903,12 @@ const SKINS=[
   // Exclusiva del Pase Galáctico (nivel 9) — nunca se vende, no aparece en la tienda
   // salvo que ya la tengas (mismo criterio que las de temporada, ver skinRow).
   {id:"agujero_negro",name:"Agujero Negro 🕳",price:0, passOnly:true},
+  // [Torre — bloque 3] Exclusivas de Torre II/III — mismo patrón que
+  // torre_relampago/torre_celestial en EFFECTS: price:null + sourceOnly,
+  // nunca están en CATALOG.skins del servidor así que buyItem las rechaza
+  // aunque alguien intentara comprarlas a mano.
+  {id:"escarlata_torre",name:"Fichas del Escarlata 🔥",price:null,sourceOnly:"la Torre Roja (piso 10)"},
+  {id:"titan_dorado",name:"Fichas del Titán Dorado 👑",price:null,sourceOnly:"la Torre Dorada (piso 10)"},
 ];
 function isSkinInSeason(s){ return !s.season || s.season.includes(new Date().getMonth()+1); }
 
@@ -1801,7 +1809,25 @@ const NAME_EFFECTS={
 const BANNERS={
   aureola_dorada: {emoji:"🟡", label:"Aureola Dorada", css:"banner-aureola"},
   anillo_plasma:  {emoji:"🔵", label:"Anillo de Plasma", css:"banner-plasma"},
+  // [Torre — bloque 3] Exclusivo de Torre III piso 9, no del Pase Galáctico
+  // — mismo catálogo/UI de equipar igual (ver profileTabGalacticoHTML).
+  corona_dorada:  {emoji:"👑", label:"Corona Dorada", css:"banner-aureola"},
 };
+// [Torre — bloque 3] Primer contenido real de la categoría "title" del
+// reward engine (existía en el esquema desde antes, nunca se había usado).
+// Todos exclusivos de Torre — ninguno se compra ni se gana de otra forma.
+const TITLES={
+  ascendente: {label:"Ascendente", desc:"Completaste la Torre Violeta esta semana."},
+  guardian_carmesi: {label:"Guardián Carmesí", desc:"Piso 9 de la Torre Roja."},
+  forjado_en_fuego: {label:"Forjado en Fuego", desc:"Completaste la Torre Roja esta semana."},
+  leyenda_dorada: {label:"Leyenda Dorada", desc:"Completaste la Torre Dorada esta semana."},
+  conquistador_de_la_torre: {label:"Conquistador de la Torre", desc:"Completaste las 3 Torres en la misma semana — muy pocos lo logran."},
+};
+function equipTitle(key){
+  if(key!=="none"&&!(P.ownedTitles||[]).includes(key)) return;
+  if(!Session.isAuthenticated()){ setMsg("Necesitás estar conectado."); render(); return; }
+  netSend({type:"setActive", kind:"title", id:key}); Sound.select();
+}
 const GALACTICO_PASS_LEVELS=[
   {lv:2,  reward:{coins:100}, label:"100 🪙"},
   {lv:3,  reward:{nameeffect:"fuego"}, label:"Efecto de nombre: 🔥 Fuego"},
@@ -1979,6 +2005,9 @@ const TAPETES=[
   {id:"artico",      name:"Ártico",            desc:"Hielo bajo las estrellas",price:3100},
   {id:"bambu",       name:"Bambú Zen",         desc:"Jardín japonés",        price:2200},
   {id:"vitral",      name:"Vitral",            desc:"Vidrio de colores",     price:3600},
+  // [Torre — bloque 3] Nuevo, real y comprable (no exclusivo) — también
+  // puede tocar en un cofre épico de Torre (ver server/db.js TOWER_CHEST_LOOT).
+  {id:"brasas",      name:"Brasas",            desc:"Ascuas ardientes",      price:2600},
 ];
 function buyTapete(id){
   const t=TAPETES.find(x=>x.id===id); if(!t) return;
@@ -2027,7 +2056,7 @@ function renderShop(app){
     const owned=P.owned.includes(s.id), active=P.skin===s.id;
     const inSeason=isSkinInSeason(s);
     if(s.season&&!inSeason&&!owned) return ""; // fuera de temporada y no la tenés: no se muestra
-    if(s.passOnly&&!owned) return ""; // exclusiva del Pase Galáctico: no se vende
+    if((s.passOnly||s.sourceOnly)&&!owned) return ""; // exclusiva (Pase Galáctico o Torre): no se vende, no se muestra hasta tenerla
     const seasonTag=s.season?`<span style="font-size:9px;font-weight:800;color:#f472b6;background:rgba(244,114,182,.15);border:1px solid rgba(244,114,182,.4);border-radius:5px;padding:1px 5px;margin-left:5px">🎁 Edición limitada</span>`:"";
     const priceLine=owned?(active?"En uso":"Comprada")+seasonTag:"🪙 "+s.price+(s.season?" · solo en "+MONTH_NAMES[s.season[0]-1]:"");
     return `<div class="shop-item${active?" is-active":""}${G.skinPreview===s.id?" is-previewing":""}" data-shop-id="${s.id}">
@@ -2238,6 +2267,7 @@ function profileHeaderHTML(t){
     <div style="font-size:64px;line-height:1;padding:10px 16px;background:rgba(184,150,63,.2);border:2px solid ${t.color};border-radius:14px;box-shadow:0 0 14px ${t.color}55;flex-shrink:0">${P.avatar||"🀄"}</div>
     <div style="flex:1;text-align:left;min-width:0">
       <div style="font-family:var(--font-display);font-size:26px;font-weight:800;color:#ffe9a8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${nameEffectHTML(P.name||"Jugador",P.nameeffect)}</div>
+      ${P.title&&TITLES[P.title]?`<div style="font-size:12px;font-weight:700;color:#fbbf24;margin-top:2px">🏆 ${esc(TITLES[P.title].label)}</div>`:""}
       <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">
         <span style="display:inline-flex;align-items:center;gap:5px;font-size:13px;color:${t.color};font-weight:800;background:${t.color}22;border:1px solid ${t.color}55;border-radius:999px;padding:3px 10px">${tierBadgeHTML(t,16)} ${t.name} · ${P.rankPts} pts</span>
         <span class="badge-gold" style="font-size:12px">Nivel ${P.level||1}</span>
@@ -2348,7 +2378,17 @@ function profileTabColeccionHTML(){
           const active=P.effect===fid;
           return `<button onclick="buyEffect('${fid}')" style="font-size:10px;font-weight:800;padding:5px 9px;border-radius:7px;background:${active?"rgba(56,189,248,.22)":"rgba(0,0,0,.25)"};border:1.5px solid ${active?"#38bdf8":"rgba(184,150,63,.2)"};color:${active?"#7dd3fc":"#e8eef7"};cursor:pointer">${esc(f.name)}</button>`;
         }).join("")}
-      </div>`;
+      </div>
+      ${(P.ownedTitles&&P.ownedTitles.length)?`
+      <div style="font-size:10px;color:rgba(232,238,247,.5);margin:14px 0 4px">Título <span style="opacity:.6">(exclusivo de la Torre)</span></div>
+      <div style="display:flex;flex-wrap:wrap;gap:5px">
+        <button onclick="equipTitle('none')" style="font-size:10px;font-weight:800;padding:5px 9px;border-radius:7px;background:${!P.title?"rgba(251,191,36,.22)":"rgba(0,0,0,.25)"};border:1.5px solid ${!P.title?"#fbbf24":"rgba(184,150,63,.2)"};color:${!P.title?"#ffe9a8":"#e8eef7"};cursor:pointer">Ninguno</button>
+        ${P.ownedTitles.map(tid=>{
+          const t=TITLES[tid]; if(!t) return "";
+          const active=P.title===tid;
+          return `<button onclick="equipTitle('${tid}')" title="${esc(t.desc||"")}" style="font-size:10px;font-weight:800;padding:5px 9px;border-radius:7px;background:${active?"rgba(251,191,36,.22)":"rgba(0,0,0,.25)"};border:1.5px solid ${active?"#fbbf24":"rgba(184,150,63,.2)"};color:${active?"#ffe9a8":"#e8eef7"};cursor:pointer">🏆 ${esc(t.label)}</button>`;
+        }).join("")}
+      </div>`:""}`;
 }
 function renderProfile(app){
   const t = G.serverProfile ? G.serverProfile.tier : tierOf(P.rankPts);
@@ -4575,6 +4615,38 @@ function withLogoFlip(fn){
   fn();
   Flip.from(state, {duration:.65, ease:"power2.inOut", scale:true, absolute:true});
 }
+// [Login v2] Logo real BURAKO (client/img/login/logo.png) — reemplaza el
+// abanico de fichas animado (fanLogoHTML) en portada y menú, pedido
+// explícito del usuario ("el burako nuevo que se ve re lindo"). Mismo
+// data-flip-id="logo-fan" que usaba el abanico: GSAP Flip solo necesita
+// que el selector exista antes/después del cambio de pantalla para animar
+// la diferencia de posición — funciona igual con una imagen estática.
+function burakoLogoHTML(cls){
+  return `<img class="${cls}" data-flip-id="logo-fan" src="./img/login/logo.png" alt="Burako">`;
+}
+// [Login v2] Shell visual compartido por portada (renderIntro) y login/
+// registro (renderAuthScreen) — mismas capas PNG en capas reales del
+// usuario (fondo/fichas flotantes/logo/panel), mismo criterio de entrada
+// (.login-v2-enter solo en el primer render de la pantalla, ver
+// G._enterCls) para que no se repita la animación de entrada en cada
+// re-render de fondo (ej. towerStatus llegando mientras se mira el menú).
+function loginShellHTML(contentHTML, entering){
+  return `<div class="login-v2 auth-screen${entering?" login-v2-enter":""}">
+    <div class="login-v2-bg" aria-hidden="true"></div>
+    <div class="login-v2-ambient" aria-hidden="true"></div>
+    <img class="login-v2-tiles" src="./img/login/tiles.png" alt="" aria-hidden="true">
+    <div class="login-v2-stage">
+      ${burakoLogoHTML("login-v2-logo")}
+      <div class="login-v2-panel">
+        <div class="login-v2-panel-inner">
+          <div class="login-v2-panel-content">
+            ${contentHTML}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
 /* [v1.3.3 — rediseño de menú] Tarjeta grande de Pase de temporada — mismo
    criterio de siempre (dato real, nunca simulado): nivel, XP, y ahora
    también la PRÓXIMA recompensa real de PASS_LEVELS (la primera con
@@ -4728,8 +4800,10 @@ function menuTowerHeroHTML(){
   const floor=G.towerComplete?10:(G.towerFloor||1);
   const pct=Math.round((Math.min(floor,10)-1)/9*100);
   const prizeLabel=G.towerComplete?"Torre Celestial 🏰":towerFloorPrizeLabel(floor);
-  const pendingCount=(G.towerPending||[]).length;
-  return `<div class="menu-hero-card menu-hero-tower" onclick="goTower()">
+  const pendingCount=(G.towerPending||[]).length+(G.towerPendingChests||[]).length;
+  const towerId=G.towerTower||1;
+  const towerName=(TOWER_META_DISPLAY[towerId]||{}).name||"";
+  return `<div class="menu-hero-card menu-hero-tower tower-theme-${towerId}" onclick="goTower()">
     <img class="tower-hero-bg" src="./img/tower/fondo.png" alt="" aria-hidden="true">
     <div class="tower-hero-ground" aria-hidden="true"></div>
     <img class="tower-hero-tower-img" src="./img/tower/torre.png" alt="" aria-hidden="true">
@@ -4737,7 +4811,7 @@ function menuTowerHeroHTML(){
     ${pendingCount?`<span class="menu-hero-badge">🎁 ${pendingCount}</span>`:""}
     <div class="tower-hero-content">
       <span class="menu-hero-pill menu-hero-pill-violet">⚔ Desafío semanal</span>
-      <div class="menu-hero-title">Torre semanal</div>
+      <div class="menu-hero-title">Torre ${loaded?esc(towerName):"semanal"}</div>
       <div class="menu-hero-sub tower-hero-desc">Subí pisos, superá desafíos y ganá recompensas épicas</div>
       ${!loaded?`<div class="menu-hero-sub">Consultando tu progreso…</div>`
         :towerHeroFloorHTML(floor,pct,G.towerComplete?"🎉 ¡Completaste la Torre esta semana!":"")}
@@ -4808,7 +4882,7 @@ function GameMenuButton({asset,alt,action,primary,notificationCount}){
   </button>`;
 }
 function renderMenu(app){
-  const fan=fanLogoHTML();
+  const fan=burakoLogoHTML("menu-logo-img"); // [pedido] logo real en vez del abanico animado — ver burakoLogoHTML()
   const ghostRack=(cls)=>`<div class="menu-rack-ghost ${cls} sk-clasica">${
     [3,7,11,4,9,13,2,5,8,1,10,6].map((v,i)=>`<div class="tile c-${["rojo","azul","verde","amarillo"][i%4]} dotc-${["rojo","azul","verde","amarillo"][i%4]}">${v}</div>`).join("")
   }</div>`;
@@ -5005,6 +5079,7 @@ function renderGameover(app){
     // Torre semanal (v1.3): nunca pasa por mr.update (Torre no da recompensas
     // normales) — el premio real, si lo hay, viene en mr.towerResult.
     const tr=mr.towerResult;
+    const towerName=(TOWER_META_DISPLAY[mr.towerTower||1]||{}).name||"";
     if(mr.won){
       const prize=tr&&tr.ok?formatTowerRewardsReal(tr.rewards,mr.towerFloor):null;
       // [v1.3.4 — premios pendientes] El premio YA está confirmado y pagado
@@ -5023,12 +5098,18 @@ function renderGameover(app){
           : `<div class="tower-gift-prize a-pop">${prize}</div>
              ${tr&&tr.complete?`<div class="tower-gift-prize a-pop" style="font-size:16px;margin-top:6px">🏆 Bonus Torre completa: ${towerCompleteBonusLabel()}</div>`:""}`;
       headerHTML = `<div class="win-text a-pop">¡PISO ${mr.towerFloor} SUPERADO! 🏰</div>
+        ${towerName?`<p style="font-size:12px;color:rgba(232,238,247,.55);margin-bottom:2px">Torre ${towerName}</p>`:""}
         ${giftHTML}
-        ${tr&&tr.complete?`<p style="font-size:13px;color:#ffe9a8;font-weight:700;margin-bottom:8px">🎉 ¡Completaste los 10 pisos de esta semana!</p>`:""}`;
+        ${tr&&tr.complete?`<p style="font-size:13px;color:#ffe9a8;font-weight:700;margin-bottom:8px">🎉 ¡Completaste los 10 pisos de la Torre ${towerName}!</p>`:""}`;
     } else {
+      const lr=mr.towerLivesRemaining;
+      const livesMsg=lr===0
+        ?"Te quedaste sin intentos en esta Torre por esta semana. Volvé el lunes."
+        :lr!=null?`Te queda${lr===1?"n":"n"} ${lr} vida${lr===1?"":"s"} en esta Torre esta semana.`:"Podés reintentar el mismo piso.";
       headerHTML = `<div style="font-size:56px;margin-bottom:6px">🏰</div>
         <h2 style="font-family:var(--font-heading);color:#ffe9a8;font-size:24px;margin-bottom:4px">Piso ${mr.towerFloor} no superado</h2>
-        <p style="font-size:12px;color:rgba(232,238,247,.55);margin-bottom:12px">Ganó ${esc(mr.winnerName||"el rival")}. Podés reintentar cuando quieras — sin límite de intentos.</p>`;
+        ${towerName?`<p style="font-size:12px;color:rgba(232,238,247,.55);margin-bottom:2px">Torre ${towerName}</p>`:""}
+        <p style="font-size:12px;color:rgba(232,238,247,.55);margin-bottom:12px">Ganó ${esc(mr.winnerName||"el rival")}. ${livesMsg}</p>`;
     }
   } else if(online){
     if(mr.iSurrendered){
@@ -6302,9 +6383,13 @@ function netConnect(host){
       }
       if(msg.type==="queueLeft"){ return; }
       if(msg.type==="towerStatus"){
-        G.towerLoading=false; G.towerWeekId=msg.weekId; G.towerFloor=msg.floor;
-        G.towerComplete=!!msg.complete; G.towerClearedFloors=msg.clearedFloors||[];
-        G.towerPending=msg.pending||[]; // [v1.3.4] premios de piso/completar que el jugador todavía no vio
+        G.towerLoading=false; G.towerWeekId=msg.weekId; G.towerTower=msg.tower; G.towerFloor=msg.floor;
+        G.towerComplete=!!msg.complete; G.towersCompleted=msg.towersCompleted||0;
+        const activeTower=(msg.towers&&msg.towers[msg.tower])||{};
+        G.towerClearedFloors=activeTower.clearedFloors||[];
+        G.towerLives=activeTower.livesRemaining!=null?activeTower.livesRemaining:3;
+        G.towerPending=msg.pending||[]; // [v1.3.4] premios de piso/completar/run que el jugador todavía no vio
+        G.towerPendingChests=msg.pendingChests||[]; // [bloque 2] cofres sorteados pero sin abrir, de cualquier semana
         if(G.screen==="tower"||G.screen==="menu") render();
         return;
       }
@@ -6312,16 +6397,24 @@ function netConnect(host){
       // visto — solo saca esa entrada de G.towerPending (la plata/ítem ya
       // estaba pagada desde antes, esto es puramente el flag de "ya lo vi").
       if(msg.type==="towerAcknowledged"){
-        G.towerPending=(G.towerPending||[]).filter(p=>{
-          if(p.kind!==msg.kind) return true;
-          if(msg.kind==="complete") return p.weekId!==msg.weekId;
-          return !(p.weekId===msg.weekId&&p.floor===msg.floor);
-        });
+        G.towerPending=(G.towerPending||[]).filter(p=>p.sourceId!==msg.sourceId);
+        if(G.screen==="tower"||G.screen==="menu") render();
+        return;
+      }
+      // [Torre — cofres, bloque 2] Llega el contenido recién revelado del
+      // cofre que se pidió abrir — se guarda para que el modal lo muestre,
+      // y se saca de la lista general de pendientes.
+      if(msg.type==="towerChestOpened"){
+        G._towerChestRevealed={tower:msg.tower, floor:msg.floor, tier:msg.tier, rewards:msg.rewards};
+        G.towerPendingChests=(G.towerPendingChests||[]).filter(c=>c.id!==msg.chestId);
         if(G.screen==="tower"||G.screen==="menu") render();
         return;
       }
       if(msg.type==="towerStarted"){
         G.towerStarting=false; // el "joined" que llega justo después ya entra a la sala real
+        G.towerTower=msg.tower;
+        G.towerRival=msg.rival||null; // {name,avatar,personality,boss} — el nombre/avatar real ya viaja también en room.players (bot.name/avatar), esto es solo para presentación extra (ej. aviso de jefe)
+        if(G.towerRival&&G.towerRival.boss) setMsg("👑 ¡Es el jefe de la Torre! "+G.towerRival.avatar+" "+G.towerRival.name);
         return;
       }
       if(msg.type==="dailyStatus"){
@@ -7152,42 +7245,34 @@ function doTeamChat(text){
 
 /* -- Pantallas online: conectar, lobby -- */
 
+// [Login v2] Portada real con las capas PNG del usuario (antes: abanico de
+// fichas armándose + .card genérica) — mismo shell que login/registro
+// (loginShellHTML) para que la transición entre pantallas sea continua.
+// Contenido real sin cambios: mismo texto descriptivo, mismo botón
+// condicional (▶ Jugar la primera vez / Iniciar sesión → si ya hay
+// cuenta), mismo goIntroEnter().
 function renderIntro(app){
-  app.innerHTML=`
-  <div class="screen-center portada">
-    <div class="portada-glow" aria-hidden="true"></div>
-    ${fanLogoHTML()}
-    <div class="card" style="text-align:center">
-    <p class="elegant-sub" style="margin:2px 0 16px">La variante uruguaya de Rummikub — grupos, escaleras y comodines.</p>
-    <div style="text-align:left;font-size:12.5px;color:rgba(232,238,247,.72);line-height:1.7;background:rgba(0,0,0,.2);border-radius:10px;padding:12px 14px;margin-bottom:18px">
-      Armá <b style="color:#ffe9a8">grupos</b> (mismo número, distinto color) y <b style="color:#ffe9a8">escaleras</b>
-      (mismo color, seguidos) con tus fichas y quedate sin atril antes que nadie.
-      Jugá <b style="color:#7dd3fc">contra la IA</b> a tu ritmo, sólo o con un compañero de equipo,
-      o invitá a tus amigos a una <b style="color:#7dd3fc">sala de red local</b>.
+  const isFirstTime=checkFirstTime()||G.introMode==="offline";
+  const ctaHTML=isFirstTime
+    ?`<button class="login-v2-submit-html" onclick="goIntroEnter()">▶ Jugar</button>`
+    :`<button class="login-v2-submit" onclick="goIntroEnter()" aria-label="Iniciar sesión"><img src="./img/login/boton.png" alt="" aria-hidden="true"></button>`;
+  // [Pedido] El bloque de en medio pasa de explicar reglas/"sala de red
+  // local" a mostrar lo que HOY tiene Burako de verdad (Pase de Temporada,
+  // Torre Semanal, Ruleta diaria — las 3 features reales trabajadas esta
+  // sesión), en la misma tipografía dorada de los títulos.
+  app.innerHTML=loginShellHTML(`
+    <p class="login-v2-desc">La variante uruguaya de Rummikub — grupos, escaleras y comodines.</p>
+    <div class="login-v2-info-wrap">
+      <div class="login-v2-info-bg" aria-hidden="true"></div>
+      <div class="login-v2-fields login-v2-features">
+        <div class="login-v2-feature"><span class="login-v2-feature-icon">🎫</span><span>Pase de Temporada — subí de nivel y desbloqueá recompensas</span></div>
+        <div class="login-v2-feature"><span class="login-v2-feature-icon">🏰</span><span>Torre Semanal — 3 Torres, 30 pisos, premios exclusivos</span></div>
+        <div class="login-v2-feature"><span class="login-v2-feature-icon">🎡</span><span>Ruleta Diaria — girá todos los días y ganá monedas</span></div>
+      </div>
     </div>
-    <button class="btn btn-gold" style="font-size:16px" onclick="goIntroEnter()">${checkFirstTime()||G.introMode==="offline"?"▶ Jugar":"Iniciar sesión →"}</button>
-    <p style="font-size:10.5px;color:rgba(232,238,247,.35);margin-top:10px">v${GAME_VERSION.replace(/\.0$/,"")}</p>
-  </div></div>`;
-  animatePortadaEntrance();
-}
-/* Coreografía de entrada de la portada (evento grande, §7 del pedido — usa
-   --motion-hero como referencia de escala, no microinteracción): el abanico
-   BURAKO ya se arma solo vía CSS (fanIn, con stagger por ficha); acá con GSAP
-   retenemos la tarjeta hasta que el abanico casi terminó de acomodarse, en vez
-   de que ambos aparezcan a la vez y compitan por la atención. Si el usuario
-   pidió menos movimiento, no se anima nada (la tarjeta ya es visible por CSS). */
-function animatePortadaEntrance(){
-  if(!window.gsap) return;
-  if(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-  const card=document.querySelector(".portada .card");
-  if(!card) return;
-  // scale:1 explícito en los dos extremos a propósito: si algo más (otra clase
-  // CSS, un cambio futuro) toca transform en este elemento antes de que GSAP
-  // arranque, igual queda en 1 — no "lo que sea que GSAP haya visto al crear
-  // el tween". Así no puede repetirse el bug de quedar pegado en escala chica.
-  gsap.fromTo(card,
-    {opacity:0, y:26, scale:1},
-    {opacity:1, y:0, scale:1, duration:.6, delay:.85, ease:"power2.out"});
+    ${ctaHTML}
+    <p class="login-v2-version">v${GAME_VERSION.replace(/\.0$/,"")}</p>
+  `, !!G._enterCls);
 }
 async function goIntroEnter(){
   Sound.init();
@@ -7280,39 +7365,92 @@ function renderAuthScreen(app){
   }
   const mode=G.authMode||"login";
   const lastName=G._authPrefillUser!==undefined?G._authPrefillUser:(localStorage.getItem("burako_lan_name")||"");
-  app.innerHTML=`
-  <div class="screen-center auth-screen"><div class="fan-compact">${fanLogoHTML()}</div><div class="card ${G._enterCls}">
-    <button class="card-x" onclick="withLogoFlip(()=>{G.screen='intro';render()})" title="Cerrar">✕</button>
-    <p class="subtitle" style="margin-top:2px;margin-bottom:16px">${mode==="register"?"Creá tu cuenta":"Iniciá sesión"}</p>
-    ${mode==="register"&&G._authNotice?`<p style="font-size:12px;color:#fbbf24;text-align:center;margin:-8px 0 14px;line-height:1.4">${esc(G._authNotice)}</p>`:""}
-    <label class="lbl">Nombre de usuario</label>
-    <input id="authuser" placeholder="Tu nombre" value="${esc(lastName)}" maxlength="16"
-      onkeydown="if(event.key==='Enter'){${mode==="register"?"document.querySelector('#authpass').focus()":"submitAuth('login')"}}"
-      style="width:100%;padding:11px;border-radius:9px;background:rgba(0,0,0,.22);border:1px solid var(--panel-border);color:#fff;font-size:14px;margin-bottom:10px">
-    <label class="lbl">Contraseña</label>
-    <input id="authpass" type="password" placeholder="Contraseña"
-      onkeydown="if(event.key==='Enter'){${mode==="register"?"document.querySelector('#authpass2').focus()":"submitAuth('login')"}}"
-      style="width:100%;padding:11px;border-radius:9px;background:rgba(0,0,0,.22);border:1px solid var(--panel-border);color:#fff;font-size:14px;margin-bottom:10px">
-    ${mode==="register"?`
-    <label class="lbl">Repetir contraseña</label>
-    <input id="authpass2" type="password" placeholder="Repetí la contraseña" onkeydown="if(event.key==='Enter')submitAuth('register')"
-      style="width:100%;padding:11px;border-radius:9px;background:rgba(0,0,0,.22);border:1px solid var(--panel-border);color:#fff;font-size:14px;margin-bottom:10px">
-    <button class="btn btn-gold" onclick="submitAuth('register')">Crear cuenta</button>
-    <button class="btn btn-ghost" onclick="switchAuthMode('login')">← Ya tengo cuenta</button>
-    `:`
-    <button class="btn btn-gold" onclick="submitAuth('login')">Iniciar sesión</button>
-    <button class="btn btn-ghost" onclick="switchAuthMode('register')">Crear cuenta nueva</button>
-    `}
-    <p id="autherr" style="color:#f87171;font-size:12px;text-align:center;min-height:16px;margin-top:8px"></p>
-  </div></div>`;
+  // [Login v2 — capas PNG] El botón dorado real (login-button.png) ya trae
+  // "INICIAR SESIÓN →" grabado en el propio PNG — se usa TAL CUAL para el
+  // modo login (imagen dentro de un <button> real, con aria-label porque el
+  // texto visible no es texto de verdad). Para "Crear cuenta" no existe un
+  // PNG con ese texto (inventar uno rotulado distinto sería falsear el
+  // asset), así que ese botón reusa .btn-gold (el mismo gradiente dorado
+  // que ya usa el resto de la app) con texto HTML real — mismo lenguaje
+  // visual, sin inventar un PNG que no está.
+  const submitBtnHTML = mode==="register"
+    ? `<button class="login-v2-submit-html" id="authsubmitbtn" onclick="submitAuth('register')">Crear cuenta →</button>`
+    : `<button class="login-v2-submit" id="authsubmitbtn" onclick="submitAuth('login')" aria-label="Iniciar sesión">
+         <img src="./img/login/boton.png" alt="" aria-hidden="true">
+       </button>`;
+  app.innerHTML=loginShellHTML(`
+    <button class="login-v2-close" onclick="withLogoFlip(()=>{G.screen='intro';render()})" title="Cerrar">✕</button>
+    <p class="login-v2-subtitle">${mode==="register"?"Creá tu cuenta":"Iniciá sesión"}</p>
+    ${mode==="register"&&G._authNotice?`<p class="login-v2-notice">${esc(G._authNotice)}</p>`:""}
+    <div class="login-v2-info-wrap">
+      <div class="login-v2-info-bg" aria-hidden="true"></div>
+      <div class="login-v2-fields">
+        <label class="login-v2-lbl">Usuario</label>
+        <div class="login-v2-input-wrap">
+          <span class="login-v2-input-icon">👤</span>
+          <input id="authuser" class="login-v2-input" placeholder="Tu nombre" value="${esc(lastName)}" maxlength="16"
+            onkeydown="if(event.key==='Enter'){${mode==="register"?"document.querySelector('#authpass').focus()":"submitAuth('login')"}}">
+        </div>
+        <label class="login-v2-lbl">Contraseña</label>
+        <div class="login-v2-input-wrap">
+          <span class="login-v2-input-icon">🔒</span>
+          <input id="authpass" class="login-v2-input" type="password" placeholder="Contraseña"
+            onkeydown="if(event.key==='Enter'){${mode==="register"?"document.querySelector('#authpass2').focus()":"submitAuth('login')"}}">
+        </div>
+        ${mode==="register"?`
+        <label class="login-v2-lbl">Repetir contraseña</label>
+        <div class="login-v2-input-wrap">
+          <span class="login-v2-input-icon">🔒</span>
+          <input id="authpass2" class="login-v2-input" type="password" placeholder="Repetí la contraseña" onkeydown="if(event.key==='Enter')submitAuth('register')">
+        </div>`:""}
+      </div>
+    </div>
+    <p id="autherr" class="login-v2-error"></p>
+    ${submitBtnHTML}
+    ${mode==="register"
+      ?`<button class="login-v2-ghost" onclick="switchAuthMode('login')">← Ya tengo cuenta</button>`
+      :`<button class="login-v2-ghost" onclick="switchAuthMode('register')">Crear cuenta nueva</button>`}
+  `, !!(G._enterCls||G._authModeSwitching));
 }
+// [Pedido] Antes cambiar entre "Iniciá sesión"/"Creá tu cuenta" era un
+// corte seco (render() de golpe, sin transición) — se sentía tosco.
+// G._authModeSwitching hace que renderAuthScreen trate este cambio como si
+// fuera una entrada nueva (mismo stagger de fade-in que al llegar a la
+// pantalla la primera vez), sin tocar la lógica real del toggle.
 function switchAuthMode(mode, prefillUser, notice){
   G.authMode=mode;
   G._authPrefillUser=prefillUser!==undefined?prefillUser:(document.querySelector("#authuser")?document.querySelector("#authuser").value.trim():"");
   G._authNotice=notice||null;
+  G._authModeSwitching=true;
   render();
+  G._authModeSwitching=false;
+}
+// [Login v2] Refleja el estado "enviando" en el botón real sin re-renderizar
+// toda la pantalla (un render() completo perdería el foco/el texto de
+// #autherr, que se escribe directo al DOM — mismo criterio que showErr ya
+// usaba antes de este cambio). El botón de login es la imagen real
+// (login-button.png, con su texto grabado) — no se puede reescribir su
+// texto, así que el loading es un cartel superpuesto que se agrega/saca;
+// el de "Crear cuenta" es HTML real, ahí se cambia el texto sin más.
+function setAuthSubmitting(submitting){
+  G._authSubmitting=submitting;
+  const btn=document.querySelector("#authsubmitbtn");
+  if(!btn) return;
+  btn.disabled=submitting;
+  if((G.authMode||"login")==="register"){
+    btn.textContent=submitting?"Creando…":"Crear cuenta →";
+    return;
+  }
+  let overlay=btn.querySelector(".login-v2-submit-loading");
+  if(submitting){
+    if(!overlay){ overlay=document.createElement("span"); overlay.className="login-v2-submit-loading"; btn.appendChild(overlay); }
+    overlay.textContent="Iniciando…";
+  } else if(overlay){
+    overlay.remove();
+  }
 }
 function submitAuth(action){
+  if(G._authSubmitting) return; // bloquea doble click mientras espera al servidor
   const userEl=document.querySelector("#authuser"), passEl=document.querySelector("#authpass");
   const user=userEl.value.trim(), pass=passEl.value;
   const showErr=(m)=>{ const el=document.querySelector("#autherr"); if(el) el.textContent=m; };
@@ -7322,8 +7460,10 @@ function submitAuth(action){
     if(pass!==pass2){ showErr("Las contraseñas no coinciden."); return; }
   }
   localStorage.setItem("burako_lan_name",user);
+  setAuthSubmitting(true);
   const finish=(msg)=>{
     delete G._authCb;
+    setAuthSubmitting(false);
     if(msg.type==="authOk"){
       G.online=true; Session.setAuthenticated();
       syncProfileFromServer(msg.profile);
@@ -7355,7 +7495,7 @@ function submitAuth(action){
     netConnect(host).then(()=>{
       G._authCb=finish;
       NET.ws.send(JSON.stringify({type:action, username:user, password:pass}));
-    }).catch(e=>{ showErr("No se pudo reconectar: "+e.message); });
+    }).catch(e=>{ setAuthSubmitting(false); showErr("No se pudo reconectar: "+e.message); });
     return;
   }
   G._authCb=finish;
@@ -7760,44 +7900,103 @@ async function goTower(){
 }
 function doTowerStart(){
   if(G.towerStarting||G.towerLoading||G.towerComplete) return; // bloquea doble click
+  if((G.towerLives||0)<=0) return; // sin intentos esta semana en esta Torre — el servidor lo rechaza igual, esto es solo defensa en el cliente
   Sound.init(); Sound.select();
   G.towerStarting=true; render();
   netSend({type:"towerStart", name: G.serverProfile?G.serverProfile.username:P.name, skin: P.skin||"clasica"});
 }
-// Espejo del server (server/db.js TOWER_FLOOR_PRIZES/TOWER_FLOOR_DIFFICULTY) —
-// SOLO para pintar el mapa (premio/dificultad/rival de cada piso). El
-// servidor sigue siendo la única fuente real de qué piso está disponible y
-// qué se otorga.
-const TOWER_FLOOR_PRIZES_DISPLAY={
-  1:{coins:60,xp:20}, 2:{coins:75,xp:25}, 3:{coins:100,xp:30}, 4:{coins:140,xp:45},
-  5:{coins:190,xp:65}, 6:{coins:240,xp:85}, 7:{coins:320,xp:110}, 8:{coins:400,xp:140},
-  9:{coins:500,xp:180,item:"Relámpago de Torre ⚡"},
-  10:{coins:700,xp:250,item:"Torre Celestial 🏰"},
+// Espejo del server (server/db.js TOWER_PRIZES/TOWER_DIFFICULTY, v2 — 3
+// Torres x 10 pisos) — SOLO para pintar el mapa (premio/dificultad/rival de
+// cada piso de la Torre ACTIVA). El servidor sigue siendo la única fuente
+// real de qué piso está disponible y qué se otorga.
+const TOWER_PRIZES_DISPLAY={
+  1:{
+    1:{coins:60,xp:20}, 2:{coins:75,xp:25}, 3:{coins:100,xp:30}, 4:{coins:140,xp:45},
+    5:{coins:190,xp:65}, 6:{coins:240,xp:85}, 7:{coins:320,xp:110}, 8:{coins:400,xp:140},
+    9:{coins:500,xp:180,item:"Relámpago de Torre ⚡"}, 10:{coins:700,xp:250,item:"Torre Celestial 🏰"},
+  },
+  2:{
+    1:{coins:110,xp:35}, 2:{coins:140,xp:45}, 3:{coins:180,xp:55}, 4:{coins:230,xp:75},
+    5:{coins:300,xp:100}, 6:{coins:380,xp:130}, 7:{coins:480,xp:165}, 8:{coins:600,xp:210},
+    9:{coins:750,xp:260,item:"🏆 Guardián Carmesí"}, 10:{coins:1000,xp:350,item:"Fichas del Escarlata 🔥"},
+  },
+  3:{
+    1:{coins:180,xp:60}, 2:{coins:230,xp:75}, 3:{coins:300,xp:95}, 4:{coins:380,xp:125},
+    5:{coins:500,xp:165}, 6:{coins:640,xp:215}, 7:{coins:800,xp:270}, 8:{coins:1000,xp:340},
+    9:{coins:1250,xp:420,item:"Corona Dorada 👑"}, 10:{coins:1800,xp:600,item:"Fichas del Titán Dorado 👑"},
+  },
 };
 // Nombre/ícono de "cofre" que se le pone a algunos pisos en la UI — es solo
-// presentación (un salto de monto más vendedor), no una mecánica de loot
-// aparte: el premio real de cada piso sigue siendo siempre el mismo, fijo,
-// ver TOWER_FLOOR_PRIZES_DISPLAY arriba.
+// presentación por ahora (el sistema real de 5 tiers de cofre con loot
+// diferido se suma en un bloque aparte), no cambia el premio real del piso.
 const TOWER_FLOOR_CHEST_LABEL={3:"📦 Cofre Común",5:"🎁 Cofre Raro",7:"💜 Cofre Épico"};
-// Espejo de TOWER_COMPLETE_BONUS en server/db.js — bonus aparte por
-// completar los 10 pisos, además del premio propio del piso 10.
-const TOWER_COMPLETE_BONUS_DISPLAY={coins:500,xp:200};
-function towerCompleteBonusLabel(){ return "🪙 "+TOWER_COMPLETE_BONUS_DISPLAY.coins+" + ⭐ "+TOWER_COMPLETE_BONUS_DISPLAY.xp+" XP"; }
+// Espejo de TOWER_COMPLETE_BONUS/TOWER_RUN_COMPLETE_BONUS en server/db.js —
+// bonus aparte por completar cada Torre, y el bonus extra por completar
+// las 3 en la misma semana.
+const TOWER_COMPLETE_BONUS_DISPLAY={
+  1:{coins:500,xp:200,title:"ascendente"}, 2:{coins:800,xp:300,title:"forjado_en_fuego"}, 3:{coins:1500,xp:500,title:"leyenda_dorada"},
+};
+const TOWER_RUN_COMPLETE_BONUS_DISPLAY={coins:500,title:"conquistador_de_la_torre"};
+const TOWER_META_DISPLAY={1:{name:"Violeta"},2:{name:"Roja"},3:{name:"Dorada"}};
+function towerCompleteBonusLabel(towerId){
+  const b=TOWER_COMPLETE_BONUS_DISPLAY[towerId||G.towerTower||1];
+  const t=b.title&&TITLES[b.title];
+  return "🪙 "+b.coins+" + ⭐ "+b.xp+" XP"+(t?" + 🏆 "+t.label:"");
+}
+function towerRunCompleteBonusLabel(){
+  const b=TOWER_RUN_COMPLETE_BONUS_DISPLAY, t=b.title&&TITLES[b.title];
+  return "🪙 "+b.coins+(t?" + 🏆 "+t.label:"");
+}
 // [v1.3.4] Abrir el regalo en el gameover confirma las DOS cosas que se
 // ganaron en este mismo instante (el piso Y, si corresponde, el bonus de
-// completar) — ambos ya están pagados, esto solo los marca como vistos.
+// completar esa Torre) — ambos ya están pagados, esto solo los marca como
+// vistos. sourceId se reconstruye acá porque esto viene de una partida
+// recién jugada (siempre formato nuevo, nunca una fila vieja pre-v2).
 function ackTowerGameoverGift(){
   const mr=G.matchResult; if(!mr) return;
   G._towerGiftOpened=true;
-  netSend({type:"towerAcknowledge", kind:"floor", weekId:mr.towerWeekId, floor:mr.towerFloor});
-  if(mr.towerResult&&mr.towerResult.complete) netSend({type:"towerAcknowledge", kind:"complete", weekId:mr.towerWeekId});
+  const tower=mr.towerTower||1;
+  netSend({type:"towerAcknowledge", kind:"floor", sourceId:mr.towerWeekId+":"+tower+":"+mr.towerFloor});
+  if(mr.towerResult&&mr.towerResult.complete) netSend({type:"towerAcknowledge", kind:"complete", sourceId:mr.towerWeekId+":"+tower});
   render();
 }
-const TOWER_FLOOR_DIFFICULTY_DISPLAY={1:"easy",2:"easy",3:"normal",4:"normal",5:"hard",6:"hard",7:"hard",8:"expert",9:"expert",10:"claude"};
+const TOWER_DIFFICULTY_DISPLAY={
+  1:{1:"easy",2:"easy",3:"easy",4:"normal",5:"normal",6:"normal",7:"hard",8:"hard",9:"hard",10:"expert"},
+  2:{1:"normal",2:"normal",3:"normal",4:"hard",5:"hard",6:"hard",7:"hard",8:"hard",9:"hard",10:"expert"},
+  3:{1:"hard",2:"hard",3:"hard",4:"expert",5:"expert",6:"expert",7:"claude",8:"claude",9:"claude",10:"claude"},
+};
 const TOWER_DIFF_LABEL={easy:"Fácil",normal:"Normal",hard:"Difícil",expert:"Experto",claude:"Claude"};
+// Fallback genérico — solo se usa si algún piso no estuviera en el roster
+// de abajo (no debería pasar nunca, los 30 están cubiertos).
 const TOWER_RIVAL_NAME={easy:"Aprendiz",normal:"Retador",hard:"Veterano",expert:"Maestro",claude:"Claude"};
-function towerFloorPrizeLabel(floor){
-  const p=TOWER_FLOOR_PRIZES_DISPLAY[floor]; if(!p) return "";
+// [Torre — 30 rivales, bloque 4] Espejo de DB.TOWER_RIVALS en server/db.js
+// — SOLO nombre/avatar/jefe para pintar el mapa y la presentación previa a
+// la partida. La dificultad/personalidad real las decide el servidor.
+const TOWER_RIVALS_DISPLAY={
+  1:{
+    1:{name:"Iniciado Bruma",avatar:"🌫️"}, 2:{name:"Aprendiz Espina",avatar:"🥀"}, 3:{name:"Centinela Gris",avatar:"🗿"},
+    4:{name:"Errante del Bosque",avatar:"🌲"}, 5:{name:"Vigía Escarcha",avatar:"❄️"}, 6:{name:"Cazador de Sombras",avatar:"🐺"},
+    7:{name:"Heraldo Violeta",avatar:"🔮"}, 8:{name:"Duelista Nocturno",avatar:"🗡️"}, 9:{name:"Guardiana del Umbral",avatar:"🕯️"},
+    10:{name:"Señor Amatista",avatar:"👑",boss:true},
+  },
+  2:{
+    1:{name:"Soldado Carmesí",avatar:"⚔️"}, 2:{name:"Verdugo de Brasas",avatar:"🔥"}, 3:{name:"Estratega de Hierro",avatar:"⚙️"},
+    4:{name:"Centinela de Cenizas",avatar:"🌋"}, 5:{name:"Arquitecta de Fuego",avatar:"🏗️"}, 6:{name:"Cazadora Escarlata",avatar:"🏹"},
+    7:{name:"Maestro Forjador",avatar:"🔨"}, 8:{name:"Guardián de Magma",avatar:"🪨"}, 9:{name:"Comandante Carmesí",avatar:"🎖️"},
+    10:{name:"Emperatriz de Brasas",avatar:"👑",boss:true},
+  },
+  3:{
+    1:{name:"Custodio Áureo",avatar:"🛡️"}, 2:{name:"Portador del Ocaso",avatar:"🌅"}, 3:{name:"Tejedora Celestial",avatar:"✨"},
+    4:{name:"Centinela del Eclipse",avatar:"🌑"}, 5:{name:"Oráculo Dorado",avatar:"🔱"}, 6:{name:"Heraldo del Vacío",avatar:"🌀"},
+    7:{name:"Guardián Ancestral",avatar:"🗿"}, 8:{name:"Campeona Solar",avatar:"☀️"}, 9:{name:"Sabio del Trono",avatar:"📜"},
+    10:{name:"El Soberano Dorado",avatar:"👑",boss:true},
+  },
+};
+function towerRivalFor(towerId,floor){
+  return (TOWER_RIVALS_DISPLAY[towerId]||{})[floor]||null;
+}
+function towerFloorPrizeLabel(floor,towerId){
+  const p=(TOWER_PRIZES_DISPLAY[towerId||G.towerTower||1]||{})[floor]; if(!p) return "";
   const parts=[];
   if(p.coins) parts.push("🪙 "+p.coins);
   if(p.xp) parts.push("⭐ "+p.xp+" XP");
@@ -7810,6 +8009,14 @@ function towerFloorPrizeLabel(floor){
 // resolveTowerRewards/TOWER_ITEM_DUPLICATE_COINS en server/db.js). Usar esto
 // en el momento de la revelación evita mostrarle al jugador un ítem que en
 // realidad no recibió esta vez.
+// [Cofres de Torre] Los cofres pueden dar cualquier categoría de cosmético
+// (skin/tapete/effect/trail), no solo efectos — busca en el catálogo real
+// que corresponda a itemType en vez de asumir siempre EFFECTS.
+function towerItemCatalogName(itemType,itemId){
+  const table={skin:SKINS,tapete:TAPETES,effect:EFFECTS,trail:TRAILS,soundfx:SOUNDFX}[itemType];
+  const found=(table||[]).find(x=>x.id===itemId);
+  return found?found.name:itemId;
+}
 function formatTowerRewardsReal(rewards,floor){
   if(!rewards||!rewards.length) return towerFloorPrizeLabel(floor);
   const parts=[];
@@ -7817,10 +8024,8 @@ function formatTowerRewardsReal(rewards,floor){
   rewards.forEach(r=>{
     if(r.type==="coins") coins+=r.amount;
     else if(r.type==="xp") xp+=r.amount;
-    else if(r.type==="item"){
-      const item=(EFFECTS||[]).find(e=>e.id===r.itemId);
-      parts.push(item?item.name:r.itemId);
-    }
+    else if(r.type==="item") parts.push(towerItemCatalogName(r.itemType,r.itemId));
+    else if(r.type==="title"){ const t=TITLES[r.itemId]; parts.push(t?("🏆 "+t.label):r.itemId); }
   });
   const out=[];
   if(coins) out.push("🪙 "+coins);
@@ -7829,9 +8034,15 @@ function formatTowerRewardsReal(rewards,floor){
 }
 // x/y ya vienen resueltos por towerMapHTML() (x en % de zigzag, y en px
 // absolutos) — esta función solo arma el nodo+tarjeta de un piso.
-function towerFloorNodeHTML(floor,status,x,y,side,pending){
-  const diff=TOWER_FLOOR_DIFFICULTY_DISPLAY[floor];
+function towerFloorNodeHTML(floor,status,x,y,side,pendingSourceId,pendingChestId){
+  const towerId=G.towerTower||1;
+  const diff=TOWER_DIFFICULTY_DISPLAY[towerId][floor];
   const isTop=floor===10;
+  // Dos fuentes de "pendiente" independientes (premio de piso vs. cofre) —
+  // cualquiera de las dos alcanza para mostrar el ícono de regalo. Si hay
+  // cofre pendiente, tocar el piso abre ESE cofre primero (es lo más nuevo/
+  // interesante); si solo queda el premio de piso por reconocer, abre ese.
+  const pending=!!pendingSourceId||!!pendingChestId;
   // [v1.3.4 — premios pendientes] "pending" es un piso YA superado (el
   // premio ya está pagado) pero que el jugador todavía no abrió/vio — se
   // distingue de "done" (superado Y ya visto) con un ícono de regalo
@@ -7840,15 +8051,21 @@ function towerFloorNodeHTML(floor,status,x,y,side,pending){
   const chestLabel=TOWER_FLOOR_CHEST_LABEL[floor];
   const prizeHTML=status==="locked"
     ?`<span class="tower-floor-prize-mystery">🎁 ???</span>`
-    :`${chestLabel?chestLabel+" · ":""}🎁 ${towerFloorPrizeLabel(floor)}`;
-  const clickAction=pending?`openTowerRewardQueue([{kind:'floor',weekId:G.towerWeekId,floor:${floor}}])`:`scrollToTowerFloor(${floor})`;
+    :`${chestLabel?chestLabel+" · ":""}🎁 ${towerFloorPrizeLabel(floor,towerId)}`;
+  // "sinIntentos": es el piso actual pero la Torre se quedó sin vidas esta
+  // semana — no se puede reintentar hasta el reset del lunes.
+  const sinIntentos=status==="current"&&(G.towerLives||0)<=0;
+  const clickAction=pendingChestId?`openTowerChestQueue([{id:${JSON.stringify(pendingChestId)}}])`
+    :pendingSourceId?`openTowerRewardQueue([{kind:'floor',sourceId:'${pendingSourceId}'}])`
+    :`scrollToTowerFloor(${floor})`;
   return `<div class="tower-floor tower-floor-${status}${isTop?" tower-floor-top":""}${pending?" tower-floor-pending":""} side-${side}" style="left:${x}%;top:${y}px" data-tower-floor="${floor}" onclick="${clickAction}">
     <div class="tower-floor-node">${icon}</div>
     <div class="tower-floor-card">
       <div class="tower-floor-title">Piso ${floor}<span class="tower-floor-diff">${TOWER_DIFF_LABEL[diff]||diff}</span></div>
-      <div class="tower-floor-meta">${diff==="claude"?"🧠":"🤖"} ${TOWER_RIVAL_NAME[diff]||"Rival"} · ${prizeHTML}</div>
+      <div class="tower-floor-meta">${(()=>{const r=towerRivalFor(towerId,floor); return r?r.avatar+" "+esc(r.name):(diff==="claude"?"🧠":"🤖")+" "+(TOWER_RIVAL_NAME[diff]||"Rival");})()} · ${prizeHTML}</div>
       ${pending?`<div class="tower-floor-pending-hint">Tocá para reclamar</div>`:""}
-      ${status==="current"?`<button class="tower-floor-play" onclick="event.stopPropagation();doTowerStart()" ${G.towerStarting?"disabled":""}>${G.towerStarting?"…":"JUGAR"}</button>`:""}
+      ${status==="current"&&!sinIntentos?`<button class="tower-floor-play" onclick="event.stopPropagation();doTowerStart()" ${G.towerStarting?"disabled":""}>${G.towerStarting?"…":"JUGAR"}</button>`:""}
+      ${sinIntentos?`<div class="tower-floor-pending-hint">Sin intentos esta semana — volvé el lunes</div>`:""}
     </div>
   </div>`;
 }
@@ -7881,22 +8098,22 @@ function openTowerRewardQueue(items){
   if(!items||!items.length) return;
   G._towerRevealQueue=items.slice();
   const cur=G._towerRevealQueue[0];
-  netSend({type:"towerAcknowledge", kind:cur.kind, weekId:cur.weekId, floor:cur.floor});
+  netSend({type:"towerAcknowledge", kind:cur.kind, sourceId:cur.sourceId});
   render();
 }
 function closeTowerRevealQueue(){
   if(!G._towerRevealQueue||!G._towerRevealQueue.length) return;
   G._towerRevealQueue.shift();
   const next=G._towerRevealQueue[0];
-  if(next) netSend({type:"towerAcknowledge", kind:next.kind, weekId:next.weekId, floor:next.floor});
+  if(next) netSend({type:"towerAcknowledge", kind:next.kind, sourceId:next.sourceId});
   else G._towerRevealQueue=null;
   render();
 }
 function towerRevealModalHTML(){
   const item=G._towerRevealQueue&&G._towerRevealQueue[0]; if(!item) return "";
   const remaining=G._towerRevealQueue.length-1;
-  const label=item.kind==="complete"?"🏆 Torre completa":`🏰 Piso ${item.floor} superado`;
-  const prize=item.kind==="complete"?towerCompleteBonusLabel():towerFloorPrizeLabel(item.floor);
+  const label=item.kind==="run_complete"?"👑 ¡Las 3 Torres completas!":item.kind==="complete"?`🏆 Torre ${(TOWER_META_DISPLAY[item.tower]||{}).name||""} completa`:`🏰 Piso ${item.floor} superado`;
+  const prize=item.kind==="run_complete"?towerRunCompleteBonusLabel():item.kind==="complete"?towerCompleteBonusLabel(item.tower):towerFloorPrizeLabel(item.floor,item.tower);
   return `<div class="pauseovl" onclick="if(event.target===this)closeTowerRevealQueue()">
     <div class="pausecard a-pop" style="text-align:center">
       <div style="font-size:46px;margin-bottom:6px">🎁</div>
@@ -7906,8 +8123,64 @@ function towerRevealModalHTML(){
     </div>
   </div>`;
 }
-function towerPendingFloorSet(){
-  return new Set((G.towerPending||[]).filter(p=>p.kind==="floor").map(p=>p.floor));
+// Mapa piso->sourceId de los pendientes de piso de la Torre ACTIVA (no de
+// las otras 2) — el mapa serpenteante solo pinta la Torre en curso.
+function towerPendingFloorMap(){
+  const map=new Map();
+  (G.towerPending||[]).forEach(p=>{ if(p.kind==="floor"&&p.tower===(G.towerTower||1)) map.set(p.floor,p.sourceId); });
+  return map;
+}
+// [Cofres de Torre — bloque 2] Igual que towerPendingFloorMap pero para
+// cofres sin abrir de la Torre activa (mapa piso->chestId).
+function towerPendingChestFloorMap(){
+  const map=new Map();
+  (G.towerPendingChests||[]).forEach(c=>{ if(c.tower===(G.towerTower||1)) map.set(c.floor,c.id); });
+  return map;
+}
+const TOWER_CHEST_TIER_LABEL={
+  kombatiente:"⚔️ Cofre Kombatiente", reino:"🏰 Cofre del Reino", ancestral:"🗿 Cofre Ancestral",
+  conquistador:"👑 Cofre del Conquistador", titan:"🔥 Cofre del Titán",
+};
+// Abre cofres de a uno — el contenido de cada uno llega recién por WS
+// (towerChestOpened) porque el sorteo real es server-side; acá solo se
+// pide abrir el primero de la cola y se espera esa respuesta.
+function openTowerChestQueue(chests){
+  if(!chests||!chests.length) return;
+  G._towerChestQueue=chests.slice();
+  G._towerChestRevealed=null;
+  netSend({type:"towerOpenChest", chestId:G._towerChestQueue[0].id});
+  render();
+}
+function closeTowerChestReveal(){
+  if(!G._towerChestQueue||!G._towerChestQueue.length) return;
+  G._towerChestQueue.shift();
+  G._towerChestRevealed=null;
+  const next=G._towerChestQueue[0];
+  if(next) netSend({type:"towerOpenChest", chestId:next.id});
+  else G._towerChestQueue=null;
+  render();
+}
+function towerChestRevealModalHTML(){
+  if(!G._towerChestQueue||!G._towerChestQueue.length) return "";
+  const remaining=G._towerChestQueue.length-1;
+  const revealed=G._towerChestRevealed;
+  if(!revealed){
+    return `<div class="pauseovl"><div class="pausecard a-pop" style="text-align:center">
+      <div style="font-size:46px;margin-bottom:6px">🗝️</div>
+      <h2 style="font-family:var(--font-heading);color:#ffe9a8;font-size:16px;margin-bottom:6px">Abriendo cofre…</h2>
+    </div></div>`;
+  }
+  const tierLabel=TOWER_CHEST_TIER_LABEL[revealed.tier]||"🎁 Cofre";
+  const prize=formatTowerRewardsReal(revealed.rewards,revealed.floor);
+  return `<div class="pauseovl" onclick="if(event.target===this)closeTowerChestReveal()">
+    <div class="pausecard a-pop" style="text-align:center">
+      <div style="font-size:46px;margin-bottom:6px">🎁</div>
+      <h2 style="font-family:var(--font-heading);color:#ffe9a8;font-size:16px;margin-bottom:2px">${esc(tierLabel)}</h2>
+      <p style="font-size:11px;color:rgba(232,238,247,.55);margin-bottom:8px">Piso ${revealed.floor}</p>
+      <div class="tower-gift-prize a-pop">${prize}</div>
+      <button class="btn btn-gold" style="margin-top:14px" onclick="closeTowerChestReveal()">${remaining>0?"Siguiente ("+remaining+" más) →":"¡Genial!"}</button>
+    </div>
+  </div>`;
 }
 function towerMapHTML(statusFor){
   const STEP=104, TOP_PAD=40, BOT_PAD=26, XR=66, XL=34;
@@ -7922,12 +8195,17 @@ function towerMapHTML(statusFor){
     const prev=pts[i-1], midY=(prev.y+p.y)/2;
     d+=` C ${prev.x} ${midY}, ${p.x} ${midY}, ${p.x} ${p.y}`;
   });
-  const pendingFloors=towerPendingFloorSet();
-  const nodes=pts.map(p=>towerFloorNodeHTML(p.floor,statusFor(p.floor),p.x,p.y,p.side,pendingFloors.has(p.floor))).join("");
+  const pendingMap=towerPendingFloorMap();
+  const pendingChestMap=towerPendingChestFloorMap();
+  const nodes=pts.map(p=>towerFloorNodeHTML(p.floor,statusFor(p.floor),p.x,p.y,p.side,pendingMap.get(p.floor),pendingChestMap.get(p.floor))).join("");
+  // [Identidad por Torre — bloque 6] El degradé del camino cambia de punta
+  // (color de esa Torre) a dorado (siempre el mismo, es el color "premio")
+  // — mismo SVG, solo cambian los stops según G.towerTower.
+  const pathFrom={1:"#a855f7",2:"#ef4444",3:"#facc15"}[G.towerTower||1];
   return `<div class="tower-map" id="tower-map" style="height:${H}px">
     <svg viewBox="0 0 100 ${H}" preserveAspectRatio="none" aria-hidden="true">
       <defs><linearGradient id="towerPathGrad" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="#a855f7"/><stop offset="55%" stop-color="#fbbf24"/><stop offset="100%" stop-color="#fbbf24"/>
+        <stop offset="0%" stop-color="${pathFrom}"/><stop offset="55%" stop-color="#fbbf24"/><stop offset="100%" stop-color="#fbbf24"/>
       </linearGradient></defs>
       <path class="tower-path" d="${d}" vector-effect="non-scaling-stroke"/>
     </svg>
@@ -7935,16 +8213,21 @@ function towerMapHTML(statusFor){
   </div>`;
 }
 function renderTower(app){
+  const towerId=G.towerTower||1;
+  const towerName=(TOWER_META_DISPLAY[towerId]||{}).name||"";
   let body;
   if(G.towerLoading){
     body=`<div class="searching-spinner" aria-hidden="true"></div><p style="font-size:12px;color:rgba(232,238,247,.6);margin-top:10px">Consultando tu progreso…</p>`;
   } else if(G.towerComplete){
-    body=`<div class="tower-complete-banner a-pop">🏆 ¡Completaste los 10 pisos de esta semana!<br><span style="font-size:11px;font-weight:400;color:rgba(232,238,247,.6)">Se reinicia el lunes 00:00.</span></div>
+    body=`<div class="tower-complete-banner a-pop">👑 ¡Completaste las 3 Torres de esta semana!<br><span style="font-size:11px;font-weight:400;color:rgba(232,238,247,.6)">Se reinicia el lunes 00:00.</span></div>
       ${towerMapHTML(()=>"done")}`;
   } else {
     const current=G.towerFloor||1;
     body=towerMapHTML(f=>f<current?"done":f===current?"current":"locked");
   }
+  // Torre activa + vidas — el color de marca (jefe/corona/camino/tarjeta del
+  // menú) sale de tower-theme-{towerId} en burako.css (recoloreo, bloque 6).
+  const livesHTML=(!G.towerLoading&&!G.towerComplete)?`<p style="font-size:12px;text-align:center;margin:0 0 6px;color:rgba(232,238,247,.75)">Torre <strong style="color:#ffe9a8">${esc(towerName)}</strong> · ${"❤️".repeat(Math.max(0,G.towerLives!=null?G.towerLives:3))}${"🖤".repeat(Math.max(0,3-(G.towerLives!=null?G.towerLives:3)))}</p>`:"";
   // [v1.3.4 — premios pendientes] Banner + botón para abrir de a uno todos
   // los regalos que el jugador todavía no vio — incluye tanto pisos como el
   // bonus de completar, sin importar de qué semana sean (uno viejo sin
@@ -7954,22 +8237,33 @@ function renderTower(app){
     <span>🎁 Tenés ${pending.length} recompensa${pending.length===1?"":"s"} por reclamar</span>
     <button class="btn btn-gold" style="margin-top:8px" onclick='openTowerRewardQueue(${JSON.stringify(pending)})'>Reclamar premios</button>
   </div>`:"";
-  app.innerHTML=`<div class="screen-center"><div class="card rt-card ${G._enterCls}">
+  // [Cofres de Torre — bloque 2] Banner aparte de "reclamar premios": los
+  // cofres se abren de a uno con su propia animación/sorpresa, nunca con un
+  // botón de "abrir todos" (pedido explícito).
+  const pendingChests=G.towerPendingChests||[];
+  const pendingChestBannerHTML=(!G.towerLoading&&pendingChests.length)?`<div class="tower-pending-banner a-pop">
+    <span>🗝️ Tenés ${pendingChests.length} cofre${pendingChests.length===1?"":"s"} por abrir</span>
+    <button class="btn btn-gold" style="margin-top:8px" onclick='openTowerChestQueue(${JSON.stringify(pendingChests.map(c=>({id:c.id})))})'>Abrir cofres</button>
+  </div>`:"";
+  app.innerHTML=`<div class="screen-center"><div class="card rt-card tower-theme-${towerId} ${G._enterCls}">
     ${rtBgFloatHTML()}
     <div class="rt-topbar">
       <button class="rt-back" onclick="goMenu()" title="Volver al menú">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
         <span class="rt-back-label">Volver</span>
       </button>
-      <h2 class="rt-title">🏰 Torre semanal</h2>
+      <h2 class="rt-title">🏰 Torre ${G.towerLoading?"semanal":esc(towerName)}</h2>
     </div>
     <div class="rt-body">
       ${pendingBannerHTML}
+      ${pendingChestBannerHTML}
+      ${livesHTML}
       ${G.towerLoading?"":`<div class="tower-crown-deco"><span>👑</span></div><p style="font-size:11px;color:rgba(232,238,247,.55);text-align:center;margin:2px 0 4px;line-height:1.5">Piso 10 arriba, piso 1 abajo. Superá el actual para desbloquear el siguiente.</p>`}
       ${body}
     </div>
   </div></div>
-  ${towerRevealModalHTML()}`;
+  ${towerRevealModalHTML()}
+  ${towerChestRevealModalHTML()}`;
   if(G.towerLoading) return;
   // Panorama breve y después paneo suave al piso actual — con reduced motion,
   // salta directo sin demora ni animación (ver spec de la tarea). El scroll
