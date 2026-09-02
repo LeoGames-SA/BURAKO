@@ -2,7 +2,7 @@
    BURAKO — app completa: menú, tutorial, sonidos, IA con delay
    ================================================================ */
 
-const GAME_VERSION = "1.2.18";
+const GAME_VERSION = "1.2.19";
 const MAX_PLAYERS_ONLINE = 8; // el server acepta hasta 8 en sala (mazo doble si se supera 4)
 const QUICK_CHAT_COOLDOWN_MS = 15000;
 const QUICK_CHAT_OPTIONS = [
@@ -18,6 +18,9 @@ const TEAM_CHAT_OPTIONS = [
   {send:"👍 Dale", show:"👍"}, {send:"🚫 No tengo", show:"🚫"}, {send:"⏳ Esperá", show:"⏳"},
 ];
 const CHANGELOG = [
+  {version:"1.2.19", date:"02/09/2026", items:[
+    "✨ Portada, login, registro y la pantalla de \"Conectando…\" suman ambientación de gemas y chispas doradas flotando (la misma que ya tenían Ruleta y Torre) para que se sientan menos estáticas.",
+  ]},
   {version:"1.2.18", date:"02/09/2026", items:[
     "🀄 Arreglado de verdad el salto instantáneo del logo BURAKO entre la portada y el login (la v1.2.17 lo mejoró pero no lo sacó del todo) — ahora se desliza de una pantalla a la otra con una animación fluida.",
     "🔌 Rediseñada la pantalla \"Conectando con el servidor\" (y su reintento) con el mismo estilo nuevo del login, en vez del diseño viejo que había quedado sin actualizar.",
@@ -4674,10 +4677,16 @@ function burakoLogoHTML(cls){
 // G._enterCls) para que no se repita la animación de entrada en cada
 // re-render de fondo (ej. towerStatus llegando mientras se mira el menú).
 function loginShellHTML(contentHTML, entering){
+  // rtBgFloatHTML() = misma ambientación de gemas/chispas flotando que ya
+  // usan Ruleta/Torre (mismos colores de fichas) — pedido explícito de sumar
+  // "animación de movimiento" a portada/login/registro/conectando (las 4
+  // pantallas que comparten este shell) sin volver al parallax de mouse que
+  // el usuario ya había pedido sacar.
   return `<div class="login-v2 auth-screen${entering?" login-v2-enter":""}">
     <div class="login-v2-bg" aria-hidden="true"></div>
     <div class="login-v2-ambient" aria-hidden="true"></div>
     <img class="login-v2-tiles" src="./img/login/tiles.png" alt="" aria-hidden="true">
+    ${rtBgFloatHTML()}
     <div class="login-v2-stage">
       ${burakoLogoHTML("login-v2-logo")}
       <div class="login-v2-panel">

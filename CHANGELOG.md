@@ -2,6 +2,17 @@
 
 Todos los cambios notables del proyecto se documentan en este archivo.
 
+## [1.2.19] - 2026-09-02 — Ambientación de movimiento en portada/login/registro/conectando
+
+Pedido del usuario: sumar "animación de movimiento" a las 4 pantallas que
+comparten el shell nuevo del login (portada, login, registro y la
+pantalla intermedia "Conectando…"). Se reutilizó `rtBgFloatHTML()` — el
+mismo componente de gemas de colores y chispas doradas flotando que ya
+usan Ruleta diaria y Torre semanal (mismos tonos que las fichas del
+juego) — en vez de reintroducir el parallax por mouse que se había sacado
+antes por pedido explícito. Verificado con Playwright en las 4 pantallas
+(login/registro con sesión simulada, portada y conectando directo).
+
 ## [1.2.18] - 2026-09-02 — Login rediseñado en capas (v2) + fix real del salto de animación
 
 Torre semanal ampliada a 3 Torres (Violeta/Roja/Dorada, 30 pisos) con
