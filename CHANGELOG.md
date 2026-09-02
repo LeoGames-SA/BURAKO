@@ -2,6 +2,19 @@
 
 Todos los cambios notables del proyecto se documentan en este archivo.
 
+## [1.2.20] - 2026-09-02 — Menú móvil: Pase/Ruleta/Torre más visibles + aviso de scroll
+
+Bug real reportado por el usuario probando en celular ("la ruleta y eso no
+entra en el menu de inicio"): confirmado con Playwright en 320/360/393px
+de ancho que JUGAR/PERFIL/TIENDA/NOVEDADES solos ya llenaban el viewport
+completo y las tarjetas de Pase/Ruleta/Torre quedaban cientos de píxeles
+más abajo sin ningún indicio visual de que había más contenido — no
+faltaban, pero parecía que sí. Se achicaron un poco los 4 botones grandes
+del menú (y el espaciado entre columnas) para que Ruleta ya asome en la
+primera pantalla incluso en un iPhone SE (320px), y se agregó un aviso
+fijo "Deslizá para ver más ↓" que aparece unos segundos al entrar al menú
+en pantallas chicas. Verificado visualmente en los 3 anchos.
+
 ## [1.2.19] - 2026-09-02 — Ambientación de movimiento en portada/login/registro/conectando
 
 Pedido del usuario: sumar "animación de movimiento" a las 4 pantallas que

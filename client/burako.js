@@ -2,7 +2,7 @@
    BURAKO — app completa: menú, tutorial, sonidos, IA con delay
    ================================================================ */
 
-const GAME_VERSION = "1.2.19";
+const GAME_VERSION = "1.2.20";
 const MAX_PLAYERS_ONLINE = 8; // el server acepta hasta 8 en sala (mazo doble si se supera 4)
 const QUICK_CHAT_COOLDOWN_MS = 15000;
 const QUICK_CHAT_OPTIONS = [
@@ -18,6 +18,9 @@ const TEAM_CHAT_OPTIONS = [
   {send:"👍 Dale", show:"👍"}, {send:"🚫 No tengo", show:"🚫"}, {send:"⏳ Esperá", show:"⏳"},
 ];
 const CHANGELOG = [
+  {version:"1.2.20", date:"02/09/2026", items:[
+    "📱 En celular, JUGAR/PERFIL/TIENDA/NOVEDADES ocupaban toda la pantalla y Pase/Ruleta/Torre quedaban muy abajo sin ningún indicio — ahora los botones son un poco más chicos y aparece un aviso de \"Deslizá para ver más\" al entrar al menú.",
+  ]},
   {version:"1.2.19", date:"02/09/2026", items:[
     "✨ Portada, login, registro y la pantalla de \"Conectando…\" suman ambientación de gemas y chispas doradas flotando (la misma que ya tenían Ruleta y Torre) para que se sientan menos estáticas.",
   ]},
@@ -4984,7 +4987,8 @@ function renderMenu(app){
       </div>
     </div>
     ${menuComingSoonRowHTML()}
-  </div>`;
+  </div>
+  <div class="menu-scroll-hint" aria-hidden="true"><span>Deslizá para ver más</span><span>↓</span></div>`;
 }
 /* Fila inferior de "próximamente" — puramente visual/decorativa, a pedido
    explícito: NO hay funcionalidad real de racha diaria/eventos/invitar

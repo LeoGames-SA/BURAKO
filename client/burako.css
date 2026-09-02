@@ -1839,6 +1839,29 @@ body.ingame{background:
 .menu-side-left{order:3}
 .menu-main{order:1}
 .menu-side-right{order:2;display:flex;flex-direction:column;gap:14px;justify-content:space-between}
+/* [Pedido — "la ruleta y eso no entra en el menu de inicio"] En celular,
+   JUGAR/PERFIL/TIENDA/NOVEDADES solos ya llenaban la pantalla entera y
+   Pase/Ruleta/Torre quedaban bien abajo del pliegue sin ningún indicio de
+   que había más — no es que falten (la página scrollea), pero no se nota.
+   .menu-scroll-hint (más abajo) avisa que hay que deslizar; el achique de
+   los botones va junto a .game-menu-btn (ver más abajo) para que gane el
+   cascade — puesta acá quedaba antes de la regla base y no hacía nada. */
+.menu-scroll-hint{
+  display:none;position:fixed;left:50%;bottom:16px;z-index:5;
+  align-items:center;gap:6px;padding:7px 14px;border-radius:999px;
+  background:rgba(6,12,30,.72);border:1px solid rgba(251,191,36,.4);
+  color:#ffe9a8;font-size:11.5px;font-weight:700;white-space:nowrap;
+  pointer-events:none;backdrop-filter:blur(3px);
+  animation:menuScrollHint 5s ease-in-out forwards;
+}
+@keyframes menuScrollHint{
+  0%,66%{opacity:1;transform:translate(-50%,0)}
+  12%,36%,60%{transform:translate(-50%,6px)}
+  24%,48%{transform:translate(-50%,0)}
+  100%{opacity:0;transform:translate(-50%,0)}
+}
+@media(max-width:640px){.menu-scroll-hint{display:flex}}
+@media(prefers-reduced-motion:reduce){.menu-scroll-hint{animation:none;opacity:0}}
 @media(min-width:920px){
   .menu-layout{
     /* Fluido de verdad (clamp con vw), no un zoom global: cada columna crece
@@ -2319,6 +2342,15 @@ body.ingame{background:
 }
 .game-menu-btn:focus-visible{outline:2px solid #fbbf24;outline-offset:5px;border-radius:10px}
 .game-menu-btn-primary{width:min(clamp(260px,21vw,410px),90vw)}
+/* [Pedido — "la ruleta y eso no entra en el menu de inicio"] Ver comentario
+   junto a .menu-scroll-hint: en celular estos 4 botones solos llenaban la
+   pantalla — se achican un poco para que Pase/Ruleta/Torre asomen antes. */
+@media(max-width:640px){
+  .game-menu-btns{gap:9px;margin-top:14px}
+  .game-menu-btn{width:min(198px,62vw)}
+  .game-menu-btn-primary{width:min(214px,68vw)}
+  .menu-layout{gap:12px}
+}
 /* Recorta el reflejo/glow a la silueta del botón (si no, .gmb-shine en
    reposo — left:-30% — queda flotando visible fuera del PNG, sobre el
    fondo azul, como un trapecio gris). El badge de notificación queda AFUERA
