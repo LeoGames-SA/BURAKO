@@ -2,6 +2,30 @@
 
 Todos los cambios notables del proyecto se documentan en este archivo.
 
+## [1.2.18] - 2026-09-02 — Login rediseñado en capas (v2) + fix real del salto de animación
+
+Torre semanal ampliada a 3 Torres (Violeta/Roja/Dorada, 30 pisos) con
+vidas, cofres de loot diferido y cosméticos exclusivos por Torre. Fondo
+del menú y pantalla de LOGIN completamente rediseñados a partir de 6 PNG
+en capas reales (fondo, fichas ambientales, logo, marco de panel, panel
+interno, botón), reemplazando el diseño anterior a pantalla completa.
+
+**Fix de animación (el motivo real de esta entrada de changelog)**:
+la transición portada→login del logo BURAKO se veía como un salto
+instantáneo en vez de una animación GSAP Flip suave. Causa raíz: `render()`
+reemplaza `app.innerHTML` entero en cada cambio de pantalla, así que el
+`<img>` capturado por `Flip.getState()` quedaba desconectado del documento
+para cuando corría `Flip.from()` — sin decirle explícitamente dónde volver
+a buscar el elemento "después" del cambio, GSAP remedía esa misma
+referencia vieja (un nodo fuera del DOM mide `{0,0,0,0}`) y lo interpretaba
+como "el elemento se fue" en vez de "se movió", así que no animaba nada.
+Se arregló pasando `targets` explícito a `Flip.from()` para que vuelva a
+buscar el elemento real ya renderizado. Verificado cuadro a cuadro con
+Playwright (interpolación continua de `transform` a lo largo de los ~650ms
+de la animación, sin saltos). De paso, se rediseñó la pantalla intermedia
+"Conectando con el servidor" (y su reintento) al mismo estilo nuevo, que
+había quedado con el diseño viejo tras el rediseño del login.
+
 ## [1.2.10] - 2026-08-27 — Fix: tarjeta de Ruleta diaria quedaba pegada en "ya reclamada"
 
 Bug real reportado por el usuario ("no puedo reclamar la ruleta de día 2"),

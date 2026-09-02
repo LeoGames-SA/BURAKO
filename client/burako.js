@@ -2,7 +2,7 @@
    BURAKO — app completa: menú, tutorial, sonidos, IA con delay
    ================================================================ */
 
-const GAME_VERSION = "1.2.17";
+const GAME_VERSION = "1.2.18";
 const MAX_PLAYERS_ONLINE = 8; // el server acepta hasta 8 en sala (mazo doble si se supera 4)
 const QUICK_CHAT_COOLDOWN_MS = 15000;
 const QUICK_CHAT_OPTIONS = [
@@ -18,6 +18,10 @@ const TEAM_CHAT_OPTIONS = [
   {send:"👍 Dale", show:"👍"}, {send:"🚫 No tengo", show:"🚫"}, {send:"⏳ Esperá", show:"⏳"},
 ];
 const CHANGELOG = [
+  {version:"1.2.18", date:"02/09/2026", items:[
+    "🀄 Arreglado de verdad el salto instantáneo del logo BURAKO entre la portada y el login (la v1.2.17 lo mejoró pero no lo sacó del todo) — ahora se desliza de una pantalla a la otra con una animación fluida.",
+    "🔌 Rediseñada la pantalla \"Conectando con el servidor\" (y su reintento) con el mismo estilo nuevo del login, en vez del diseño viejo que había quedado sin actualizar.",
+  ]},
   {version:"1.2.17", date:"28/08/2026", items:[
     "🀄 Arreglado: al abrir la app, el logo BURAKO podía \"volar a su lugar\" dos veces seguidas (una al conectar, otra al llegar al login) — ahora esa animación de entrada se ve una sola vez.",
     "🎨 El subtítulo \"El juego de Burako definitivo\" del menú pasa a dorado (antes gris apagado). El aviso de recompensa pendiente en Pase/Torre es más grande y salta un poco al aparecer.",
@@ -4613,7 +4617,40 @@ function withLogoFlip(fn){
   }
   const state=Flip.getState('[data-flip-id="logo-fan"]');
   fn();
-  Flip.from(state, {duration:.65, ease:"power2.inOut", scale:true, absolute:true});
+  // targets explícito: render() reemplaza app.innerHTML entero, así que el
+  // <img> capturado en "state" queda DESVINCULADO del documento. Sin este
+  // "targets", Flip.from() reusaba esa referencia vieja para medir el estado
+  // "después" — un nodo desconectado mide {0,0,0,0} y Flip lo trata como
+  // "el elemento se fue" (duration 0, sin animar) en vez de "se movió". Con
+  // el selector explícito, vuelve a buscarlo en el DOM real y recién ahí
+  // encuentra el <img> nuevo en su posición final.
+  Flip.from(state, {duration:.65, ease:"power2.inOut", scale:true, absolute:true, targets:'[data-flip-id="logo-fan"]'});
+}
+// [Fix — "tac instantáneo" reportado entre portada y login] withLogoFlip
+// anima UN solo salto de pantalla. Pero portada->login pasa por un estado
+// intermedio ("conectando…") que puede durar desde 50ms (server local/ya
+// despierto) hasta varios segundos (Render recién despertando) — encadenar
+// DOS withLogoFlip seguidos (portada->conectando, después conectando->login)
+// hacía que el segundo interrumpiera al primero a mitad de camino cuando el
+// servidor respondía rápido, y el logo terminaba saltando en vez de
+// animarse una sola vez de punta a punta. Esta versión mide el logo UNA
+// sola vez en portada (start), deja que "conectando" aparezca sin animar
+// (total no se nota, es un estado intermedio), y recién anima TODO el
+// trayecto portada->login de una vez cuando se llama a settle() — sin
+// importar cuánto haya durado la conexión en el medio.
+function startLogoFlipSequence(){
+  if(!window.gsap || !window.Flip || (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches)){
+    return { settle(fn){ fn(); } };
+  }
+  const state=Flip.getState('[data-flip-id="logo-fan"]');
+  return { settle(fn){
+    fn();
+    // Ver comentario en withLogoFlip: "targets" explícito es obligatorio acá
+    // porque fn() ya reemplazó app.innerHTML (una o dos veces, si hubo
+    // pantalla "conectando" en el medio) — sin esto, Flip.from() intentaría
+    // re-medir el <img> viejo (ya desconectado del DOM) en vez del nuevo.
+    Flip.from(state, {duration:.65, ease:"power2.inOut", scale:true, absolute:true, targets:'[data-flip-id="logo-fan"]'});
+  } };
 }
 // [Login v2] Logo real BURAKO (client/img/login/logo.png) — reemplaza el
 // abanico de fichas animado (fanLogoHTML) en portada y menú, pedido
@@ -4621,8 +4658,14 @@ function withLogoFlip(fn){
 // data-flip-id="logo-fan" que usaba el abanico: GSAP Flip solo necesita
 // que el selector exista antes/después del cambio de pantalla para animar
 // la diferencia de posición — funciona igual con una imagen estática.
+// [Fix — "tac instantáneo" reportado] El wrapper lleva el float/entrada
+// (CSS, transform), la imagen de adentro NO tiene ninguna animación CSS
+// propia — es la que GSAP Flip mueve entre pantallas (data-flip-id), y una
+// animación CSS de transform en el MISMO elemento le ganaba la cascada al
+// transform inline que arma GSAP durante la transición, así que el flip
+// quedaba invisible y se sentía como un salto en vez de una animación.
 function burakoLogoHTML(cls){
-  return `<img class="${cls}" data-flip-id="logo-fan" src="./img/login/logo.png" alt="Burako">`;
+  return `<div class="${cls}-wrap"><img class="${cls}" data-flip-id="logo-fan" src="./img/login/logo.png" alt="Burako"></div>`;
 }
 // [Login v2] Shell visual compartido por portada (renderIntro) y login/
 // registro (renderAuthScreen) — mismas capas PNG en capas reales del
@@ -7300,11 +7343,11 @@ async function goIntroEnter(){
     // hay sesión guardada — priorizar volver a ella antes que el menú. Si
     // cualquier paso falla, cae al login manual sin ningún efecto secundario.
     G.authIntent="menu";
-    withLogoFlip(()=>{ G.screen="auth"; G.authStep="reconnecting"; render(); });
+    const flipSeq=startLogoFlipSequence();
+    G.screen="auth"; G.authStep="reconnecting"; render();
     const okReconnect=await tryAutoReconnect(activeRoom);
     if(okReconnect) return;
-    G.authStep="login"; G.authMode="login";
-    render();
+    flipSeq.settle(()=>{ G.authStep="login"; G.authMode="login"; render(); });
     return;
   }
   if(token){
@@ -7329,12 +7372,21 @@ async function goIntroEnter(){
   // Sin sesión guardada (primera conexión de este dispositivo/navegador, o
   // logout explícito): como antes, conectar y mostrar el login.
   G.authIntent="menu";
-  withLogoFlip(()=>{ G.screen="auth"; G.authStep="connecting"; G._connectStatus=null; render(); });
+  // [Fix — "tac instantáneo" reportado entre portada (ventana 1) y login
+  // (ventana 2)] Esta es la transición que más se nota: pasa SIEMPRE que se
+  // abre la app sin sesión guardada. Antes eran DOS withLogoFlip seguidos
+  // (portada->conectando, conectando->login) que se pisaban entre sí cuando
+  // el servidor respondía rápido (local, o Render ya despierto) — el
+  // segundo interrumpía al primero a mitad de camino y el logo terminaba
+  // saltando en vez de animarse. Ahora es UN solo flip de punta a punta
+  // (ver startLogoFlipSequence), sin importar cuánto haya durado "conectando"
+  // en el medio.
+  const flipSeq=startLogoFlipSequence();
+  G.screen="auth"; G.authStep="connecting"; G._connectStatus=null; render();
   const ok=await connectWithRetry(defaultHost(),{onStatus:(t)=>{ G._connectStatus=t; render(); }});
   if(ok){
     G.serverConnected=true;
-    G.authStep="login"; G.authMode="login";
-    render();
+    flipSeq.settle(()=>{ G.authStep="login"; G.authMode="login"; render(); });
   } else {
     // Server no responde tras varios reintentos: en vez de caer en silencio a
     // "modo offline" (donde después no se entiende por qué faltan funciones que
@@ -7345,23 +7397,36 @@ async function goIntroEnter(){
   }
 }
 function renderAuthScreen(app){
+  // [Pedido — "esa ventana nueva no tiene el nuevo diseño"] Estos 3
+  // sub-estados breves (conectando/reconectando/sin conexión) usaban el
+  // viejo abanico de fichas + .card genérica — quedaban pegados en medio
+  // del flujo nuevo. Mismo shell (loginShellHTML) que portada/login, con
+  // el mismo logo estático (así withLogoFlip sigue animando sin saltos
+  // entre estos 3 estados y el login real).
   if((G.authStep||"connecting")==="connecting"){
-    app.innerHTML=`<div class="screen-center auth-screen"><div class="fan-compact">${fanLogoHTML()}</div><div class="card ${G._enterCls}" style="text-align:center">
-      <p style="font-size:13px;color:rgba(232,238,247,.7);margin-top:4px">${esc(G._connectStatus||"Conectando al servidor…")}</p>
-    </div></div>`; return;
+    app.innerHTML=loginShellHTML(`
+      <p class="login-v2-subtitle">Conectando…</p>
+      <div class="searching-spinner" aria-hidden="true" style="margin:6px auto 14px"></div>
+      <p class="login-v2-desc">${esc(G._connectStatus||"Conectando al servidor…")}</p>
+    `, !!G._enterCls);
+    return;
   }
   if(G.authStep==="reconnecting"){
-    app.innerHTML=`<div class="screen-center auth-screen"><div class="fan-compact">${fanLogoHTML()}</div><div class="card ${G._enterCls}" style="text-align:center">
-      <p style="font-size:13px;color:rgba(232,238,247,.7);margin-top:4px">Reconectando a tu partida…</p>
-    </div></div>`; return;
+    app.innerHTML=loginShellHTML(`
+      <p class="login-v2-subtitle">Reconectando…</p>
+      <div class="searching-spinner" aria-hidden="true" style="margin:6px auto 14px"></div>
+      <p class="login-v2-desc">Reconectando a tu partida…</p>
+    `, !!G._enterCls);
+    return;
   }
   if(G.authStep==="offline-fail"){
-    app.innerHTML=`<div class="screen-center auth-screen"><div class="fan-compact">${fanLogoHTML()}</div><div class="card ${G._enterCls}" style="text-align:center">
-      <p class="subtitle" style="margin-bottom:10px">No se pudo conectar</p>
-      <p style="font-size:12.5px;color:rgba(232,238,247,.65);margin:0 0 16px;line-height:1.5">No respondió el servidor tras varios intentos. Si es la primera vez en un rato, puede estar despertando — a veces tarda un poco.</p>
-      <button class="btn btn-gold" onclick="goIntroEnter()">🔄 Reintentar</button>
-      <button class="btn btn-ghost" style="margin-top:8px" onclick="G.introMode='offline';G.screen='menu';render()">Jugar sin conexión</button>
-    </div></div>`; return;
+    app.innerHTML=loginShellHTML(`
+      <p class="login-v2-subtitle">No se pudo conectar</p>
+      <p class="login-v2-desc">No respondió el servidor tras varios intentos. Si es la primera vez en un rato, puede estar despertando — a veces tarda un poco.</p>
+      <button class="login-v2-submit-html" onclick="goIntroEnter()">🔄 Reintentar</button>
+      <button class="login-v2-ghost" onclick="G.introMode='offline';G.screen='menu';render()">Jugar sin conexión</button>
+    `, !!G._enterCls);
+    return;
   }
   const mode=G.authMode||"login";
   const lastName=G._authPrefillUser!==undefined?G._authPrefillUser:(localStorage.getItem("burako_lan_name")||"");
